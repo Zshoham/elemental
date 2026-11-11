@@ -2,7 +2,7 @@ elemental_add_module(io_posix
   SOURCES src/io_posix.c
   DEPENDS io)
 
-if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(COMMAND elemental_add_test)
   # Interface semantics: the shared contract suite, against this backend.
   elemental_add_test(io_posix.contract
     SOURCES tests/contract_posix_test.cpp tests/fixture_pipe.c

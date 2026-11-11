@@ -7,7 +7,7 @@ target_link_libraries(example_ring_pipe PUBLIC elemental::io)
 elemental_target_c_standard(example_ring_pipe)
 elemental_target_warnings(example_ring_pipe)
 
-if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(COMMAND elemental_add_test)
   # What only this backend promises. The contract suite cannot know that a
   # ring pipe has a write side to close.
   elemental_add_test(example.ring_pipe.backend

@@ -1,9 +1,11 @@
 # Test support: GoogleTest, and the one way a test executable is defined.
 #
 # Included by the top-level CMakeLists.txt when Elemental builds its own
-# tests for a hosted system. Nothing here reaches a consumer: tests are off
-# when Elemental is a subproject, and an installed package carries no
-# GoogleTest.
+# tests. On the host each test is an executable registered with CTest. In
+# the Zephyr test application every test is compiled into one image instead
+# (ElementalTestImage.cmake). Nothing here reaches a consumer: tests are off
+# when Elemental is an ordinary subproject, and an installed package carries
+# no GoogleTest.
 
 include("${CMAKE_CURRENT_LIST_DIR}/GoogleTestPin.cmake")
 
@@ -47,6 +49,14 @@ else()
     "GoogleTest in ${ELEMENTAL_GOOGLETEST_DIR} is not a git checkout; "
     "its revision is not verified")
 endif()
+
+if(ELEMENTAL_TEST_IMAGE)
+  include("${CMAKE_CURRENT_LIST_DIR}/ElementalTestImage.cmake")
+  return()
+endif()
+
+# Death tests fork a child process, which only a host can do.
+set(ELEMENTAL_DEATH_TESTS ON)
 
 # Elemental's install must not install GoogleTest, and gMock is not used.
 set(INSTALL_GTEST OFF)

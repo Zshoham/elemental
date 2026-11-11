@@ -1,0 +1,14 @@
+# Symbols Elemental's libraries may leave undefined when built for a Zephyr
+# Cortex-M board, one per line. Anything else fails the build of the Zephyr
+# test application (CMakeLists.txt, target elemental_symbols).
+#
+# No other libc symbol, no compiler runtime helper (__aeabi_*, __atomic_*),
+# and no Zephyr symbol is on this list. Adding one is a decision that needs a
+# reason here.
+
+memcpy   # io_mem.c copies bytes with it. GCC and Clang already require every
+         # freestanding environment to provide it.
+
+el_assert_failed  # Only in the ASSERT_HANDLER_APPLICATION configuration, where
+                  # the application must define it (modules/status/Kconfig).
+                  # Elemental's own interface, not a need of the environment.

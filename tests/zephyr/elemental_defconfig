@@ -1,0 +1,3 @@
+# Elemental's configuration in the Zephyr test image. Zephyr is not the
+# POSIX host the io_posix backend and its tests are written for.
+# EL_CONFIG_IO_POSIX is not set

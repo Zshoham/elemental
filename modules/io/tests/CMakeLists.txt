@@ -10,8 +10,9 @@ elemental_add_test(io.helpers
   LIBRARIES elemental::io)
 
 # Contract checks fire, in whichever way the configuration makes them fire.
-# With assertions compiled out there is nothing to observe.
-if(EL_CONFIG_ASSERT)
+# With assertions compiled out there is nothing to observe, and without a
+# process to fork (on a target) there is no death test.
+if(EL_CONFIG_ASSERT AND ELEMENTAL_DEATH_TESTS)
   elemental_add_test(io.violations
     SOURCES io_violations_test.cpp
     LIBRARIES elemental::io)

@@ -8,6 +8,6 @@ if(EL_CONFIG_IO_POSIX)
   add_subdirectory(backends/posix)
 endif()
 
-if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(COMMAND elemental_add_test)
   add_subdirectory(tests)
 endif()

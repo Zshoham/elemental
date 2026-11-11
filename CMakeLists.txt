@@ -28,20 +28,26 @@ if(TARGET elemental::status)
     "or another copy of the source tree). Use exactly one.")
 endif()
 
-include(GNUInstallDirs)
+# Install paths are needed only by install rules. Not including the module
+# otherwise also keeps a Zephyr build, which hides the target's pointer size
+# from it, free of its warning.
+if(ELEMENTAL_INSTALL)
+  include(GNUInstallDirs)
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalConfiguration.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalModule.cmake")
 
-if(ELEMENTAL_BUILD_TESTS)
+# Elemental is C. Its tests are GoogleTest, so building them needs a C++17
+# compiler and the pinned GoogleTest; building the libraries needs neither.
+# Tests are built for the host, or, when the Zephyr test application
+# (tests/zephyr) adds Elemental and names its image in ELEMENTAL_TEST_IMAGE,
+# into that image. Any other cross build gets libraries only. A language has
+# to be enabled in the top-level directory, so it happens here. Afterwards
+# elemental_add_test() exists exactly when tests are being registered.
+if(ELEMENTAL_BUILD_TESTS AND (ELEMENTAL_TEST_IMAGE OR NOT CMAKE_CROSSCOMPILING))
   enable_testing()
-  # Elemental is C. Its tests are GoogleTest, so building them needs a C++17
-  # compiler and the pinned GoogleTest; building the libraries needs neither.
-  # A cross build has no hosted tests (tests/cross). A language has to be
-  # enabled in the top-level directory, so it happens here.
-  if(NOT CMAKE_CROSSCOMPILING)
-    enable_language(CXX)
-    include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalTesting.cmake")
-  endif()
+  enable_language(CXX)
+  include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalTesting.cmake")
 endif()
 
 # Modules, in dependency order. A module directory is added when its Kconfig
@@ -58,7 +64,8 @@ endforeach()
 if(ELEMENTAL_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
-if(ELEMENTAL_BUILD_TESTS)
+# Repository checks run on the host only.
+if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
   add_subdirectory(tests)
 endif()
 

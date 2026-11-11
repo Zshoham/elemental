@@ -1,8 +1,0 @@
-# Symbols the freestanding Elemental libraries may leave undefined, one per
-# line. Anything else fails the `cross.symbols` test.
-#
-# No libc symbol, no compiler runtime helper (__aeabi_*), and no platform
-# symbol is on this list. Adding one is a decision that needs a reason here.
-
-memcpy   # io_mem.c copies bytes with it. GCC and Clang already require every
-         # freestanding environment to provide it.

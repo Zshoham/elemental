@@ -1,0 +1,23 @@
+# Run with Twister; see docs/build.md, "Tests on Zephyr".
+common:
+  tags: elemental
+tests:
+  # Every Elemental test, in one image.
+  elemental.tests:
+    harness: gtest
+    platform_allow:
+      - native_sim
+      - mps2/an385
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+  # ARMv6-M: no hardware divide, no ldrex/strex. The test image needs more
+  # memory than this board has, so only the libraries are built, and the
+  # build fails if they need a symbol outside allowed-undefined.txt.
+  elemental.symbols.armv6m:
+    build_only: true
+    extra_args: ELEMENTAL_ZEPHYR_TESTS=OFF
+    platform_allow:
+      - qemu_cortex_m0
+    integration_platforms:
+      - qemu_cortex_m0
