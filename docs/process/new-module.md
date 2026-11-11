@@ -94,10 +94,13 @@ Verification:
       program.
 - [ ] The suite was checked against deliberately broken implementations, and
       what it missed was either added or assigned to backend tests.
-- [ ] All presets pass, including `sanitize` and the cross build.
-- [ ] The cross build's symbol check passes. It covers every module that
-      build enables, so a freestanding module is checked automatically; any
-      new external symbol goes in the allowlist with a reason.
+- [ ] All presets pass, including `sanitize`, and the Zephyr test
+      application passes under Twister. Tests registered with
+      `elemental_add_test()` inside `if(COMMAND elemental_add_test)` run in
+      both.
+- [ ] The Zephyr symbol check passes. It covers every module the build
+      enables, so a module is checked automatically; any new external
+      symbol goes in `tests/zephyr/allowed-undefined.txt` with a reason.
 - [ ] A consumer example and, for an interface, a backend example.
 
 Records:

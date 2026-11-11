@@ -31,25 +31,38 @@ names the step that did not and why.
    directory that has none, so an existing directory can pass on a
    configuration the change no longer produces.
 
-3. **Format.** `tools/format.sh --check`; `tools/format.sh` rewrites in
+3. **Run the Zephyr test application** under Twister, in the workspace
+   `docs/build.md` describes ("Tests on Zephyr"), with its environment
+   active:
+
+   ```sh
+   cd "$ZEPHYR_BASE" && west twister -T <elemental>/tests/zephyr --integration -O /tmp/twister-out
+   ```
+
+   Done when every configuration passes or is built, with no warnings. This
+   also runs the symbol check for each ARM board. Without a workspace,
+   report the step as not run.
+
+4. **Format.** `tools/format.sh --check`; `tools/format.sh` rewrites in
    place. Done when the check prints nothing.
 
-4. **Links.** `python3 .agents/skills/preflight/scripts/check_links.py`.
+5. **Links.** `python3 .agents/skills/preflight/scripts/check_links.py`.
    Done at `0 broken`.
 
-5. **Reconcile the ledgers.** The repository records measured facts in
+6. **Reconcile the ledgers.** The repository records measured facts in
    prose and in expected test output. Each kind below is a ledger: when the
    change touches what it counts, rewrite it from this run's output. Find
    the copies by searching for the old value.
 
    | Ledger | Usually in | Changes when |
    |---|---|---|
-   | Test totals and skipped counts | `docs/build.md`, "What is verified" | Any test is added, removed, or starts or stops skipping |
+   | Test totals and skipped counts | `docs/build.md`, "What is verified" (host and Zephyr image) | Any test is added, removed, or starts or stops skipping |
+   | Memory the Zephyr test image needs | `docs/build.md`, "Memory the test image needs"; the image prints heap and stack after the run | Tests or GoogleTest change |
    | Contract tests run and skipped per implementation | The interface's module `README.md`; each backend's `PORT.md` | A contract suite or a fixture's capabilities change |
    | Test summaries an integration case expects | `tests/integration/integration.py` | A contract suite gains or loses a test |
    | Library code size | `docs/build.md`, "Code size"; measure with `.agents/skills/preflight/scripts/code_size.sh` | Library sources change |
    | The verified matrix, its date and tool versions | `docs/build.md`, "What is verified" | A check is added, dropped, or run on something new |
-   | Allowed undefined symbols | `tests/cross/allowed-undefined.txt` | The symbol check reports a new symbol. Each entry carries its reason |
+   | Allowed undefined symbols | `tests/zephyr/allowed-undefined.txt` | The symbol check reports a new symbol. Each entry carries its reason |
    | Public interface changes | `CHANGELOG.md` | Any public header changes, at any stability level |
    | Module and option tables | `README.md`; `docs/build.md`, "The options" | A module, backend, or Kconfig symbol is added or removed |
    | Milestone checkboxes | `docs/roadmap.md` | A deliverable is met |
@@ -58,7 +71,8 @@ names the step that did not and why.
    `docs/adr/` (shape and index: `docs/adr/README.md`). An accepted record
    is superseded by a new one.
 
-6. **Report in verification levels.** The vocabulary is fixed in
+7. **Report in verification levels.** The vocabulary is fixed in
    `docs/build.md`, "Verification levels". For each claim, name the level
    reached and what it ran on. List what was not run under its own heading.
-   A cross build that compiles is a compile check, and the report says so.
+   A Zephyr build that compiles is a compile check, and the report says so;
+   `native_sim` is not evidence about a target CPU.

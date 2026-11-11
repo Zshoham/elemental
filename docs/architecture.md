@@ -70,8 +70,9 @@ required, from the test and not from Elemental: startup code, a vector
 table, a linker script, the four `mem*` functions, and the ARM run-time
 ABI's `__aeabi_mem*` helpers that Clang emits for ordinary C. That list is
 the honest size of "a runtime", and none of it is in scope. The image was
-removed when the tests moved to GoogleTest; target testing is planned
-through Zephyr, which supplies exactly that runtime. See [ADR 0001](adr/0001-scope.md).
+removed when the tests moved to GoogleTest; microcontroller targets are now
+Zephyr targets, and Zephyr supplies exactly that runtime
+([ADR 0010](adr/0010-zephyr-targets.md)). See [ADR 0001](adr/0001-scope.md).
 
 *Revisit if* several ports end up carrying identical copies of the same
 runtime shim. That would be evidence for a small, optional, separately named
@@ -83,7 +84,7 @@ runtime-support module, not for widening this definition.
 
 ```
 CMakeLists.txt  Kconfig         the single build entry and the Kconfig root
-cmake/                          configuration, module helper, package, toolchains
+cmake/                          configuration, module helper, package, test image
 modules/
   status/                       status codes, contract assertions
     Kconfig  CMakeLists.txt  include/elemental/  src/  tests/
@@ -93,7 +94,7 @@ modules/
     backends/posix/             a platform backend, with PORT.md
 examples/                       a backend, and two consumer projects
 tests/                          repository-level checks: headers, interop,
-                                integration, cross
+                                integration; zephyr/, the target test image
 configs/                        defconfigs
 docs/
 ```

@@ -13,9 +13,10 @@ by editing history.
 | [0004](0004-private-configuration.md) | Configuration is private to the implementation | Accepted |
 | [0005](0005-kconfig-dependency.md) | Kconfig through a pinned fork, provisioned explicitly | Accepted |
 | [0006](0006-c11-and-naming.md) | C11 baseline and the `el_` prefix | Accepted |
-| [0007](0007-first-slice.md) | The first slice is status and byte I/O | Accepted; its freestanding contract suite is superseded by 0008 |
-| [0008](0008-googletest.md) | Tests are GoogleTest; target tests go through Zephyr | Accepted |
+| [0007](0007-first-slice.md) | The first slice is status and byte I/O | Accepted; its freestanding contract suite is superseded by 0008, its freestanding cross build by 0010 |
+| [0008](0008-googletest.md) | Tests are GoogleTest; target tests go through Zephyr | Accepted; its `cortex-m3` preset is superseded by 0010 |
 | [0009](0009-capacity-status.md) | One capacity status, `EL_ERR_NO_SPACE` | Accepted |
+| [0010](0010-zephyr-targets.md) | Microcontroller targets are Zephyr targets | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

@@ -187,7 +187,7 @@ Hardware CRC units are the application's optimisation, not a backend.
 | Wall-clock time, calendars, time zones | Not needed for timeouts or log ordering | A sink must print dates |
 
 The UART used in M5 is an **example**, under `examples/` or
-`tests/cross/`, like the ring pipe. It is not a shipped backend.
+`tests/zephyr/`, like the ring pipe. It is not a shipped backend.
 
 ## 2. Dependency graph
 
@@ -331,11 +331,11 @@ the `el_` prefix ([ADR 0006](adr/0006-c11-and-naming.md)).
 | Risk | Effect | Mitigation |
 |---|---|---|
 | A toolchain in range has no lock-free word atomics, or no `<stdatomic.h>` | `ring`, and so the deferred sink, are unavailable there | Kconfig makes `ring` depend on a probed atomics symbol, so the failure happens at configuration time |
-| 64-bit time arithmetic pulls compiler helpers onto Cortex-M0 | A new symbol in the allowlist | The M1 Cortex-M0 check catches it; conversion stays in explicit helpers |
+| 64-bit time arithmetic pulls compiler helpers onto Cortex-M0 | A new symbol in the allowlist | The Zephyr symbol check on `qemu_cortex_m0` (M1) catches it; conversion stays in explicit helpers |
 | `log` and `fmt` grow to match `mlog` or `printf` | Size on small targets; a slow M4 | Each feature names a consumer, as everywhere else |
 | Async discovery shows that `io` needs a different buffer model | io changes after M7 | io is not promoted before M9. This is why M10 follows M9. |
 | Four small modules raise the maintenance surface | More to verify per toolchain | Three are pure and tested by vectors; `time` is one small interface |
-| GoogleTest does not fit the Zephyr targets that matter | No on-target test evidence for any module | Found out in M1, before anything depends on it; ADR 0008 names the fallbacks |
+| GoogleTest does not fit the Zephyr targets that matter | No on-target test evidence for any module | Found out in M1: it fits a Cortex-M3 board with about 272 KB flash and 40 KB RAM, not `qemu_cortex_m0`. ADR 0008 names the fallbacks |
 | An emulator run is mistaken for interrupt evidence | Overclaiming | M5's last acceptance item; hardware stays an M1 item |
 
 What would change the order:

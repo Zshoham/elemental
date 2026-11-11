@@ -74,9 +74,10 @@ GoogleTest; inside this repository `elemental_add_test()` supplies it, and an
 outside project brings its own
 ([example](../../examples/consume_installed/CMakeLists.txt)).
 
-It needs C++17 and a hosted C++ library, so it does not run on a bare
-freestanding target. Running it on a microcontroller is planned through
-Zephyr ([roadmap](../../docs/roadmap.md)).
+It needs C++17 and a hosted C++ library. On a microcontroller it runs
+through Zephyr: the Zephyr test application runs it against the memory
+streams and the ring pipe on `native_sim` and on an emulated Cortex-M3
+([build.md](../../docs/build.md#tests-on-zephyr)).
 
 A fixture is a C struct with four required functions and three optional
 capabilities. An

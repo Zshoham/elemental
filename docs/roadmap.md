@@ -67,9 +67,13 @@ microcontroller target since the tests moved to GoogleTest
 ([ADR 0008](adr/0008-googletest.md)). Before more is built on it, close
 that gap and find out what one machine was hiding. This should not wait.
 
+Microcontroller targets are Zephyr targets
+([ADR 0010](adr/0010-zephyr-targets.md)): the freestanding cross build is
+gone, and its symbol check runs on Zephyr board builds.
+
 Deliverables and acceptance:
 
-- [ ] **Target tests under Zephyr.** The unit tests and the io contract
+- [x] **Target tests under Zephyr.** The unit tests and the io contract
       suite (memory streams and the ring pipe) build as a Zephyr
       application with GoogleTest and are run by Twister, first on
       `native_sim`, then on one emulated Cortex-M board. Recorded: the
@@ -77,24 +81,33 @@ Deliverables and acceptance:
       image needs, and the evidence level reached. If GoogleTest does not
       fit a Cortex-M target, that is the finding, and ADR 0008's revisit
       condition applies.
-- [ ] **A Cortex-M0 (ARMv6-M) build** with the symbol check. It has no
-      `ldrex`/`strex` and no hardware divide, so it shows whether M4 and M5
-      pull in `__aeabi_uldivmod` or `__atomic_*`. Running the tests on a
+      Done: 47 tests pass on `native_sim` and on `mps2/an385` (Cortex-M3)
+      under QEMU, an emulator run; recorded in
+      [build.md](build.md#tests-on-zephyr). The first run found a silent
+      stack overflow.
+- [x] **A Cortex-M0 (ARMv6-M) Zephyr build** with the symbol check. It has
+      no `ldrex`/`strex` and no hardware divide, so it shows whether M4 and
+      M5 pull in `__aeabi_uldivmod` or `__atomic_*`. Running the tests on a
       Cortex-M0 Zephyr board is a bonus, not a requirement; GoogleTest may
       not fit one.
+      Done for `qemu_cortex_m0`: the libraries need only `memcpy`. The test
+      image (about 272 KB flash, 40 KB RAM) does not fit that board's
+      16 KB of RAM, so the tests do not run there.
 - [ ] **The CI workflow passes** on its first real run, or is fixed until it
-      does. It has never run.
+      does. It has never run: the repository has no remote yet.
 - [x] **A license is chosen** and added: Apache-2.0, in `LICENSE`.
 - [ ] **Older compilers.** The CI image's GCC and Clang build with warnings
-      as errors, or the warning set is adjusted with reasons.
-- [ ] **A second operating system** for the POSIX backend (macOS or a BSD):
-      contract suite and platform tests pass, `PORT.md` updated.
-- [ ] **A GNU Arm toolchain** job alongside the Clang one, with its own
-      symbol check. Its compiler runtime needs will differ.
+      as errors, or the warning set is adjusted with reasons. The `hosted`
+      CI jobs do this; they have not run.
+- [x] **A GNU Arm toolchain** with its own symbol check: the Zephyr SDK's
+      GCC 14.3.0 builds the Zephyr test image, Elemental's sources with
+      warnings as errors, and the symbol check runs on its output. Its
+      runtime needs turned out the same as Clang's: `memcpy`.
 - [ ] **One hardware run**: the same Zephyr test application on a real
-      Cortex-M board, recorded with the board named.
+      Cortex-M board, recorded with the board named. Open: no board.
 - [ ] **Python 3.9** runs the configuration step, since that is the stated
-      minimum.
+      minimum. Passed locally with 3.9.23; the `minimum-python` CI job has
+      not run.
 
 Out of scope: new interfaces.
 
@@ -123,7 +136,7 @@ Acceptance:
 
 - [ ] The contract suite passes for the arena, the libc backend, and one
       example allocator, and was checked against broken implementations.
-- [ ] The cross symbol check shows no new external symbols.
+- [ ] The Zephyr symbol check shows no new external symbols.
 - [ ] Once M1 has target tests: the arena's tests pass on a Zephyr
       Cortex-M target.
 - [ ] `elemental::io` still links without `elemental::alloc`.
@@ -149,7 +162,8 @@ All pure computation.
       sketch.
 - [ ] `bytes` and `crc` are tested against published vectors on the host
       and on a Zephyr Cortex-M target.
-- [ ] No external symbols beyond `memcpy` on Cortex-M3 and Cortex-M0.
+- [ ] No external symbols beyond `memcpy` in the Zephyr symbol check, on
+      Cortex-M3 and Cortex-M0.
 
 ## M4 — Time and logging
 
@@ -280,6 +294,11 @@ each back, are listed in
 - A Windows backend, and MSVC as a verified compiler.
 - Shared libraries and any binary compatibility promise.
 - Distribution through package managers.
+- A host operating system other than Linux, for the POSIX backend or the
+  build. The owner's reason: focus on Linux for the foreseeable future. (It
+  was an M1 deliverable.)
+- Microcontroller targets outside Zephyr
+  ([ADR 0010](adr/0010-zephyr-targets.md)).
 - A universal async runtime.
 
 ## How this document changes

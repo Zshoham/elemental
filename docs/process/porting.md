@@ -72,9 +72,9 @@ INSTANTIATE_TEST_SUITE_P(MyBackend, ElIoContract, testing::Values(&my_fixture));
 Inside this repository, `elemental_add_test()` builds it. Outside, link
 `elemental::io_contract` and your own GoogleTest
 ([example](../../examples/consume_installed/CMakeLists.txt)). The suite
-needs a hosted C++17 toolchain, so it runs on a host, or on a target whose
-platform provides one; a bare freestanding target can only be compiled and
-symbol-checked today.
+needs a hosted C++17 toolchain, so it runs on a Linux host, or on a Zephyr
+target through the Zephyr test application
+([build.md](../build.md#tests-on-zephyr)).
 
 ## Checklist
 

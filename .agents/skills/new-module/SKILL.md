@@ -49,8 +49,8 @@ miss.
    | `CHANGELOG.md`, `docs/roadmap.md` | The new interface; the milestone |
 
    Public `*.h` headers are picked up by the header checks, and a
-   freestanding module by the cross build's symbol check, with nothing to
-   register.
+   module by the Zephyr symbol check, with nothing to register. Tests
+   registered with `elemental_add_test()` also run in the Zephyr test image.
 
 5. **Finish.** Done when every box in the implementation checklist is
    ticked or reported as unmet with its reason, and `preflight` passes.

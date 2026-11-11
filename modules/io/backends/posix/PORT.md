@@ -42,7 +42,8 @@ This document follows the template in
 
 ## Toolchain and runtime dependencies
 
-A hosted C11 toolchain with `<unistd.h>`. Uses `read`, `write`, and `errno`,
+A hosted C11 toolchain with `<unistd.h>`, on Linux, the only supported
+host operating system. Uses `read`, `write`, and `errno`,
 and defines `_POSIX_C_SOURCE 200809L` in its own source file. No threads, no
 allocation.
 
@@ -70,5 +71,9 @@ end after an exact number of bytes are written (1 test, both fixtures).
 Run with GCC 16.2.1 and Clang 23.1.4, and under AddressSanitizer and
 UndefinedBehaviorSanitizer, on Linux x86-64.
 
-Not verified: any other operating system, descriptor types other than pipes
-and Unix sockets, and behavior under real signal load.
+Linux is the only supported operating system; others are deferred
+([roadmap](../../../../docs/roadmap.md#deferred-deliberately)). The backend
+uses only POSIX calls, but nothing is claimed for another system.
+
+Not verified: descriptor types other than pipes and Unix sockets, and
+behavior under real signal load.

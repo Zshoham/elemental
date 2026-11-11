@@ -1,6 +1,7 @@
 # 0007. The first slice is status and byte I/O
 
-Status: Accepted (2026-11-11)
+Status: Accepted (2026-11-11). Its freestanding cross build is superseded by
+[ADR 0010](0010-zephyr-targets.md).
 
 ## Context
 

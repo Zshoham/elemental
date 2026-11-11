@@ -1,6 +1,8 @@
 # 0008. Tests are GoogleTest; target tests go through Zephyr
 
-Status: Accepted (2026-11-11). Decided by the project owner.
+Status: Accepted (2026-11-11). Decided by the project owner. The `cortex-m3`
+preset it keeps is superseded by [ADR 0010](0010-zephyr-targets.md); the
+Zephyr results are recorded in [build.md](../build.md#tests-on-zephyr).
 
 ## Context
 

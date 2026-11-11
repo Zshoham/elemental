@@ -34,10 +34,14 @@ also need a C++17 compiler; the libraries do not.
 
 ```sh
 cmake -P tools/provision.cmake     # once: fetches the pinned Kconfig tool and GoogleTest
-cmake --preset gcc                 # or: clang, sanitize, cortex-m3
+cmake --preset gcc                 # or: clang, sanitize
 cmake --build --preset gcc
 ctest --preset gcc
 ```
+
+The host is Linux. Microcontroller targets are Zephyr targets: the same
+tests run as a Zephyr application under Twister
+([docs/build.md](docs/build.md#tests-on-zephyr)).
 
 The first command is the only one that uses the network. Without the
 presets: `cmake -B build && cmake --build build && ctest --test-dir build`.
@@ -95,7 +99,7 @@ it. Details in [docs/build.md](docs/build.md#configuration).
 |---|---|
 | Understand the design and its tradeoffs | [docs/architecture.md](docs/architecture.md) |
 | Write or review an interface | [docs/conventions.md](docs/conventions.md) |
-| Build, configure, install, cross-compile; see what is verified | [docs/build.md](docs/build.md) |
+| Build, configure, install, test on Zephyr; see what is verified | [docs/build.md](docs/build.md) |
 | Implement a backend | [modules/io/README.md](modules/io/README.md#implementing-a-backend), [docs/process/porting.md](docs/process/porting.md) |
 | Propose a module | [docs/process/new-module.md](docs/process/new-module.md) |
 | Know what may change | [docs/process/api-stability.md](docs/process/api-stability.md) |
@@ -107,7 +111,7 @@ it. Details in [docs/build.md](docs/build.md#configuration).
 ```
 modules/<name>/   one module: Kconfig, build file, headers, sources, tests
 examples/         a backend written from scratch, and two consumer projects
-tests/            header, interop, integration, and cross-build checks
+tests/            header, interop, and integration checks; the Zephyr test application
 cmake/  tools/    build support
 configs/          defconfigs
 docs/             design, conventions, process, decisions

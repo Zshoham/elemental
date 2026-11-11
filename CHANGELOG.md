@@ -22,7 +22,10 @@ First milestone: the project's foundation.
   gone. The fixture struct in `elemental/io_contract.h` is unchanged.
 - `el_assert_failed()` no longer documents leaving by `longjmp()`. Nothing
   tests that any more, so it is no longer promised.
-- The bare Cortex-M3 test image and its QEMU run were removed. The
-  `cortex-m3` preset now compiles the libraries and checks their symbols.
+- The bare Cortex-M3 test image and its QEMU run were removed. Then the
+  `cortex-m3` preset and its toolchain file were removed as well:
+  microcontroller targets are Zephyr targets
+  ([ADR 0010](docs/adr/0010-zephyr-targets.md)), and the tests and the
+  symbol check run in the Zephyr test application (`tests/zephyr`).
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

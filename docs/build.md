@@ -7,13 +7,17 @@
 | CMake | 3.22 | Ships with Ubuntu 22.04 LTS. Needs `PROJECT_IS_TOP_LEVEL` and presets schema 3 (3.21). The Kconfiglib fork's package needs 3.15. | 3.22.6 and 4.4.5 |
 | C compiler | C11 | See [ADR 0006](adr/0006-c11-and-naming.md). | GCC 16.2.1, Clang 23.1.4 |
 | C++ compiler | C++17, tests only | GoogleTest 1.18 requires it ([ADR 0008](adr/0008-googletest.md)). The libraries are C and need no C++ compiler. | GCC 16.2.1, Clang 23.1.4 |
-| Python | 3.9 | The Kconfiglib fork's stated minimum. Standard library only. | 3.14.9 only |
+| Python | 3.9 | The Kconfiglib fork's stated minimum. Standard library only. | 3.9.23 and 3.14.9 |
 | Git | any | Provisioning, and verifying the pinned revisions. | 2.56.0 |
 | Ninja | any | Used by the presets. Other generators work with plain `cmake -B`. | 1.13.2 |
 
+The host is Linux; no other operating system is supported
+([roadmap](roadmap.md#deferred-deliberately)).
+
 Optional, each enabling a check that is otherwise skipped with a message:
 `rustc` (Rust interop sketch) and CPython development headers (Python sketch
-compile check). The cross build needs `ld.lld`, `llvm-ar`, and `llvm-nm`.
+compile check). Tests on a microcontroller need a Zephyr workspace
+([Tests on Zephyr](#tests-on-zephyr)).
 
 Installing an Elemental package and using it needs only CMake and a C
 compiler. Building only the libraries (`-DELEMENTAL_BUILD_TESTS=OFF`, which
@@ -94,7 +98,9 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
 | `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, and the application assertion handler instead of the default trap. |
-| `cortex-m3` | Freestanding cross build with Clang and LLD: compile and symbol check. No tests run on the target. |
+
+Every preset is a Linux host build. Microcontroller targets are built and
+tested through Zephyr ([Tests on Zephyr](#tests-on-zephyr)).
 
 Each preset builds in `build/<preset>`. Useful subsets:
 
@@ -134,8 +140,8 @@ reaches a consumer's compile lines. `-Werror` is opt-in
 whose compilers Elemental has not seen.
 
 Flags that describe the build environment rather than the project are set
-where they belong: sanitizer flags in the `sanitize` preset, target flags in
-the toolchain file.
+where they belong: sanitizer flags in the `sanitize` preset, a board's
+target flags in Zephyr's `zephyr_interface`.
 
 ## Configuration
 
@@ -370,99 +376,201 @@ layouts, because of the rule above. Other build settings that are not
 Kconfig options (optimization, `-fPIC`, sanitizers) are the builder's
 responsibility as with any C library.
 
-## Freestanding and cross builds
+## Tests on Zephyr
 
-### Toolchain
+Elemental supports a microcontroller only through Zephyr
+([ADR 0010](adr/0010-zephyr-targets.md)).
+[tests/zephyr](../tests/zephyr/CMakeLists.txt) is a Zephyr application that
+adds Elemental as a subproject and compiles every test registered with
+`elemental_add_test()` into one image. Twister runs it.
 
-[cmake/toolchains/clang-cortex-m3.cmake](../cmake/toolchains/clang-cortex-m3.cmake):
-Clang targeting `thumbv7m-none-eabi`, `-mcpu=cortex-m3`, `-ffreestanding`.
-No C library, no vendor SDK, and no compiler runtime library is involved.
-That is deliberate: anything Elemental needs from its environment appears as
-an undefined symbol.
+### The workspace
 
-The target was chosen because the tools were at hand. A GNU Arm toolchain
-was not available and is untested.
+| Part | Pin |
+|---|---|
+| Zephyr | `v4.5.0`, commit `41d10b59730406bbab4ca9f1fbbe9e96aafb4966` |
+| West modules | `cmsis` `512cc7e895e8`, `cmsis_6` `1c1840af7a7e`, `picolibc` `01254932e8e8`, `hal_nordic` `c708b9fe1b7a` (for `qemu_cortex_m0` only); nothing else |
+| Zephyr SDK | 1.0.1, the minimal bundle with only the `arm-zephyr-eabi` toolchain (GCC 14.3.0); no SDK host tools |
+| Host tools | `qemu-system-arm`, `dtc`, `gperf`, and a 32-bit capable `gcc` for `native_sim`, from the distribution |
 
-### Runtime dependencies
+Set up once, without root (the CI job does the same):
 
-Elemental's freestanding libraries (`status`, `io`) need one symbol from
-their environment: `memcpy`. GCC and Clang require it of every freestanding
-environment regardless.
+```sh
+python3 -m venv ~/zephyrproject/.venv && . ~/zephyrproject/.venv/bin/activate
+pip install west
+west init -m https://github.com/zephyrproject-rtos/zephyr --mr v4.5.0 ~/zephyrproject
+cd ~/zephyrproject
+west config manifest.project-filter -- '-.*,+cmsis,+cmsis_6,+picolibc,+hal_nordic'
+west update --narrow -o=--depth=1
+pip install -r zephyr/scripts/requirements-base.txt \
+  -r zephyr/scripts/requirements-build-test.txt -r zephyr/scripts/requirements-run-test.txt
+west sdk install -t arm-zephyr-eabi -H
+```
 
-This is enforced: `cross.symbols` lists what the libraries leave undefined
-and fails on anything not in
-[allowed-undefined.txt](../tests/cross/allowed-undefined.txt). On a target
-that needs soft-float or 64-bit division helpers, the compiler will ask for
-those too; nothing in the slice does.
+Elemental's own dependencies are provisioned as for a host build
+(`cmake -P tools/provision.cmake`): the application uses the same Kconfiglib
+and GoogleTest checkouts in `.deps/`.
+
+### Running
+
+From inside the workspace, with its environment active:
+
+```sh
+west twister -T <elemental>/tests/zephyr --integration -O <output directory>
+```
+
+| Scenario | Board | What it does |
+|---|---|---|
+| `elemental.tests` | `native_sim` | Every test, in a 32-bit Linux process. |
+| `elemental.tests` | `mps2/an385` | Every test, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
+| `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. |
+
+One board by hand: `west build -b mps2/an385 <elemental>/tests/zephyr`, then
+`west build -t run`. The image prints GoogleTest's report and then the
+memory the run needed. On `native_sim` the process does not exit when the
+tests finish; Twister stops it.
+
+### What is in the image
+
+- **The tests.** On the host each test is an executable; here
+  `elemental_add_test()` adds its sources to the image instead
+  ([cmake/ElementalTestImage.cmake](../cmake/ElementalTestImage.cmake)).
+  A module registers its tests once, inside `if(COMMAND elemental_add_test)`,
+  and they run in both places.
+- **Not the death tests.** A death test forks a process, which a Zephyr
+  target cannot. `io.violations` is registered only where
+  `ELEMENTAL_DEATH_TESTS` is on, which is the host. Contract violations are
+  therefore checked on the host only.
+- **Not `io_posix`.** The application's
+  [defconfig](../tests/zephyr/elemental_defconfig) turns it off.
+- **GoogleTest** from the same pinned checkout as the host build, compiled
+  into the image as one file with `GTEST_HAS_FILE_SYSTEM=0`: no death tests,
+  no output redirection, no XML report. Exceptions and RTTI stay off, as
+  Zephyr builds C++ by default. The C++ library is the SDK's libstdc++ on
+  picolibc (`CONFIG_REQUIRES_FULL_LIBCPP`).
+- Two functions picolibc lacks on these boards, `isatty()` and
+  `gettimeofday()`, supplied by the application
+  ([libc_support.c](../tests/zephyr/src/libc_support.c)).
+- A report of skipped tests in the form Twister counts. Twister's `gtest`
+  harness does not recognise GoogleTest's `[ SKIPPED ]` and would fail the
+  run ([main.cpp](../tests/zephyr/src/main.cpp)).
+
+Every library in Elemental's build, GoogleTest included, is compiled with
+the board's flags from `zephyr_interface`, and Elemental's own sources with
+its strict warnings as errors. Zephyr's flags come later on the command line
+and include `-std=c17`, so that the sources are C11 is checked by the host
+presets only.
+
+### Memory the test image needs
+
+`mps2/an385`, Zephyr SDK GCC 14.3.0, Zephyr's default size optimization,
+47 tests:
+
+| | Bytes |
+|---|---|
+| Flash (code and read-only data) | 271 940 |
+| RAM, static | 16 184 |
+| Heap, peak during the run | 24 024 |
+| Main stack, used of 4 096 | 2 636 |
+
+So the image needs about 272 KB of flash and 40 KB of RAM (the static figure includes the stack). It does not fit
+`qemu_cortex_m0` (256 KB flash, 16 KB RAM), which is why that board only
+builds the libraries. The default 1 KB main stack is not enough: the first
+run on `mps2/an385` overflowed it silently, and two contract tests failed
+on corrupted buffers. The stack is now 4 KB, and the stack sentinel is on.
+
+### The symbol check
+
+Every build of the application for an ARM board runs
+[tools/check_symbols.py](../tools/check_symbols.py) over Elemental's
+libraries: the symbols they leave undefined, after removing those they
+define for each other, must be in
+[allowed-undefined.txt](../tests/zephyr/allowed-undefined.txt), or the build
+fails. The list has two entries: `memcpy`, and `el_assert_failed` in the
+configuration that asks the application to define it.
+
+| Board | CPU | Toolchain | Elemental needs |
+|---|---|---|---|
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+
+No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
+A module that divides 64-bit values or uses atomics will show up on the
+Cortex-M0 first.
 
 ### Verification levels
 
-These are five different kinds of evidence. The cross build provides the
-first two.
+Five kinds of evidence, in increasing strength:
 
 | Level | What it shows | Here |
 |---|---|---|
-| Compile check | The sources are valid for the target. | Building the `cortex-m3` preset. |
-| Symbol check | What the libraries need from outside. | `cross.symbols` |
-| Link check | A complete image can be produced with the stated runtime. | **Not done.** |
-| Emulator run | The code behaves correctly on an emulated CPU. | **Not done.** |
-| Hardware test | It works on a real device. | **Not done.** |
+| Compile check | The sources are valid for the target. | Every board above. |
+| Symbol check | What the libraries need from outside. | `mps2/an385`, `qemu_cortex_m0` |
+| Link check | A complete image can be produced. | The test image, `mps2/an385` and `native_sim` |
+| Emulator run | The code behaves correctly on an emulated CPU. | The test image on `mps2/an385` under QEMU |
+| Hardware test | It works on a real device. | **Not done.** No board. |
 
-The tests are GoogleTest, which needs a hosted C++ library, so they do not
-run on a bare freestanding target
-([ADR 0008](adr/0008-googletest.md)). An earlier revision linked a bare
-Cortex-M3 image and ran a C contract suite under QEMU; that was given up
-with the move to GoogleTest. Running the tests on microcontroller targets is
-planned through Zephyr, which is the next milestone
-([roadmap](roadmap.md#m1--close-the-verification-gaps)). Until then, every
-behavioral result in this document comes from an x86-64 Linux host.
+`native_sim` runs the tests on the host CPU in Zephyr's environment: it is
+evidence about Zephyr integration, not about a target CPU.
 
 ### Code size of the assertion configurations
 
-`libelemental_io.a`, Cortex-M3, Clang 23.1.4, `MinSizeRel`, text bytes:
+`libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
+GCC 14.3.0 at Zephyr's default size optimization, text bytes:
 
 | Configuration | Bytes |
 |---|---|
-| Assertions off | 484 |
-| Trap in place (default) | 662 |
-| Application handler | 1084 |
+| Assertions off | 394 |
+| Trap in place (default) | 578 |
+| Application handler | 782 |
 
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
 level, recorded as the evidence for the `ASSERT` option's help text.
+Measure with `.agents/skills/preflight/scripts/code_size.sh`, which builds
+the application without tests in each configuration.
 
 ## What is verified
 
 On one x86-64 Linux machine, 2026-11-11. "Passed" means the command was run
 and exited successfully.
 
-| Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Cortex-M3 |
-|---|---|---|---|---|
-| Build with strict warnings as errors | passed | passed | passed | passed (libraries) |
-| Unit and helper tests | passed | passed | passed | not run |
-| Contract violations stop the program (`io.violations`) | passed, trap | passed, trap | passed, application handler | not run |
-| io contract suite: memory streams | passed | passed | passed | not run |
-| io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | not run |
-| POSIX platform tests | passed | passed | passed | n/a |
-| Public headers as C11 and C++11 | passed | passed | passed | not run |
-| C++ interop, run | passed | passed | passed | not run |
-| Rust interop, run | passed | passed | skipped | not run |
-| Python sketch, compile only | passed | passed | passed | not run |
-| Integration (7 cases) | passed | passed | passed | not run |
-| Symbol check | n/a | n/a | n/a | passed |
+| Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `qemu_cortex_m0` |
+|---|---|---|---|---|---|---|
+| Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) |
+| Unit and helper tests | passed | passed | passed | passed | passed | not run |
+| Contract violations stop the program (`io.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | not run |
+| io contract suite: memory streams | passed | passed | passed | passed | passed | not run |
+| io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a |
+| io contract suite: ring pipe example | passed | passed | passed | passed | passed | not run |
+| POSIX platform tests | passed | passed | passed | n/a | n/a | n/a |
+| Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run |
+| C++ interop, run | passed | passed | passed | not run | not run | not run |
+| Rust interop, run | passed | passed | skipped | not run | not run | not run |
+| Python sketch, compile only | passed | passed | passed | not run | not run | not run |
+| Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a |
+| Symbol check | n/a | n/a | n/a | n/a | passed | passed |
 
 The hosted presets run 81 GoogleTest tests, of which 7 are reported as
 skipped because a fixture lacks an optional capability
 ([why](../modules/io/README.md#the-contract-suite)), plus the interop and
 integration tests: 90 CTest tests in all, 89 under sanitizers. The Rust
 sketch is skipped under sanitizers because a plain `rustc` link has no
-sanitizer runtime. The `cortex-m3` preset has one test, the symbol check.
+sanitizer runtime.
+
+The Zephyr test image runs 47 of those GoogleTest tests: all but the POSIX
+backend's and the death tests. 3 are skipped, the same 3 as on the host for
+those fixtures. Twister reports the two `elemental.tests` configurations
+passed and `elemental.symbols.armv6m` built, with no warnings: Zephyr
+v4.5.0, SDK 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for
+`native_sim`, QEMU from the host.
 
 Additionally, each run once by hand and not part of the automated suite:
 
 - The whole test suite with CMake 3.22.6, the declared minimum, using the
   Unix Makefiles generator and no preset.
+- The whole test suite with Python 3.9.23, the declared minimum, first on
+  `PATH` and passed to the `gcc` preset as `Python3_EXECUTABLE`: 90 of 90.
 - A fresh configure, build, and the non-integration tests inside a network
   namespace with no network, after provisioning.
 - `menuconfig` started through its build target under a pseudo-terminal,
@@ -475,16 +583,17 @@ Additionally, each run once by hand and not part of the automated suite:
 Not verified:
 
 - **The CI workflow has never run.** It is syntactically valid YAML and
-  mirrors the commands above; nothing more is known about it.
-- Any compiler other than the two above, including the older GCC and Clang
-  the CI image would use, MSVC, and vendor compilers. The MSVC branches in
-  the build files and in `assert.h` are untested.
-- Any operating system other than Linux. The POSIX backend is expected to
-  work elsewhere and has not been tried.
-- Any Python other than 3.14.9.
-- **Any behavior on a non-host target.** No emulator, no hardware. For the
-  Cortex-M3 the evidence is that the libraries compile and need only
-  `memcpy`.
-- The contract suite or any test under Zephyr.
-- A GNU Arm toolchain.
+  mirrors the commands above. In particular unverified: Ubuntu 24.04's GCC
+  and Clang (older than the ones above) with warnings as errors; its
+  Python 3.9 from `actions/setup-python`; and the `zephyr` job's workspace
+  setup, whose SDK step (`west sdk install`) differs from how the local
+  SDK was installed (the minimal bundle and its `setup.sh`).
+- Any compiler other than those above, including MSVC and vendor compilers.
+  The MSVC branches in the build files and in `assert.h` are untested.
+- Any host operating system other than Linux. None is supported.
+- **Any real hardware.** The Cortex-M evidence is an emulated Cortex-M3 and
+  a symbol check for a Cortex-M0.
+- The tests on an ARMv6-M CPU: the test image does not fit
+  `qemu_cortex_m0`.
+- Contract violations on a target: death tests run on the host only.
 - Anything executed in the Python sketch.

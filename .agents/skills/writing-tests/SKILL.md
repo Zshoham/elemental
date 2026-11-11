@@ -26,7 +26,7 @@ read the nearest existing test of the same kind and follow its shape.
 ## Registering
 
 ```cmake
-if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(COMMAND elemental_add_test)
   elemental_add_test(<module>.<kind>
     SOURCES tests/<file>_test.cpp [tests/<fixture>.c]
     LIBRARIES elemental::<module>)
@@ -40,6 +40,14 @@ so `ctest --preset <p> -R <module>.<kind>` runs one group. The binary is
 `--gtest_filter`. The function (`cmake/ElementalTesting.cmake`) links
 `main()` and, in the application-handler configuration, an
 `el_assert_failed()` that aborts.
+
+The same registration compiles the test into the Zephyr test image
+(`tests/zephyr`, `cmake/ElementalTestImage.cmake`), where every test runs in
+one program. So test names must be unique across the repository, global C
+symbols in fixtures must not clash, and a test that needs the host (a
+file descriptor, a fork) is registered only where the host provides it.
+Keep large buffers off the stack or within the image's 4 KiB main stack
+(`tests/zephyr/prj.conf`).
 
 ## Rules
 
@@ -69,8 +77,9 @@ Follow the frame of an existing `*_violations_test.cpp`:
   the system journal.
 - A plain test next to them shows that correct use, edge cases included,
   trips no check.
-- Register it inside `if(EL_CONFIG_ASSERT)`: with assertions compiled out
-  there is nothing to observe.
+- Register it inside `if(EL_CONFIG_ASSERT AND ELEMENTAL_DEATH_TESTS)`: with
+  assertions compiled out there is nothing to observe, and a Zephyr target
+  cannot fork, so death tests run on the host only.
 
 ## Contract-suite tests
 
