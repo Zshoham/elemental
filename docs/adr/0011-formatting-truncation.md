@@ -1,4 +1,4 @@
-# 0010. Formatting writes to caller memory; truncation keeps a prefix that ends on an item
+# 0011. Formatting writes to caller memory; truncation keeps a prefix that ends on an item
 
 Status: Accepted (2026-11-11). Decided by the project owner.
 

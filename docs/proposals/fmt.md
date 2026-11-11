@@ -416,7 +416,7 @@ Decided by the project owner on 2026-11-11, accepting each recommendation:
 3. **Its own cursor**, `el_fmt`, not `el_mem_writer`.
 
 The truncation rule is recorded in
-[ADR 0010](../adr/0010-formatting-truncation.md).
+[ADR 0011](../adr/0011-formatting-truncation.md).
 
 ## Review: three seats
 
@@ -448,7 +448,7 @@ porting to a new target, and as the M4 sink author who builds on `fmt`.
 | A risk of creep toward full printf. | The subset table, plus the rule that every accepted format matches `snprintf`. The oracle test makes adding a conversion cheap to verify and easy to see in review. |
 | A cursor shared with `io` would couple two modules for one struct. | Its own cursor; the only dependency is `status`. |
 | `width` as `size_t` allows absurd values. | Not a problem: an absurd width is just `EL_ERR_NO_SPACE`. Nothing multiplies it, so it cannot overflow. |
-| Hard to change later: the truncation rule, NUL termination, and the `el_fmt` layout. | The first two were decided by the owner and recorded in ADR 0010. |
+| Hard to change later: the truncation rule, NUL termination, and the `el_fmt` layout. | The first two were decided by the owner and recorded in ADR 0011. |
 
 Bare `el_<verb>` names: none. Every function is `el_fmt_*`. No name equals
 one that libedit 3.1 (20260512) declares in `histedit.h`. The closest is
