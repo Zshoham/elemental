@@ -23,5 +23,7 @@ rsource "modules/status/Kconfig"
 rsource "modules/io/Kconfig"
 rsource "modules/alloc/Kconfig"
 rsource "modules/io_alloc/Kconfig"
+rsource "modules/bytes/Kconfig"
+rsource "modules/crc/Kconfig"
 
 endmenu

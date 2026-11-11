@@ -1,0 +1,31 @@
+config CRC
+	bool "crc: CRC-32 and CRC-16/IBM-3740"
+	default y
+	select STATUS
+	help
+	  CRC-32/ISO-HDLC and CRC-16/IBM-3740, computed incrementally over
+	  caller memory. Freestanding: needs no runtime symbols.
+
+choice CRC_TABLE
+	prompt "CRC lookup tables"
+	default CRC_TABLE_4BIT
+	depends on CRC
+	help
+	  Code size against speed. Results are identical either way, and
+	  nothing a caller sees changes.
+
+config CRC_TABLE_4BIT
+	bool "16-entry tables (smaller)"
+	help
+	  Two table lookups per byte; 96 bytes of tables for both CRCs. The
+	  right choice unless CRC throughput is measured to matter.
+
+config CRC_TABLE_8BIT
+	bool "256-entry tables (faster)"
+	help
+	  One table lookup per byte; 1.5 KiB of tables for both CRCs. For a
+	  high-rate link on a target with flash to spare. Pigweed measured
+	  the 256-entry CRC-32 at about 1.4 times the speed of the 16-entry
+	  one on a Cortex-M4 (pw_checksum documentation).
+
+endchoice

@@ -1,0 +1,7 @@
+config BYTES
+	bool "bytes: fixed-width integers in a stated byte order"
+	default y
+	select STATUS
+	help
+	  Load and store 16-, 32-, and 64-bit values, little and big endian,
+	  at any alignment. Freestanding: needs no runtime symbols.

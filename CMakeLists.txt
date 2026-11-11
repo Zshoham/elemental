@@ -53,7 +53,7 @@ endif()
 # Modules, in dependency order. A module directory is added when its Kconfig
 # symbol is enabled, so CMake targets and C macros follow the same decision.
 # The symbol is the directory name in upper case.
-set(ELEMENTAL_MODULE_DIRECTORIES status io alloc io_alloc)
+set(ELEMENTAL_MODULE_DIRECTORIES status io alloc io_alloc bytes crc)
 foreach(module IN LISTS ELEMENTAL_MODULE_DIRECTORIES)
   string(TOUPPER "${module}" module_symbol)
   if(EL_CONFIG_${module_symbol})
