@@ -397,6 +397,12 @@ module that wraps a status, not for growing the status.
 
 ### 6.2 Allocation — proposed
 
+*Implemented in M2* as [modules/alloc](../modules/alloc/README.md) and
+[modules/io_alloc](../modules/io_alloc/README.md); the accepted design is the
+[proposal](proposals/alloc.md), and sized free is
+[ADR 0012](adr/0012-sized-free.md). The sketch below is kept as it was
+proposed.
+
 The next module. A handle, because allocators must coexist (an arena for a
 request, a pool for messages, the heap for the rest).
 

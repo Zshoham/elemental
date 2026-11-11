@@ -21,8 +21,11 @@ Version 0.1, first milestone. Everything is **experimental**.
 | [`status`](modules/status/README.md) | Status codes and contract assertions | Yes |
 | [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; streams over caller-provided memory; a contract test suite for backends | Yes, needs `memcpy` |
 | [`io_posix`](modules/io/backends/posix/PORT.md) | Reader and writer over a file descriptor | No |
+| [`alloc`](modules/alloc/README.md) | Allocator interface; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes |
+| [`alloc_libc`](modules/alloc/backends/libc/PORT.md) | Allocator over the C library heap | No |
+| [`io_alloc`](modules/io_alloc/README.md) | A writer that grows through an allocator | Yes, needs `memcpy` |
 
-Allocation, logging, async, and IPC are designs or open questions, not code.
+Logging, async, and IPC are designs or open questions, not code.
 See the [roadmap](docs/roadmap.md).
 
 Licensed under the [Apache License 2.0](LICENSE).
@@ -100,7 +103,7 @@ it. Details in [docs/build.md](docs/build.md#configuration).
 | Understand the design and its tradeoffs | [docs/architecture.md](docs/architecture.md) |
 | Write or review an interface | [docs/conventions.md](docs/conventions.md) |
 | Build, configure, install, test on Zephyr; see what is verified | [docs/build.md](docs/build.md) |
-| Implement a backend | [modules/io/README.md](modules/io/README.md#implementing-a-backend), [docs/process/porting.md](docs/process/porting.md) |
+| Implement a backend | [modules/io/README.md](modules/io/README.md#implementing-a-backend), [modules/alloc/README.md](modules/alloc/README.md#implementing-an-allocator), [docs/process/porting.md](docs/process/porting.md) |
 | Propose a module | [docs/process/new-module.md](docs/process/new-module.md) |
 | Know what may change | [docs/process/api-stability.md](docs/process/api-stability.md) |
 | See why a decision was made | [docs/adr/](docs/adr/README.md) |

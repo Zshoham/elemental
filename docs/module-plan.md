@@ -84,8 +84,9 @@ Pools wait for a consumer; async or IPC message storage is the likely one.
 No other module in this plan takes an allocator, so allocation is a leaf.
 The roadmap builds it early (M2) anyway, as the second interface and
 contract suite; [roadmap.md](roadmap.md) gives the reasons. *Effects:* the
-heap, in the libc backend only. *Open:* sized free, and the capacity
-status. *Risk:* without an in-tree consumer, sized free goes untested. The
+heap, in the libc backend only. *Decided:* sized free
+([ADR 0012](adr/0012-sized-free.md)) and the capacity status
+([ADR 0009](adr/0009-capacity-status.md)). *Risk:* without an in-tree consumer, sized free goes untested. The
 proposal's three examples (a string, a growable buffer, an object handed
 across an API) are therefore mandatory.
 
@@ -312,9 +313,9 @@ compiles to plain loads, stores, and barriers on ARMv6-M, and it needs no
 from its caller. It does not use a global one. "ISR-safe" keeps the meaning
 in [conventions.md](conventions.md#concurrency-and-execution-context).
 
-**Sized free. Before anything stores an allocator.** Decided in M2 by the
-allocation proposal's examples. Nothing else stores an allocator before
-discovery.
+**Sized free. Before anything stores an allocator.** *Decided in
+[ADR 0012](adr/0012-sized-free.md)*, by the allocation proposal's examples:
+`el_free` takes the size and alignment back.
 
 **Optional operations. Before an operation table grows.** A null optional
 operation has a defined, harmless meaning, such as "nothing to flush", where

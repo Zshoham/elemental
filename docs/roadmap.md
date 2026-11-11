@@ -115,7 +115,8 @@ Out of scope: new interfaces.
 
 [Sketch](architecture.md#62-allocation--proposed);
 [plan entry](module-plan.md#named-by-the-owner);
-[proposal](proposals/alloc.md) (draft, awaiting the owner's decisions).
+[proposal](proposals/alloc.md) (accepted); [module](../modules/alloc/README.md);
+[`io_alloc`](../modules/io_alloc/README.md). **Done** as experimental.
 
 Deliverables:
 
@@ -128,23 +129,32 @@ Deliverables:
   before discovery. The proposal says what async and IPC discovery may
   later ask of pools.
 - `el_allocator`, an arena over caller storage, a libc heap backend, and a
-  contract suite with capabilities (reclaims on free; bounded).
+  contract suite with capabilities (reclaims on free; bounded). Delivered
+  as two arenas, `el_bump_arena` and `el_stack_arena`, and a reclaim
+  capability with three levels, because the stack arena reclaims only its
+  latest allocation.
 - `io_alloc`: a growable `el_writer` in a separate library, as the first
   consumer and as the test that `io` does not acquire a dependency on
   allocation.
 
 Acceptance:
 
-- [ ] The contract suite passes for the arena, the libc backend, and one
+- [x] The contract suite passes for the arena, the libc backend, and one
       example allocator, and was checked against broken implementations.
-- [ ] The Zephyr symbol check shows no new external symbols.
-- [ ] Once M1 has target tests: the arena's tests pass on a Zephyr
-      Cortex-M target.
-- [ ] `elemental::io` still links without `elemental::alloc`.
-- [ ] The sized-free decision is recorded in an ADR with the examples that
-      decided it.
-- [ ] A Rust sketch shows how the allocator contract relates to
-      `GlobalAlloc`, compiled and run.
+      Both arenas, the libc heap, and the size classes example; fifteen
+      broken variants, all caught ([build.md](build.md#what-is-verified)).
+- [x] The Zephyr symbol check shows no new external symbols, on ARMv7-M
+      and ARMv6-M: `alloc` needs none, `io_alloc` only `memcpy`.
+- [x] Once M1 has target tests: the arena's tests pass on a Zephyr
+      Cortex-M target: `mps2/an385` under QEMU, by Twister, with the rest
+      of the allocator and `io_alloc` tests.
+- [x] `elemental::io` still links without `elemental::alloc`, checked by
+      `integration.subdirectory`.
+- [x] The sized-free decision is recorded in an ADR with the examples that
+      decided it: [ADR 0012](adr/0012-sized-free.md).
+- [x] A Rust sketch shows how the allocator contract relates to
+      `GlobalAlloc`, compiled and run: `tests/interop/rust_alloc_sketch.rs`,
+      `interop.rust_alloc`.
 
 Deferred within the module: resize in place, pools, statistics, thread
 safety.

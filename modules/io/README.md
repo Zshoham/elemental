@@ -91,6 +91,7 @@ skipped rather than passed.
 | POSIX, blocking pipe | 8 | 3: cannot stall; a pipe cannot end after an exact count |
 | POSIX, non-blocking pipe | 10 | 1: a pipe cannot end after an exact count |
 | Ring pipe example | 10 | 1: stalls when full instead of ending |
+| Grow writer (`io_alloc`) | 8 | 3: cannot stall; reports `EL_ERR_NO_SPACE`, not permanent, instead of ending |
 
 What the suite does not cover is deliberate: behavior that belongs to one
 backend. Deliberately broken variants of the ring pipe were used to check

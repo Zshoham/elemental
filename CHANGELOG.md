@@ -16,6 +16,18 @@ First milestone: the project's foundation.
   `el_write`, `el_read_exact`, `el_write_all`, memory streams, and the
   io contract suite.
 - `io_posix` (experimental): reader and writer over a file descriptor.
+- `alloc` (experimental): `el_allocator`, `el_alloc`, `el_alloc_array`,
+  and `el_free`, which takes the size and alignment back
+  ([ADR 0012](docs/adr/0012-sized-free.md)); `el_bump_arena` and
+  `el_stack_arena` over caller storage; the allocator contract suite
+  `ElAllocContract` and the checking allocator `el_alloc_checker`
+  (`elemental/alloc_contract.h`, `.hpp`).
+- `alloc_libc` (experimental): `el_libc_allocator()`, over `malloc`,
+  `aligned_alloc`, and `free`.
+- `io_alloc` (experimental): `el_grow_writer`, a writer that grows through
+  an allocator.
+- `io`: a writer may return `EL_ERR_NO_SPACE`, not permanent, when it could
+  not get storage. Only writers that allocate do.
 - Tests are GoogleTest, pinned and built from source. The io contract suite
   is the GoogleTest suite `ElIoContract` (`elemental/io_contract.hpp`),
   installed as source; `el_io_contract_run()` and its report callback are

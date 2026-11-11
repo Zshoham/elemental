@@ -1,8 +1,37 @@
 # Proposal: alloc and io_alloc
 
-Status: Draft, waiting on the owner's decisions in
-[the last section](#decisions-for-the-owner)
-Author, date: design pass for M2, 2026-11-11
+Status: Accepted (2026-11-12), with the owner's decisions recorded in
+[Decisions](#decisions), and implemented as experimental.
+Author, date: design pass for M2, 2026-11-11; accepted 2026-11-12
+
+## As accepted and implemented
+
+The proposal below is kept as written for review, with names brought up to
+date. What changed between the draft and the implementation:
+
+- **Two arenas, not one** (decision 2): `el_bump_arena`, whose free gives
+  nothing back, and `el_stack_arena`, whose free gives back the most recent
+  allocation, both in `elemental/alloc_arena.h`. The draft's `el_arena` is
+  `el_bump_arena`.
+- **The reclaim capability is a level, not a yes or no.** The stack arena
+  gives back only the allocation that ends at its top, and not the padding
+  before it, so it cannot honestly claim "reclaims on free". The fixture
+  has one bounded constructor and a `reclaims` field:
+  `EL_ALLOC_CONTRACT_RECLAIMS_NOTHING` (bump arena), `_LATEST` (stack
+  arena: freeing the latest allocation lets the same request succeed again,
+  indefinitely), `_ANY` (size classes: any order). See
+  [modules/alloc/README.md](../../modules/alloc/README.md#the-contract-suite).
+- **The overflow check uses no division and no double-width multiply**: each
+  operand is split into halves of `size_t`. On the Zephyr ARMv6-M build
+  `libelemental_alloc.a` leaves no symbol undefined.
+- **The libc backend depends on the existing `PLATFORM_POSIX` probe**, and
+  is off in the Zephyr test image. Linux is the only host.
+- **The checking allocator ships in `elemental::alloc_contract`**, beside
+  the suite, as test support.
+- **The sized-free record is [ADR 0012](../adr/0012-sized-free.md).**
+- The sanitize preset sets `allocator_may_return_null=1`.
+
+
 
 Milestone: [M2](../roadmap.md#m2--allocation). Sketch it starts from:
 [architecture.md §6.2](../architecture.md#62-allocation--proposed). Status
@@ -202,17 +231,17 @@ static uint8_t storage[1024];
 
 el_status handle_upload(el_reader request)
 {
-    el_arena arena;
-    el_arena_init(&arena, storage, sizeof storage);
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, storage, sizeof storage);
 
     el_grow_writer body;
-    el_grow_writer_init(&body, el_arena_as_allocator(&arena));
+    el_grow_writer_init(&body, el_bump_arena_as_allocator(&arena));
     el_status status = read_to_end(request, &body);
     if (status == EL_OK) {
         status = store(el_grow_writer_data(&body), el_grow_writer_len(&body));
     }
     el_grow_writer_deinit(&body);
-    el_arena_reset(&arena);
+    el_bump_arena_reset(&arena);
     return status;
 }
 ```
@@ -293,16 +322,16 @@ static uint8_t request_storage[2048];
 
 el_status handle_request(const char *text, size_t len, el_writer reply)
 {
-    el_arena arena;
-    el_arena_init(&arena, request_storage, sizeof request_storage);
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, request_storage, sizeof request_storage);
 
     station *s = NULL;
-    el_status status = station_parse(el_arena_as_allocator(&arena), text, len, &s);
+    el_status status = station_parse(el_bump_arena_as_allocator(&arena), text, len, &s);
     if (status == EL_OK) {
         status = station_render(s, reply);
         station_destroy(s);
     }
-    el_arena_reset(&arena);
+    el_bump_arena_reset(&arena);
     return status;
 }
 ```
@@ -442,12 +471,12 @@ aligned to their size makes that header cost a whole block's alignment: a
 | Elemental modules | `status` | `alloc` | `io`, `alloc` |
 | Runtime symbols | none | `malloc`, `aligned_alloc`, `free` | `memcpy` (already allowed) |
 | Allocation | it is the interface; the arena runs over caller storage | the C library's heap | through the allocator it is given |
-| Per-object storage | `el_allocator`: 2 pointers. `el_arena`: 3 words | none: the handle's `ctx` is null | `el_grow_writer`: 5 words |
+| Per-object storage | `el_allocator`: 2 pointers. Each arena: 3 words | none: the handle's `ctx` is null | `el_grow_writer`: 5 words |
 | New status codes | none | none | none: returns `EL_ERR_NO_SPACE` ([ADR 0009](../adr/0009-capacity-status.md)) |
 
 `elemental::io` gains no dependency: `io_alloc` depends on `io`, never the
 reverse. One documentation change in `io.h` is needed; see
-[decision 6](#decisions-for-the-owner).
+[decision 6](#decisions).
 
 ## Contracts
 
@@ -458,7 +487,7 @@ reverse. One documentation change in `io.h` is needed; see
   not been moved.
 - **Memory is released through the allocator that provided it**, with the
   same size and alignment, or by ending that allocator as a whole
-  (`el_arena_reset`). A component that allocates keeps the handle it was
+  (`el_bump_arena_reset`). A component that allocates keeps the handle it was
   given and never assumes a default.
 - An allocation is valid from `el_alloc` until `el_free` or the end of its
   allocator. The handle must outlive every allocation made through it;
@@ -467,7 +496,7 @@ reverse. One documentation change in `io.h` is needed; see
   resource, so it has no `deinit` ([conventions.md](../conventions.md#ownership-and-lifetime),
   rule 5). The arena object may be moved while no handle made from it is in
   use; allocations point into the storage, not into the object.
-- `el_arena_reset` ends every allocation from that arena at once. Freeing
+- `el_bump_arena_reset` ends every allocation from that arena at once. Freeing
   one of them afterwards is a contract violation.
 - `el_grow_writer` owns its buffer. `el_grow_writer_deinit` frees it. The
   pointer from `el_grow_writer_data` is valid until the next write or
@@ -544,8 +573,8 @@ frees `count * size`, which cannot overflow once it was allocated.
   what it has handed out. Elsewhere it is undefined behavior, as it is for
   `free`, `free_sized`, and Rust's `dealloc` (*source facts*).
 - **The arena's free does nothing** beyond that check
-  ([decision 2](#decisions-for-the-owner)). Its storage comes back only
-  through `el_arena_reset`.
+  ([decision 2](#decisions)). Its storage comes back only
+  through `el_bump_arena_reset`.
 
 ### io_alloc
 
@@ -566,7 +595,7 @@ when it has no spare room and the allocator refused to grow it.
 - Growth allocates the new buffer before freeing the old one. Over an arena
   the old buffers are not reclaimed, so a writer that grew to `n` bytes has
   used less than `2n` of the arena. This is the cost of
-  [deferring resize](#decisions-for-the-owner).
+  [deferring resize](#decisions).
 
 ### Concurrency and execution context
 
@@ -589,7 +618,7 @@ Null `ops`, `alloc`, or `free`; an alignment that is zero or not a power of
 two; `el_free` with a null pointer and a nonzero size, or with size 0 and a
 pointer that is neither null nor the zero-size pointer; an operation
 returning a misaligned pointer; for the arena, a free outside what it has
-handed out (including after `el_arena_reset`); `el_grow_writer` used after
+handed out (including after `el_bump_arena_reset`); `el_grow_writer` used after
 `deinit`.
 
 ### Exceptions to conventions.md
@@ -642,16 +671,11 @@ void *el_alloc(el_allocator allocator, size_t size, size_t align);
 void *el_alloc_array(el_allocator allocator, size_t count, size_t size, size_t align);
 void el_free(el_allocator allocator, void *ptr, size_t size, size_t align);
 
-/* elemental/alloc_arena.h */
-typedef struct el_arena {
-    uint8_t *base;
-    size_t cap;
-    size_t used;
-} el_arena;
-
-void el_arena_init(el_arena *arena, void *storage, size_t cap);
-el_allocator el_arena_as_allocator(el_arena *arena);
-void el_arena_reset(el_arena *arena);
+/* elemental/alloc_arena.h: el_bump_arena and el_stack_arena, each with */
+void el_bump_arena_init(el_bump_arena *arena, void *storage, size_t cap);
+el_allocator el_bump_arena_as_allocator(el_bump_arena *arena);
+void el_bump_arena_reset(el_bump_arena *arena);
+/* ... and the same three for el_stack_arena. */
 
 /* elemental/alloc_libc.h (backend library elemental::alloc_libc) */
 el_allocator el_libc_allocator(void);
@@ -726,7 +750,7 @@ names in `/usr/include/histedit.h` and the `el_*` symbols `libedit.so`
 exports: **none of the proposed names collides.** Two near misses are
 recorded so that later work avoids them: libedit has **`el_resize`** (a
 function, and an `EL_RESIZE` macro), so a resize operation added later must
-not be called that; and `el_reset`, so the arena's is `el_arena_reset`,
+not be called that; and `el_reset`, so the arena's is `el_bump_arena_reset`,
 never bare.
 
 `el_grow_writer` rather than `el_buffered_writer` or `el_buf_writer`,
@@ -754,8 +778,8 @@ from `io_contract`). The fixture is a C struct:
 |---|---|---|
 | `reset` | required | Release what the previous request created |
 | `allocator` | required | A fresh allocator that can hold the suite's working set (a stated byte total in at most 64 live allocations, alignments up to 64) |
-| `allocator_bounded(limit)` | capability: **bounded** | A fresh allocator that never holds more than `limit` bytes of live requests, and can satisfy one request of `limit / 2` |
-| `allocator_reclaiming(limit)` | capability: **reclaims on free** | Bounded, and after everything is freed it satisfies the same sequence of requests again, indefinitely |
+| `allocator_bounded(limit)` | capability: **bounded** | A fresh allocator that never holds more than `limit` bytes of live requests, and can satisfy one request of 64 bytes |
+| `reclaims` | level, with bounded | What free gives back: nothing, the latest allocation, or any (see [As accepted](#as-accepted-and-implemented)) |
 
 Promises checked for every allocator: alignment for every power of two up
 to 64; every byte of every allocation writable and keeping its value while
@@ -827,16 +851,12 @@ The baseline in [api-stability.md](../process/api-stability.md), and:
 Examples settle everything else here. These need implementation evidence,
 not discovery:
 
-1. **The overflow check on ARMv6-M.** `count > SIZE_MAX / size` pulls in
-   `__aeabi_uidiv`, and a 64-bit product pulls in `__aeabi_lmul`. Candidate:
-   no arithmetic when both operands are below `2^(bits/2)`, division only
-   above. The Zephyr ARMv6-M symbol check decides whether the slow path's
-   helper is acceptable.
-2. **The probe for `ALLOC_LIBC`**: what to test for, given that Zephyr's
-   C libraries differ in `aligned_alloc` and heap configuration.
-3. **Whether the checking allocator ships** in `elemental::alloc_contract`
-   for consumers' tests. It is the main defence against sized-free
-   mistakes, but it has no consumer outside this repository yet.
+All three were settled at acceptance:
+
+1. **The overflow check on ARMv6-M**: split into halves, no helper; the
+   Zephyr ARMv6-M symbol check confirms it.
+2. **The probe for `ALLOC_LIBC`**: the existing `PLATFORM_POSIX`.
+3. **The checking allocator** ships in `elemental::alloc_contract`.
 
 ## Sized free: the evidence
 
@@ -913,9 +933,11 @@ from 1.100.0.
    the same layout from the size and alignment it is given and calls
    `dealloc`. No header is needed, because free is sized. Neither may panic
    across the boundary ([conventions.md](../conventions.md#abi), rule 7).
-3. **What the sketch must show:** a C function that takes `el_allocator`
-   allocating from Rust's heap, and Rust's `Vec` allocating through an
-   `el_arena`, both run under `ctest -R interop.rust`.
+3. **What the sketch shows** (`tests/interop/rust_alloc_sketch.rs`,
+   `ctest -R interop.rust_alloc`): `GlobalAlloc` implemented over an
+   `el_stack_arena` behind a `Mutex`, and C's `el_grow_writer` growing in
+   Rust's allocator, with every free checked against the layout it was
+   allocated with.
 
 ## Three-seat review
 
@@ -937,7 +959,7 @@ and what was done:
 - *A caller-freed buffer from a library* (example 3). **Fixed** by writing
   to a caller-supplied `el_writer`, with `el_grow_writer` for memory.
 - *What must stay alive.* Stated: the allocator outlives its allocations;
-  `el_arena_reset` ends them all; the grow writer's data pointer moves on
+  `el_bump_arena_reset` ends them all; the grow writer's data pointer moves on
   growth.
 - *Telling failures apart.* `NULL` has one meaning to the caller; functions
   convert it to `EL_ERR_NO_SPACE`. Sufficient in all three examples.
@@ -972,7 +994,7 @@ and what was done:
 - *Status vocabulary*: nothing new.
 - *A change to another module's contract*: `io.h` lists four writer
   outcomes, and the grow writer adds `EL_ERR_NO_SPACE`. Raised as
-  [decision 6](#decisions-for-the-owner) rather than slipped in.
+  [decision 6](#decisions) rather than slipped in.
 - *Kconfig*: three enabling symbols and a probe; no behavior option.
 - *Names*: checked against libedit; `el_resize` and `el_reset` recorded as
   names to avoid.
@@ -985,7 +1007,11 @@ and what was done:
   decisions below, and sized free gets the ADR the roadmap requires once it
   is decided.
 
-## Decisions for the owner
+## Decisions
+
+Decided by the owner on 2026-11-12: 1 (a); 2, both arenas (see below); 3 (a);
+4 (a); 5 (a); 6 (a). The options as they were put:
+
 
 1. **Sized free.** Options: (a) `el_free(a, ptr, size, align)`; (b)
    `el_free(a, ptr)`, with headers where an allocator needs them.
@@ -993,7 +1019,7 @@ and what was done:
    No cost in examples 1 and 3; one hazard in example 2, which tests catch;
    the size-class backend and the Rust mapping need it to avoid headers.
 2. **What the arena's free does.** Options: (a) nothing beyond checking
-   ownership, with `el_arena_reset` to reclaim everything; (b) roll back if
+   ownership, with `el_bump_arena_reset` to reclaim everything; (b) roll back if
    it was the last allocation, as Zig's `FixedBufferAllocator` does (*source
    fact*; it does not reclaim alignment padding). **Recommended: (a).** No
    example reclaims through it: example 2 frees the old buffer after

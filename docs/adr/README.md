@@ -17,6 +17,7 @@ by editing history.
 | [0008](0008-googletest.md) | Tests are GoogleTest; target tests go through Zephyr | Accepted; its `cortex-m3` preset is superseded by 0010 |
 | [0009](0009-capacity-status.md) | One capacity status, `EL_ERR_NO_SPACE` | Accepted |
 | [0010](0010-zephyr-targets.md) | Microcontroller targets are Zephyr targets | Accepted |
+| [0012](0012-sized-free.md) | Free takes the size and alignment back | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

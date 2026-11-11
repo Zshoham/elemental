@@ -97,7 +97,7 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, and the application assertion handler instead of the default trap. |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, and the application assertion handler instead of the default trap. Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
 
 Every preset is a Linux host build. Microcontroller targets are built and
 tested through Zephyr ([Tests on Zephyr](#tests-on-zephyr)).
@@ -174,8 +174,9 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO` | on | Build only the modules a product uses. |
+| `STATUS`, `IO`, `ALLOC`, `IO_ALLOC` | on | Build only the modules a product uses. |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
+| `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
@@ -441,8 +442,8 @@ tests finish; Twister stops it.
   target cannot. `io.violations` is registered only where
   `ELEMENTAL_DEATH_TESTS` is on, which is the host. Contract violations are
   therefore checked on the host only.
-- **Not `io_posix`.** The application's
-  [defconfig](../tests/zephyr/elemental_defconfig) turns it off.
+- **Not `io_posix` or `alloc_libc`.** The application's
+  [defconfig](../tests/zephyr/elemental_defconfig) turns them off.
 - **GoogleTest** from the same pinned checkout as the host build, compiled
   into the image as one file with `GTEST_HAS_FILE_SYSTEM=0`: no death tests,
   no output redirection, no XML report. Exceptions and RTTI stay off, as
@@ -464,16 +465,16 @@ presets only.
 ### Memory the test image needs
 
 `mps2/an385`, Zephyr SDK GCC 14.3.0, Zephyr's default size optimization,
-47 tests:
+121 tests:
 
 | | Bytes |
 |---|---|
-| Flash (code and read-only data) | 271 940 |
-| RAM, static | 16 184 |
-| Heap, peak during the run | 24 024 |
+| Flash (code and read-only data) | 318 388 |
+| RAM, static | 43 696 |
+| Heap, peak during the run | 58 144 |
 | Main stack, used of 4 096 | 2 636 |
 
-So the image needs about 272 KB of flash and 40 KB of RAM (the static figure includes the stack). It does not fit
+So the image needs about 318 KB of flash and 102 KB of RAM (the static figure includes the stack). The allocator tests added the most: the arena and size-class fixtures' static storage (about 28 KB), and the contract suite's bookkeeping on the heap. It does not fit
 `qemu_cortex_m0` (256 KB flash, 16 KB RAM), which is why that board only
 builds the libraries. The default 1 KB main stack is not enough: the first
 run on `mps2/an385` overflowed it silently, and two contract tests failed
@@ -497,6 +498,10 @@ configuration that asks the application to define it.
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
 Cortex-M0 first.
+`alloc` leaves no symbol undefined on either: `el_alloc_array` checks
+`count * size` for overflow by splitting each operand into halves, without
+a division or a double-width multiply, which on the Cortex-M0 would be
+`__aeabi_uidiv` and `__aeabi_lmul`.
 
 ### Verification levels
 
@@ -524,6 +529,14 @@ GCC 14.3.0 at Zephyr's default size optimization, text bytes:
 | Trap in place (default) | 578 |
 | Application handler | 782 |
 
+The other libraries in the same build:
+
+| Configuration | `alloc` | `io_alloc` | `status` |
+|---|---|---|---|
+| Assertions off | 322 | 270 | 93 |
+| Trap in place (default) | 478 | 332 | 93 |
+| Application handler | 668 | 425 | 93 |
+
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
 level, recorded as the evidence for the `ASSERT` option's help text.
@@ -532,35 +545,41 @@ the application without tests in each configuration.
 
 ## What is verified
 
-On one x86-64 Linux machine, 2026-11-11. "Passed" means the command was run
+On one x86-64 Linux machine, 2026-11-12. "Passed" means the command was run
 and exited successfully.
 
 | Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | not run |
-| Contract violations stop the program (`io.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | not run |
+| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | not run |
 | io contract suite: memory streams | passed | passed | passed | passed | passed | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a |
 | io contract suite: ring pipe example | passed | passed | passed | passed | passed | not run |
+| io contract suite: grow writer (`io_alloc`) | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a |
+| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | not run |
+| libc heap platform tests | passed | passed | passed | n/a | n/a | n/a |
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run |
 | C++ interop, run | passed | passed | passed | not run | not run | not run |
-| Rust interop, run | passed | passed | skipped | not run | not run | not run |
+| Rust interop, run (io and allocator sketches) | passed | passed | skipped | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run |
 | Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed | passed |
 
-The hosted presets run 81 GoogleTest tests, of which 7 are reported as
+The hosted presets run 189 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
-([why](../modules/io/README.md#the-contract-suite)), plus the interop and
-integration tests: 90 CTest tests in all, 89 under sanitizers. The Rust
-sketch is skipped under sanitizers because a plain `rustc` link has no
+([io](../modules/io/README.md#the-contract-suite),
+[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop and
+integration tests: 199 CTest tests in all, 197 under sanitizers. The two Rust
+sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 47 of those GoogleTest tests: all but the POSIX
-backend's and the death tests. 3 are skipped, the same 3 as on the host for
-those fixtures. Twister reports the two `elemental.tests` configurations
+The Zephyr test image runs 121 of those GoogleTest tests: all but the POSIX
+and C library backends' and the death tests. 9 are skipped, the same 9 as on
+the host for those fixtures. Twister reports the two `elemental.tests` configurations
 passed and `elemental.symbols.armv6m` built, with no warnings: Zephyr
 v4.5.0, SDK 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for
 `native_sim`, QEMU from the host.
@@ -579,6 +598,18 @@ Additionally, each run once by hand and not part of the automated suite:
   before the move to GoogleTest; that change did not touch configuration.)
 - Six deliberately broken variants of the ring pipe against the contract
   suite ([modules/io/README.md](../modules/io/README.md#the-contract-suite)).
+- Fifteen deliberately broken variants for M2, with
+  `.agents/skills/writing-tests/scripts/mutant.sh`, all caught: the size
+  classes example ignoring alignment, overlapping blocks, and never reusing
+  freed blocks; a bump arena exceeding its bound and changing state on a
+  failed request; a stack arena that never rolls back; the front function
+  passing size 0 on, and a weakened overflow check; the libc backend using
+  `malloc` for large alignments; the checking allocator ignoring a wrong
+  size; the grow writer freeing its length instead of its capacity, skipping
+  the exact-size retry, and reporting end of stream instead of no space; the
+  bump arena dropping its ownership check; and `io` linking `alloc`, caught
+  by `integration.subdirectory` (run by hand, since the script leaves out
+  integration tests).
 
 Not verified:
 
