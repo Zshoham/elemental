@@ -17,7 +17,7 @@
  * EL_ERR_NO_SPACE.
  *
  * Sized free: el_free() takes back the size and alignment the allocation
- * was made with (docs/adr/0011-sized-free.md). An allocator may rely on
+ * was made with (docs/adr/0012-sized-free.md). An allocator may rely on
  * them, so they must be exact. For an array, the size is count * size. The
  * size to free is the size that was allocated: for a growable buffer, its
  * capacity, not its length.
