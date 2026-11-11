@@ -1,0 +1,84 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "ELEMENTAL_WARNINGS_AS_ERRORS": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "gcc",
+      "displayName": "GCC, default configuration",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "clang",
+      "displayName": "Clang, default configuration",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Clang with ASan and UBSan, application assertion handler",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "ELEMENTAL_DEFCONFIG": "${sourceDir}/configs/assert_application_defconfig"
+      }
+    },
+    {
+      "name": "cortex-m3",
+      "displayName": "Freestanding Cortex-M3 (Clang + LLD), compile and symbol check",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/clang-cortex-m3.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "gcc", "configurePreset": "gcc" },
+    { "name": "clang", "configurePreset": "clang" },
+    { "name": "sanitize", "configurePreset": "sanitize" },
+    { "name": "cortex-m3", "configurePreset": "cortex-m3" }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    { "name": "gcc", "inherits": "base", "configurePreset": "gcc" },
+    { "name": "clang", "inherits": "base", "configurePreset": "clang" },
+    {
+      "name": "sanitize",
+      "inherits": "base",
+      "configurePreset": "sanitize",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:strict_string_checks=1:detect_stack_use_after_return=1",
+        "UBSAN_OPTIONS": "print_stacktrace=1"
+      }
+    },
+    { "name": "cortex-m3", "inherits": "base", "configurePreset": "cortex-m3" }
+  ]
+}

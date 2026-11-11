@@ -1,0 +1,4 @@
+# Route failed contract assertions to el_assert_failed(), defined by the
+# application. Used by the `sanitize` preset, so that the application-handler
+# configuration is built and tested as well as the default trap.
+EL_CONFIG_ASSERT_HANDLER_APPLICATION=y

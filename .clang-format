@@ -1,0 +1,13 @@
+# Formatting for Elemental's C and C++ sources. Run: tools/format.sh
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Linux
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Right
+SortIncludes: false
+IndentCaseLabels: false
+AlignEscapedNewlines: Left
+SpaceAfterCStyleCast: false

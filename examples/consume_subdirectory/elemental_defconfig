@@ -1,0 +1,3 @@
+# Elemental configuration for this application: memory streams only.
+# Everything not mentioned keeps its default.
+# EL_CONFIG_IO_POSIX is not set

@@ -1,0 +1,92 @@
+# Reproduces the checks a developer runs locally (docs/build.md). Each job is
+# one preset: configure, build, test.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted:
+    name: ${{ matrix.preset }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [gcc, clang, sanitize]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            cmake ninja-build gcc g++ clang python3 python3-dev
+
+      # The only step that uses the network for dependencies. Everything
+      # after it runs from the checkouts this leaves in .deps/.
+      - name: Provision the pinned Kconfiglib fork and GoogleTest
+        run: cmake -P tools/provision.cmake
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  cortex-m3:
+    name: cortex-m3 (freestanding, compile and symbol check)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            cmake ninja-build clang lld llvm python3
+
+      # A cross build has no hosted tests, so it needs no GoogleTest.
+      - name: Provision the pinned Kconfiglib fork
+        run: cmake -DELEMENTAL_PROVISION_TESTS=OFF -P tools/provision.cmake
+
+      - name: Configure
+        run: cmake --preset cortex-m3
+
+      - name: Build
+        run: cmake --build --preset cortex-m3
+
+      - name: Symbol check
+        run: ctest --preset cortex-m3
+
+  minimum-cmake:
+    name: cmake 3.22 (declared minimum)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            ninja-build gcc g++ python3 python3-venv
+          python3 -m venv "$RUNNER_TEMP/cmake"
+          "$RUNNER_TEMP/cmake/bin/pip" install 'cmake==3.22.*'
+          echo "$RUNNER_TEMP/cmake/bin" >> "$GITHUB_PATH"
+
+      - name: Provision the pinned Kconfiglib fork and GoogleTest
+        run: cmake -P tools/provision.cmake
+
+      - name: Configure, build, test
+        run: |
+          cmake --version
+          cmake --preset gcc
+          cmake --build --preset gcc
+          ctest --preset gcc

@@ -1,0 +1,17 @@
+config IO
+	bool "io: byte stream reader and writer interfaces"
+	default y
+	select STATUS
+	help
+	  The el_reader and el_writer interfaces, helpers built on them,
+	  readers and writers over caller-provided memory, and the contract
+	  test suite for backends. Freestanding: needs only memcpy().
+
+config IO_POSIX
+	bool "io_posix: POSIX file descriptor backend"
+	default y
+	depends on IO && PLATFORM_POSIX
+	help
+	  Reader and writer over a file descriptor the caller owns, using
+	  read(2) and write(2). Available only when the toolchain provides
+	  <unistd.h>.

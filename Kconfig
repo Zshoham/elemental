@@ -1,0 +1,25 @@
+# Elemental configuration.
+#
+# Symbols are written without a prefix here. Generated C macros and CMake
+# variables are named EL_CONFIG_<SYMBOL>.
+#
+# Each module owns the Kconfig file in its directory. Options are added only
+# with a concrete use case, stated in the option's help text.
+
+mainmenu "Elemental configuration"
+
+# Facts about the toolchain. These have no prompt: CMake probes them and
+# passes the result in, so a backend cannot be selected for a platform that
+# cannot build it.
+
+config PLATFORM_POSIX
+	def_bool $(EL_PLATFORM_POSIX)
+	help
+	  The toolchain provides <unistd.h>. Probed by CMake.
+
+menu "Modules"
+
+rsource "modules/status/Kconfig"
+rsource "modules/io/Kconfig"
+
+endmenu

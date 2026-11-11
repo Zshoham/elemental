@@ -1,0 +1,53 @@
+config STATUS
+	bool "status: status codes and contract assertions"
+	default y
+	help
+	  The vocabulary every other module shares: the el_status codes
+	  returned for recoverable failures, and the EL_ASSERT() check used
+	  for contract violations.
+
+if STATUS
+
+config ASSERT
+	bool "Check contract assertions"
+	default y
+	help
+	  Compile EL_ASSERT() checks into Elemental's modules. They catch
+	  programmer mistakes at the interface: null pointers, misuse of an
+	  object, and backends that break their contract.
+
+	  With this off, the checks compile to nothing and violating a
+	  documented precondition is undefined behavior. Turn it off only for
+	  an image that has been validated with it on and cannot afford the
+	  code size; the cost on a Cortex-M3 build is recorded in
+	  docs/build.md.
+
+choice ASSERT_HANDLER
+	prompt "Assertion failure handler"
+	default ASSERT_HANDLER_TRAP
+	depends on ASSERT
+	help
+	  What a failed EL_ASSERT() does.
+
+config ASSERT_HANDLER_TRAP
+	bool "Trap at the failing check"
+	help
+	  Execute a trap instruction where the check failed. This needs no
+	  runtime support and stores no strings: a debugger or fault handler
+	  sees the exact location. The right default for firmware and for
+	  hosted development alike.
+
+config ASSERT_HANDLER_APPLICATION
+	bool "Call el_assert_failed(), defined by the application"
+	help
+	  Call el_assert_failed(file, line), which the application must
+	  define and which must not return. Use this to route failures into
+	  a product's fault handling, or to report where a check failed.
+	  Linking fails if the function is missing.
+
+	  Each check then carries a file name and line number, which costs
+	  read-only data.
+
+endchoice
+
+endif # STATUS

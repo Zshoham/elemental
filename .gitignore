@@ -1,0 +1,11 @@
+# Build trees. All generated files and mutable configuration live here.
+/build/
+/build-*/
+
+# Provisioned dependencies (see docs/build.md, "Dependencies").
+/.deps/
+
+# Editor and tool noise.
+compile_commands.json
+__pycache__/
+*.pyc
