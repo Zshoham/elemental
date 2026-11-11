@@ -114,7 +114,8 @@ Out of scope: new interfaces.
 ## M2 — Allocation
 
 [Sketch](architecture.md#62-allocation--proposed);
-[plan entry](module-plan.md#named-by-the-owner).
+[plan entry](module-plan.md#named-by-the-owner);
+[proposal](proposals/alloc.md) (draft, awaiting the owner's decisions).
 
 Deliverables:
 
