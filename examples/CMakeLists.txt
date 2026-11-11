@@ -4,3 +4,6 @@
 if(EL_CONFIG_IO)
   add_subdirectory(backend_ring)
 endif()
+if(EL_CONFIG_ALLOC)
+  add_subdirectory(backend_size_classes)
+endif()

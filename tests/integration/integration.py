@@ -129,6 +129,10 @@ def case_subdirectory(work):
           "status, a dependency of io, was not built")
     check(not exists_under(build_dir, "io_contract.cpp.o"),
           "the io contract suite was compiled although nothing links it")
+    # io does not depend on alloc: an application that links only io builds
+    # no allocator (roadmap M2; the grow writer is io_alloc's).
+    check(not exists_under(build_dir, "libelemental_alloc.a"),
+          "alloc was built although the application links only io")
     check(not exists_under(build_dir, "libelemental_io_posix.a"),
           "io_posix was built although the application's defconfig disables it")
 
@@ -164,8 +168,12 @@ def case_installed(work):
     for name in ("status.h", "assert.h", "assert_handler.h", "io.h", "io_mem.h",
                  "io_posix.h", "io_contract.h", "io_contract.hpp",
                  "io_contract.cpp", "elemental_config.h",
+                 "alloc.h", "alloc_arena.h", "alloc_libc.h", "io_alloc.h",
+                 "alloc_contract.h", "alloc_contract.hpp",
+                 "alloc_contract.cpp", "alloc_checker.c",
                  "libelemental_status.a", "libelemental_io.a",
-                 "libelemental_io_posix.a",
+                 "libelemental_io_posix.a", "libelemental_alloc.a",
+                 "libelemental_alloc_libc.a", "libelemental_io_alloc.a",
                  "ElementalConfig.cmake", "ElementalConfigVersion.cmake",
                  "ElementalTargets.cmake", "ElementalConfiguration.cmake",
                  "elemental.config"):
