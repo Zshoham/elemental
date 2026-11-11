@@ -1,0 +1,18 @@
+config ALLOC
+	bool "alloc: allocator interface and arenas"
+	default y
+	select STATUS
+	help
+	  The el_allocator interface, a bump arena and a stack arena over
+	  caller-provided storage, and the contract test suite for
+	  allocators. Freestanding: needs no runtime symbol.
+
+config ALLOC_LIBC
+	bool "alloc_libc: allocator over the C library heap"
+	default y
+	depends on ALLOC && PLATFORM_POSIX
+	help
+	  An el_allocator over malloc(), aligned_alloc(), and free(), for
+	  programs with a hosted C library. Available where the POSIX probe
+	  finds <unistd.h>, which stands in for "a hosted C library": Linux
+	  is the only host operating system Elemental supports.

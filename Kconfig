@@ -21,5 +21,6 @@ menu "Modules"
 
 rsource "modules/status/Kconfig"
 rsource "modules/io/Kconfig"
+rsource "modules/alloc/Kconfig"
 
 endmenu
