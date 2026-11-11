@@ -12,6 +12,6 @@ elemental_add_module(crc
   SOURCES ${crc_source}
   DEPENDS status)
 
-if(ELEMENTAL_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+if(COMMAND elemental_add_test)
   add_subdirectory(tests)
 endif()

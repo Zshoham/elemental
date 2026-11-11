@@ -30,69 +30,76 @@ static size_t parse_number(const char **p)
     return value;
 }
 
+/*
+ * This file is compiled without jump tables (CMakeLists.txt): on ARMv6-M a
+ * jump table calls a libgcc helper. Writing the dispatch as if chains was
+ * not enough, because GCC turns a chain back into a table.
+ */
 static enum length parse_length(const char **p)
 {
-    switch (**p) {
-    case 'h':
+    if (**p == 'h') {
         (*p)++;
         if (**p == 'h') {
             (*p)++;
             return LENGTH_HH;
         }
         return LENGTH_H;
-    case 'l':
+    }
+    if (**p == 'l') {
         (*p)++;
         if (**p == 'l') {
             (*p)++;
             return LENGTH_LL;
         }
         return LENGTH_L;
-    case 'z':
+    }
+    if (**p == 'z') {
         (*p)++;
         return LENGTH_Z;
-    default:
-        return LENGTH_NONE;
     }
+    return LENGTH_NONE;
 }
 
 /* va_arg on a va_list passed by pointer, so the helpers below can share one
  * list (C11 7.16, footnote 253). */
 static int64_t signed_argument(va_list *args, enum length length)
 {
-    switch (length) {
-    case LENGTH_HH:
+    if (length == LENGTH_HH) {
         return (signed char)va_arg(*args, int);
-    case LENGTH_H:
-        return (short)va_arg(*args, int);
-    case LENGTH_L:
-        return va_arg(*args, long);
-    case LENGTH_LL:
-        return va_arg(*args, long long);
-    case LENGTH_Z:
-        return va_arg(*args, ptrdiff_t);
-    case LENGTH_NONE:
-    default:
-        return va_arg(*args, int);
     }
+    if (length == LENGTH_H) {
+        return (short)va_arg(*args, int);
+    }
+    if (length == LENGTH_L) {
+        return va_arg(*args, long);
+    }
+    if (length == LENGTH_LL) {
+        return va_arg(*args, long long);
+    }
+    if (length == LENGTH_Z) {
+        return va_arg(*args, ptrdiff_t);
+    }
+    return va_arg(*args, int);
 }
 
 static uint64_t unsigned_argument(va_list *args, enum length length)
 {
-    switch (length) {
-    case LENGTH_HH:
+    if (length == LENGTH_HH) {
         return (unsigned char)va_arg(*args, unsigned int);
-    case LENGTH_H:
-        return (unsigned short)va_arg(*args, unsigned int);
-    case LENGTH_L:
-        return va_arg(*args, unsigned long);
-    case LENGTH_LL:
-        return va_arg(*args, unsigned long long);
-    case LENGTH_Z:
-        return va_arg(*args, size_t);
-    case LENGTH_NONE:
-    default:
-        return va_arg(*args, unsigned int);
     }
+    if (length == LENGTH_H) {
+        return (unsigned short)va_arg(*args, unsigned int);
+    }
+    if (length == LENGTH_L) {
+        return va_arg(*args, unsigned long);
+    }
+    if (length == LENGTH_LL) {
+        return va_arg(*args, unsigned long long);
+    }
+    if (length == LENGTH_Z) {
+        return va_arg(*args, size_t);
+    }
+    return va_arg(*args, unsigned int);
 }
 
 static el_status format_with(el_fmt *f, const char *format, va_list *args)
@@ -143,9 +150,7 @@ static el_status format_with(el_fmt *f, const char *format, va_list *args)
             p++;
         }
 
-        switch (conversion) {
-        case 'd':
-        case 'i': {
+        if (conversion == 'd' || conversion == 'i') {
             EL_ASSERT(!has_precision);
             if (has_precision) {
                 return f->status;
@@ -153,30 +158,22 @@ static el_status format_with(el_fmt *f, const char *format, va_list *args)
             const int64_t value = signed_argument(args, length);
             const uint64_t magnitude = value < 0 ? 0u - (uint64_t)value : (uint64_t)value;
             (void)el_fmt_number_(f, magnitude, value < 0, 10, false, width, zero_pad);
-            break;
-        }
-        case 'u':
-        case 'x':
-        case 'X': {
+        } else if (conversion == 'u' || conversion == 'x' || conversion == 'X') {
             EL_ASSERT(!has_precision);
             if (has_precision) {
                 return f->status;
             }
             const uint64_t value = unsigned_argument(args, length);
-            (void)el_fmt_number_(f, value, false, conversion == 'u' ? 10 : 16,
-                                 conversion == 'X', width, zero_pad);
-            break;
-        }
-        case 'c': {
+            (void)el_fmt_number_(f, value, false, conversion == 'u' ? 10 : 16, conversion == 'X',
+                                 width, zero_pad);
+        } else if (conversion == 'c') {
             EL_ASSERT(!zero_pad && !has_precision && length == LENGTH_NONE);
             if (zero_pad || has_precision || length != LENGTH_NONE) {
                 return f->status;
             }
             const char c = (char)(unsigned char)va_arg(*args, int);
             (void)el_fmt_text_(f, width > 1 ? width - 1 : 0, &c, 1);
-            break;
-        }
-        case 's': {
+        } else if (conversion == 's') {
             EL_ASSERT(!zero_pad && length == LENGTH_NONE);
             if (zero_pad || length != LENGTH_NONE) {
                 return f->status;
@@ -188,9 +185,7 @@ static el_status format_with(el_fmt *f, const char *format, va_list *args)
             }
             const size_t len = el_fmt_strnlen_(s, has_precision ? precision : SIZE_MAX);
             (void)el_fmt_text_(f, width > len ? width - len : 0, s, len);
-            break;
-        }
-        default:
+        } else {
             /* Outside the subset, or the format ended inside a conversion.
              * Stop: reading on could take an argument as the wrong type. */
             EL_ASSERT(false);

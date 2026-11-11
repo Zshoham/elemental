@@ -55,8 +55,7 @@ std::string PrefixRule(const std::vector<Piece> &pieces, size_t cap)
     return out;
 }
 
-template <typename T>
-void CheckAgainstSnprintf(const char *conversion, bool number, T value)
+template <typename T> void CheckAgainstSnprintf(const char *conversion, bool number, T value)
 {
     SCOPED_TRACE(std::string("conversion ") + conversion);
     const std::string format = std::string("<") + conversion + ">";
@@ -89,10 +88,9 @@ void CheckAgainstSnprintf(const char *conversion, bool number, T value)
 
 std::vector<long long> SignedValues()
 {
-    std::vector<long long> values = {0,       1,       -1,      9,       10,       -10,
-                                     42,      -42,     127,     128,     -128,     -129,
-                                     255,     256,     32767,   32768,   -32768,   65535,
-                                     65536,   INT_MAX, INT_MIN, LLONG_MAX, LLONG_MIN};
+    std::vector<long long> values = {
+        0,   1,   -1,    9,     10,     -10,   42,    -42,     127,     128,       -128,     -129,
+        255, 256, 32767, 32768, -32768, 65535, 65536, INT_MAX, INT_MIN, LLONG_MAX, LLONG_MIN};
     std::mt19937_64 random(1);
     for (int i = 0; i < 40; i++) {
         values.push_back(static_cast<long long>(random() >> (random() % 64)));
@@ -118,8 +116,10 @@ TEST(FmtOracle, SignedConversionsMatchSnprintf)
 
 TEST(FmtOracle, UnsignedConversionsMatchSnprintf)
 {
-    const char *const int_formats[] = {"%u", "%x", "%X", "%08x", "%5X", "%hhu", "%hu", "%hhx", "%04hx"};
-    const char *const long_formats[] = {"%llu", "%llx", "%016llX", "%25llu", "%lu", "%lx", "%zu", "%zx"};
+    const char *const int_formats[] = {"%u",   "%x",  "%X",   "%08x", "%5X",
+                                       "%hhu", "%hu", "%hhx", "%04hx"};
+    const char *const long_formats[] = {"%llu", "%llx", "%016llX", "%25llu",
+                                        "%lu",  "%lx",  "%zu",     "%zx"};
     for (long long signed_value : SignedValues()) {
         const auto value = static_cast<unsigned long long>(signed_value);
         for (const char *format : int_formats) {

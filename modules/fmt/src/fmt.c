@@ -160,13 +160,13 @@ static char *hexadecimal(char *end, uint64_t value, bool upper)
     return end;
 }
 
-el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base,
-                         bool upper, size_t width, bool zero_pad)
+el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base, bool upper,
+                         size_t width, bool zero_pad)
 {
     char digits[20]; /* UINT64_MAX has 20 decimal digits */
     char *const end = digits + sizeof digits;
-    const char *const first = base == 16 ? hexadecimal(end, magnitude, upper)
-                                         : decimal(end, magnitude);
+    const char *const first =
+        base == 16 ? hexadecimal(end, magnitude, upper) : decimal(end, magnitude);
     const size_t count = (size_t)(end - first);
     const size_t body = count + (negative ? 1 : 0);
     const size_t total = width > body ? width : body;

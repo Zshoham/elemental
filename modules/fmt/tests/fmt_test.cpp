@@ -26,7 +26,10 @@ class Formatter
         el_fmt_init(&f, storage_.data(), cap_);
     }
 
-    std::string Text() const { return std::string(storage_.data(), el_fmt_len(&f)); }
+    std::string Text() const
+    {
+        return std::string(storage_.data(), el_fmt_len(&f));
+    }
 
     /* The invariant every call keeps: a terminator right after the text, and
      * nothing written past the capacity. */
@@ -45,7 +48,7 @@ class Formatter
 
   private:
     size_t cap_;
-    std::array<char, 128> storage_;
+    std::array<char, 80> storage_; /* small: also runs on a 4 KiB target stack */
 };
 
 std::string Dec(uint64_t value, size_t width = 0, uint32_t flags = 0)

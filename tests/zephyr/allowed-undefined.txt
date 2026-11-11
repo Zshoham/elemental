@@ -6,8 +6,8 @@
 # and no Zephyr symbol is on this list. Adding one is a decision that needs a
 # reason here.
 
-memcpy   # io_mem.c copies bytes with it. GCC and Clang already require every
-         # freestanding environment to provide it.
+memcpy   # io_mem.c and fmt.c copy bytes with it. GCC and Clang already
+         # require every freestanding environment to provide it.
 
 el_assert_failed  # Only in the ASSERT_HANDLER_APPLICATION configuration, where
                   # the application must define it (modules/status/Kconfig).

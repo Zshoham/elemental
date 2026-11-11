@@ -11,6 +11,9 @@
 #include <cstdarg>
 #include <cstdint>
 
+#include <csignal>
+#include <sys/wait.h>
+
 #if __has_include(<sys/resource.h>)
 #include <sys/resource.h>
 #define HAVE_RLIMIT 1
@@ -23,7 +26,21 @@
 namespace
 {
 
-#define EXPECT_VIOLATION(statement) EXPECT_DEATH(statement, "")
+/*
+ * Stopped by the check, not by a crash: a failed check traps (SIGILL on
+ * this host) or calls the test handler, which aborts (SIGABRT). Without the
+ * check a null pointer would still die here, of SIGSEGV, or be reported by
+ * AddressSanitizer, which exits; neither is accepted. On a Cortex-M without
+ * memory protection the same null access would not fault at all, so the
+ * check is what these tests are about.
+ */
+bool StoppedByACheck(int status)
+{
+    return WIFSIGNALED(status) && (WTERMSIG(status) == SIGILL || WTERMSIG(status) == SIGTRAP ||
+                                   WTERMSIG(status) == SIGABRT);
+}
+
+#define EXPECT_VIOLATION(statement) EXPECT_EXIT(statement, StoppedByACheck, "")
 
 /*
  * Formats outside the subset, passed where the compiler cannot see them:
@@ -58,7 +75,10 @@ class FmtViolations : public testing::Test
 #endif
     }
 
-    void SetUp() override { el_fmt_init(&f, buf, sizeof buf); }
+    void SetUp() override
+    {
+        el_fmt_init(&f, buf, sizeof buf);
+    }
 
     char buf[64];
     el_fmt f;
@@ -77,8 +97,8 @@ TEST_F(FmtViolations, CorrectUseDoesNotTripACheck)
     (void)el_fmt_dec_u64(&f, 1, 3, EL_FMT_ZERO_PAD);
     (void)el_fmt_dec_i64(&f, -1, 3, EL_FMT_ZERO_PAD);
     (void)el_fmt_hex_u64(&f, 1, 3, EL_FMT_ZERO_PAD | EL_FMT_UPPER);
-    (void)Unchecked(&f, "%0hhd%05hu%lld%zu%zd%3c%.*s%5.2s%%", 1, 2u, 3LL, size_t{4},
-                    ptrdiff_t{5}, 'c', -1, "s", "str");
+    (void)Unchecked(&f, "%0hhd%05hu%lld%zu%zd%3c%.*s%5.2s%%", 1, 2u, 3LL, size_t{4}, ptrdiff_t{5},
+                    'c', -1, "s", "str");
 }
 
 TEST_F(FmtViolationsDeathTest, NullObject)

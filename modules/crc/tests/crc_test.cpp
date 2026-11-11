@@ -72,7 +72,8 @@ TEST(Crc, SplittingTheInputNeverChangesTheResult)
 {
     const std::vector<uint8_t> data = Pattern(64);
     const uint32_t whole32 = el_crc32_update(EL_CRC32_INIT, data.data(), data.size());
-    const uint16_t whole16 = el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, data.data(), data.size());
+    const uint16_t whole16 =
+        el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, data.data(), data.size());
     for (size_t split = 0; split <= data.size(); split++) {
         const size_t rest = data.size() - split;
         uint32_t crc32 = el_crc32_update(EL_CRC32_INIT, data.data(), split);
@@ -122,8 +123,9 @@ TEST(Crc, UnalignedInputGivesTheSameResult)
         shifted.insert(shifted.end(), data.begin(), data.end());
         EXPECT_EQ(el_crc32_update(EL_CRC32_INIT, shifted.data() + offset, data.size()),
                   el_crc32_update(EL_CRC32_INIT, data.data(), data.size()));
-        EXPECT_EQ(el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, shifted.data() + offset, data.size()),
-                  el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, data.data(), data.size()));
+        EXPECT_EQ(
+            el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, shifted.data() + offset, data.size()),
+            el_crc16_ibm3740_update(EL_CRC16_IBM3740_INIT, data.data(), data.size()));
     }
 }
 

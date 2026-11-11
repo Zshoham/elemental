@@ -16,8 +16,8 @@
 el_status el_fmt_text_(el_fmt *f, size_t pad, const char *s, size_t len);
 
 /* One number item, whole or not at all. `base` is 10 or 16. */
-el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base,
-                         bool upper, size_t width, bool zero_pad);
+el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base, bool upper,
+                         size_t width, bool zero_pad);
 
 /* Length of a NUL-terminated string, reading at most `max` bytes. */
 size_t el_fmt_strnlen_(const char *s, size_t max);

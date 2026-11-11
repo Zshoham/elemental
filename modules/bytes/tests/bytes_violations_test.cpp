@@ -9,6 +9,9 @@
 
 #include <cstdint>
 
+#include <csignal>
+#include <sys/wait.h>
+
 #if __has_include(<sys/resource.h>)
 #include <sys/resource.h>
 #define HAVE_RLIMIT 1
@@ -21,7 +24,21 @@
 namespace
 {
 
-#define EXPECT_VIOLATION(statement) EXPECT_DEATH(statement, "")
+/*
+ * Stopped by the check, not by a crash: a failed check traps (SIGILL on
+ * this host) or calls the test handler, which aborts (SIGABRT). Without the
+ * check a null pointer would still die here, of SIGSEGV, or be reported by
+ * AddressSanitizer, which exits; neither is accepted. On a Cortex-M without
+ * memory protection the same null access would not fault at all, so the
+ * check is what these tests are about.
+ */
+bool StoppedByACheck(int status)
+{
+    return WIFSIGNALED(status) && (WTERMSIG(status) == SIGILL || WTERMSIG(status) == SIGTRAP ||
+                                   WTERMSIG(status) == SIGABRT);
+}
+
+#define EXPECT_VIOLATION(statement) EXPECT_EXIT(statement, StoppedByACheck, "")
 
 class BytesViolations : public testing::Test
 {

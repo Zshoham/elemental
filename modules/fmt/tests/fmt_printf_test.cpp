@@ -24,7 +24,7 @@ std::string Format(size_t cap, el_status *status, const char *format, ...)
 
 std::string Format(size_t cap, el_status *status, const char *format, ...)
 {
-    char buf[256];
+    char buf[64]; /* small: the tests also run on a 4 KiB target stack */
     el_fmt f;
     el_fmt_init(&f, buf, cap);
     va_list args;
@@ -51,11 +51,11 @@ el_status EmptyFormat(el_fmt *f)
 #endif
 }
 
-#define EXPECT_FORMAT(expected, ...)                                                               \
-    do {                                                                                           \
-        el_status status_;                                                                         \
-        EXPECT_EQ(Format(256, &status_, __VA_ARGS__), expected);                                   \
-        EXPECT_EQ(status_, EL_OK);                                                                 \
+#define EXPECT_FORMAT(expected, ...)                            \
+    do {                                                        \
+        el_status status_;                                      \
+        EXPECT_EQ(Format(64, &status_, __VA_ARGS__), expected); \
+        EXPECT_EQ(status_, EL_OK);                              \
     } while (0)
 
 TEST(FmtPrintf, EveryConversionInTheSubset)
@@ -78,7 +78,11 @@ TEST(FmtPrintf, FixedWidthTypesThroughInttypes)
     EXPECT_FORMAT("18446744073709551615", "%" PRIu64, UINT64_MAX);
     EXPECT_FORMAT("-9223372036854775808", "%" PRId64, INT64_MIN);
     EXPECT_FORMAT("ffffffffffffffff", "%" PRIx64, UINT64_MAX);
-    EXPECT_FORMAT("4294967295 -2147483648", "%" PRIu32 " %" PRId32, UINT32_MAX, INT32_MIN);
+    /* uint32_t{UINT32_MAX}, not UINT32_MAX: picolibc defines the macro as an
+     * unsigned long while uint32_t is unsigned int, so PRIu32 would not
+     * match the macro's type there. */
+    EXPECT_FORMAT("4294967295 -2147483648", "%" PRIu32 " %" PRId32, uint32_t{UINT32_MAX},
+                  int32_t{INT32_MIN});
     EXPECT_FORMAT("255 65535", "%" PRIu8 " %" PRIu16, uint8_t{255}, uint16_t{65535});
     EXPECT_FORMAT("-128 -32768", "%" PRId8 " %" PRId16, int8_t{-128}, int16_t{-32768});
 }

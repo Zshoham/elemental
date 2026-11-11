@@ -2,14 +2,13 @@
  * Byte order is defined by its vectors: 0x0102...08 stored little endian is
  * 08 07 ... 01, and big endian is 01 02 ... 08. Every function is also run
  * at each offset 0..7, so every misalignment is covered, and checked not to
- * touch the bytes around it. Under the sanitize preset, UBSan would report a
- * misaligned wide access.
+ * touch the bytes around it. Random values are compared with a reference
+ * written byte by byte in the test. Under the sanitize preset, UBSan would
+ * report a misaligned wide access.
  */
 #include <gtest/gtest.h>
 
 #include <elemental/bytes.h>
-
-#include <endian.h> /* glibc: the host oracle */
 
 #include <array>
 #include <cstdint>
@@ -24,8 +23,14 @@ constexpr uint8_t kGuard = 0xA5;
 /* A buffer of guard bytes, so a store that writes outside its width shows. */
 struct Buffer {
     std::array<uint8_t, 24> bytes;
-    Buffer() { bytes.fill(kGuard); }
-    uint8_t *at(size_t offset) { return bytes.data() + offset; }
+    Buffer()
+    {
+        bytes.fill(kGuard);
+    }
+    uint8_t *at(size_t offset)
+    {
+        return bytes.data() + offset;
+    }
 };
 
 void ExpectOnly(Buffer &buffer, size_t offset, const std::array<uint8_t, 8> &expected, size_t size)
@@ -104,51 +109,53 @@ TEST(Bytes, HighBitsSurviveEveryWidth)
     EXPECT_EQ(el_bytes_load_be64(ones), UINT64_MAX);
 }
 
-TEST(Bytes, RandomValuesMatchGlibcAndRoundTrip)
+/* The reference: byte i of a little-endian value is bits 8i to 8i+7, and
+ * big endian is the same bytes in reverse order. */
+void Reference(uint8_t *out, uint64_t value, size_t size, bool big)
+{
+    for (size_t i = 0; i < size; i++) {
+        out[big ? size - 1 - i : i] = static_cast<uint8_t>(value >> (8 * i));
+    }
+}
+
+void ExpectStored(const uint8_t *stored, uint64_t value, size_t size, bool big)
+{
+    uint8_t expected[8];
+    Reference(expected, value, size, big);
+    EXPECT_EQ(std::memcmp(stored, expected, size), 0)
+        << (big ? "big" : "little") << " endian, " << size << " bytes, value " << value;
+}
+
+TEST(Bytes, RandomValuesMatchTheReferenceAndRoundTrip)
 {
     std::mt19937_64 random(20261111);
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 2000; i++) {
         const uint64_t v = random();
         const size_t offset = static_cast<size_t>(i % 8);
         Buffer buffer;
         uint8_t *p = buffer.at(offset);
+        const auto v32 = static_cast<uint32_t>(v);
+        const auto v16 = static_cast<uint16_t>(v);
 
         el_bytes_store_le64(p, v);
-        uint64_t le64;
-        std::memcpy(&le64, p, 8);
-        EXPECT_EQ(le64, htole64(v));
+        ExpectStored(p, v, 8, false);
         EXPECT_EQ(el_bytes_load_le64(p), v);
-
         el_bytes_store_be64(p, v);
-        uint64_t be64;
-        std::memcpy(&be64, p, 8);
-        EXPECT_EQ(be64, htobe64(v));
+        ExpectStored(p, v, 8, true);
         EXPECT_EQ(el_bytes_load_be64(p), v);
 
-        const auto v32 = static_cast<uint32_t>(v);
         el_bytes_store_le32(p, v32);
-        uint32_t le32;
-        std::memcpy(&le32, p, 4);
-        EXPECT_EQ(le32, htole32(v32));
+        ExpectStored(p, v32, 4, false);
         EXPECT_EQ(el_bytes_load_le32(p), v32);
-
         el_bytes_store_be32(p, v32);
-        uint32_t be32;
-        std::memcpy(&be32, p, 4);
-        EXPECT_EQ(be32, htobe32(v32));
+        ExpectStored(p, v32, 4, true);
         EXPECT_EQ(el_bytes_load_be32(p), v32);
 
-        const auto v16 = static_cast<uint16_t>(v);
         el_bytes_store_le16(p, v16);
-        uint16_t le16;
-        std::memcpy(&le16, p, 2);
-        EXPECT_EQ(le16, htole16(v16));
+        ExpectStored(p, v16, 2, false);
         EXPECT_EQ(el_bytes_load_le16(p), v16);
-
         el_bytes_store_be16(p, v16);
-        uint16_t be16;
-        std::memcpy(&be16, p, 2);
-        EXPECT_EQ(be16, htobe16(v16));
+        ExpectStored(p, v16, 2, true);
         EXPECT_EQ(el_bytes_load_be16(p), v16);
     }
 }

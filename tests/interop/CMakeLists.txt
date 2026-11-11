@@ -28,7 +28,8 @@ endif()
 # Skipped under sanitizers: the instrumented C libraries need a sanitizer
 # runtime that a plain rustc link does not provide.
 find_program(ELEMENTAL_RUSTC rustc)
-if(ELEMENTAL_RUSTC AND EL_CONFIG_IO AND NOT sanitized)
+if(ELEMENTAL_RUSTC AND EL_CONFIG_IO AND EL_CONFIG_FMT AND EL_CONFIG_CRC AND EL_CONFIG_BYTES
+   AND NOT sanitized)
   set(rust_binary "${CMAKE_CURRENT_BINARY_DIR}/rust_sketch")
   add_custom_command(
     OUTPUT "${rust_binary}"
@@ -36,14 +37,19 @@ if(ELEMENTAL_RUSTC AND EL_CONFIG_IO AND NOT sanitized)
             -o "${rust_binary}" "${CMAKE_CURRENT_SOURCE_DIR}/rust_sketch.rs"
             -L "native=$<TARGET_FILE_DIR:elemental_io>"
             -L "native=$<TARGET_FILE_DIR:elemental_status>"
-            -l static=elemental_io -l static=elemental_status
-    DEPENDS rust_sketch.rs elemental_io elemental_status
+            -L "native=$<TARGET_FILE_DIR:elemental_fmt>"
+            -L "native=$<TARGET_FILE_DIR:elemental_crc>"
+            -L "native=$<TARGET_FILE_DIR:elemental_bytes>"
+            -l static=elemental_io -l static=elemental_fmt -l static=elemental_crc
+            -l static=elemental_bytes -l static=elemental_status
+    DEPENDS rust_sketch.rs elemental_io elemental_fmt elemental_crc elemental_bytes
+            elemental_status
     COMMENT "Compiling and linking the Rust interop sketch"
     VERBATIM)
   add_custom_target(interop_rust_sketch ALL DEPENDS "${rust_binary}")
   add_test(NAME interop.rust COMMAND "${rust_binary}")
 else()
-  message(STATUS "Rust interop sketch not built (no rustc, io disabled, or sanitizers on)")
+  message(STATUS "Rust interop sketch not built (no rustc, a module it uses disabled, or sanitizers on)")
 endif()
 
 # The allocator contract next to Rust's GlobalAlloc, in both directions.
