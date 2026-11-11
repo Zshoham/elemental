@@ -13,7 +13,6 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <random>
 
 namespace
 {
@@ -128,7 +127,15 @@ void ExpectStored(const uint8_t *stored, uint64_t value, size_t size, bool big)
 
 TEST(Bytes, RandomValuesMatchTheReferenceAndRoundTrip)
 {
-    std::mt19937_64 random(20261111);
+    /* splitmix64, not std::mt19937_64: its 2.5 KB of state would be most of
+     * a 4 KiB target stack (tests/zephyr). */
+    uint64_t state = 20261111;
+    auto random = [&state] {
+        uint64_t z = (state += 0x9E3779B97F4A7C15u);
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9u;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBu;
+        return z ^ (z >> 31);
+    };
     for (int i = 0; i < 2000; i++) {
         const uint64_t v = random();
         const size_t offset = static_cast<size_t>(i % 8);
