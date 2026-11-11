@@ -1,0 +1,8 @@
+config FMT
+	bool "fmt: text formatting into caller memory"
+	default y
+	select STATUS
+	help
+	  Integers in decimal and hex, strings, and hex dumps, written into
+	  a buffer the caller provides, plus a printf-style front end.
+	  No floating point. Freestanding: needs only memcpy().
