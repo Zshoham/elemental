@@ -1,6 +1,6 @@
 # Proposal: fmt
 
-Status: Draft
+Status: Accepted (2026-11-11, by the project owner)
 Author, date: design draft for milestone M3, 2026-11-11
 
 Formats text into caller memory: integers, strings, and hex dumps. It has a
@@ -295,7 +295,7 @@ variadic function. It depends on the compiler, not on configuration, so
   nothing more is written, and every later call returns `EL_ERR_NO_SPACE`
   until `el_fmt_init`. Without this, a later short item could land after a
   dropped one, and `"count= ok"` would hide that the count is missing.
-- **NUL termination (recommended; open question 1):** when `cap > 0`, the
+- **NUL termination (decision 1):** when `cap > 0`, the
   buffer is NUL-terminated after every call, including `el_fmt_init`.
   `len` never counts the terminator, so at most `cap - 1` bytes of text fit.
   With `cap == 0`, nothing is ever written.
@@ -339,7 +339,7 @@ Plain functions on a caller-owned object (mechanism 1 of
 nothing varies. Several `el_fmt` objects can coexist, and an `el_fmt` can be
 copied at any time, because nothing holds its address.
 
-**Its own cursor, not `el_mem_writer`** (open question 4). The cursor needs to
+**Its own cursor, not `el_mem_writer`** (decision 3). The cursor needs to
 know about items and a sticky truncation state, which a byte stream does not
 have, and using `el_mem_writer` would make `io` a dependency. The cost is a
 second "buffer, capacity, length" struct in the library. `fmt` has no `io`
@@ -404,21 +404,19 @@ addition:
 - The cycle cost of decimal conversion on ARMv6-M is measured on hardware,
   or the claim stays unmeasured.
 
-## Open questions
+## Decisions
 
-These are for the owner. Examples cannot settle them:
+Decided by the project owner on 2026-11-11, accepting each recommendation:
 
-1. Always NUL-terminate, or never?
-2. The printf subset's scope, in particular `%.*s` and the `hh h` length
-   modifiers.
-3. Whether numbers are whole-or-absent and truncation is sticky, as
-   proposed.
-4. Its own cursor rather than `el_mem_writer`.
+1. **Truncation.** Numbers are whole or absent. Text is cut at the last byte
+   that fits. Truncation is sticky. The buffer is always NUL-terminated
+   when `cap > 0`.
+2. **The printf subset**, exactly as above: `d i u x X c s %`, the `0` flag,
+   decimal width, `.N` and `.*` for `%s` only, and `hh h l ll z`.
+3. **Its own cursor**, `el_fmt`, not `el_mem_writer`.
 
-Once these are decided, the truncation rule gets an ADR ("formatting writes
-to caller memory, and truncation is a prefix that ends on an item
-boundary"). It is the contract decision the roadmap says M3 settles, and
-`ring`, `frame`, and `log` will cite it.
+The truncation rule is recorded in
+[ADR 0010](../adr/0010-formatting-truncation.md).
 
 ## Review: three seats
 
@@ -431,7 +429,7 @@ boundary"). It is the contract decision the roadmap says M3 settles, and
 | Literal strings and `el_status_name()` needed a separate `strlen`. | `el_fmt_cstr`. |
 | `PRIu64` expands to `"llu"` on Arm and `"lu"` on x86-64, so the subset failed on one of them. | `l` and `ll` accepted; `hh` and `h` accepted for `PRIu8` and `PRIu16` on some libcs. |
 | Elemental strings come with a length, but `%s` wants a NUL. | `%.*s`, and `el_fmt_str` in the core. |
-| With NUL termination, Example 1 gives up a byte for the NUL and another for the newline. | Accepted cost; it is open question 1. |
+| With NUL termination, Example 1 gives up a byte for the NUL and another for the newline. | Accepted cost (decision 1). |
 
 **Backend author.** There is no backend. This seat was read as the person
 porting to a new target, and as the M4 sink author who builds on `fmt`.
@@ -450,7 +448,7 @@ porting to a new target, and as the M4 sink author who builds on `fmt`.
 | A risk of creep toward full printf. | The subset table, plus the rule that every accepted format matches `snprintf`. The oracle test makes adding a conversion cheap to verify and easy to see in review. |
 | A cursor shared with `io` would couple two modules for one struct. | Its own cursor; the only dependency is `status`. |
 | `width` as `size_t` allows absurd values. | Not a problem: an absurd width is just `EL_ERR_NO_SPACE`. Nothing multiplies it, so it cannot overflow. |
-| Hard to change later: the truncation rule, NUL termination, and the `el_fmt` layout. | That is why the first two are decisions for the owner now, and why the truncation rule gets an ADR. |
+| Hard to change later: the truncation rule, NUL termination, and the `el_fmt` layout. | The first two were decided by the owner and recorded in ADR 0010. |
 
 Bare `el_<verb>` names: none. Every function is `el_fmt_*`. No name equals
 one that libedit 3.1 (20260512) declares in `histedit.h`. The closest is

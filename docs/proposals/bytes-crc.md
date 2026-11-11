@@ -1,6 +1,6 @@
 # Proposal: bytes and crc
 
-Status: Draft
+Status: Accepted (2026-11-11, by the project owner)
 Author, date: design draft for milestone M3, 2026-11-11
 
 There are two small pure modules here, reviewed together, as
@@ -169,7 +169,7 @@ can call it directly and test it against `el_crc32_update` as an oracle.
 
 | | `bytes` | `crc` |
 |---|---|---|
-| Elemental modules | `status`, for `EL_ASSERT` only (open question 3) | `status`, for `EL_ASSERT` only |
+| Elemental modules | `status`, for `EL_ASSERT` only (decision 3) | `status`, for `EL_ASSERT` only |
 | Runtime symbols (freestanding) | None | None |
 | Allocation | None | None |
 | Per-object storage | No objects | No objects. The running CRC is one `uint32_t` or `uint16_t` the caller keeps. |
@@ -270,7 +270,7 @@ This is the convention of zlib's `crc32()`, Zephyr's `crc32_ieee_update()`,
 and Pigweed's `pw_checksum_Crc32Append()`. For CRC-32 it means inverting at
 the start and end of each call: two instructions per call, not per byte.
 
-**Why IBM-3740 for the CRC-16** (open question 1), from the
+**Why IBM-3740 for the CRC-16** (decision 1), from the
 [catalogue](https://reveng.sourceforge.io/crc-catalogue/16.htm), retrieved
 2026-11-11, last updated 2024-12-11:
 
@@ -329,7 +329,7 @@ arguments and calls nothing). There is no handle and no object.
 |---|---|---|---|
 | `BYTES` | y | Enables the module | — |
 | `CRC` | y | Enables the module | — |
-| choice: `CRC_TABLE_4BIT` / `CRC_TABLE_8BIT` | `CRC_TABLE_4BIT` (open question 2) | 4-bit: 90–130 B per CRC, for small flash. 8-bit: about 1.4× faster (Pigweed's figures) for high-rate links, at 1.5 KiB of tables. | The linker cannot choose between two implementations of one symbol. A parameter would put a speed and size trade-off into every call site and every ABI. Results are identical, so it is private under [ADR 0004](../adr/0004-private-configuration.md). |
+| choice: `CRC_TABLE_4BIT` / `CRC_TABLE_8BIT` | `CRC_TABLE_4BIT` (decision 2) | 4-bit: 90–130 B per CRC, for small flash. 8-bit: about 1.4× faster (Pigweed's figures) for high-rate links, at 1.5 KiB of tables. | The linker cannot choose between two implementations of one symbol. A parameter would put a speed and size trade-off into every call site and every ABI. Results are identical, so it is private under [ADR 0004](../adr/0004-private-configuration.md). |
 
 Bitwise is not offered. Against the 4-bit table it saves 45–75 B per CRC
 (measured above), for four times the steps per byte, and no consumer has asked for that
@@ -393,19 +393,17 @@ trade.
   on one ARMv6-M or ARMv7-M board. Until then the speed claim is Pigweed's,
   not ours.
 
-## Open questions
+## Decisions
 
-These are for the owner:
+Decided by the project owner on 2026-11-11, accepting each recommendation:
 
-1. Which CRC-16 (IBM-3740 recommended), and whether the variant name goes in
-   the function name.
-2. Which table choice is the default, and whether bitwise is offered.
-3. Whether `bytes` asserts non-null pointers. Asserting adds a dependency on
-   `status`, which module-plan currently lists as none. It costs a compare
-   and a branch per call. Not asserting means a null load on a Cortex-M
-   without an MPU silently reads the vector table at address 0.
-4. Whether to chain finished values, or to use init/update/final with a
-   state struct.
+1. **CRC-16/IBM-3740**, with the variant in the function name:
+   `el_crc16_ibm3740_update`.
+2. **A private Kconfig choice** between 16-entry tables (the default) and
+   256-entry tables. There is no bitwise version.
+3. **`bytes` asserts non-null pointers**, and so depends on `status`.
+4. **CRC calls take the previous result back**, starting from the CRC of
+   no bytes. There is no state struct.
 
 ## Review: three seats
 
@@ -435,7 +433,7 @@ new target, and as someone wiring a hardware CRC unit.
 | A Kconfig option has to justify itself. | It survives the four questions: the linker cannot choose, a parameter would leak, it is not a toolchain property, and the consumer never sees it. Bitwise was dropped for lack of a use case. |
 | Two configurations to test. | A second test executable compiles the CRC sources with the other choice, so one preset covers both. |
 | Risk of `bytes` widening into a cursor. | Out of scope, with the revisit condition from module-plan. |
-| Hard to change later: the CRC-16 choice, the chaining convention, and the names. | All three are open questions for the owner now. |
+| Hard to change later: the CRC-16 choice, the chaining convention, and the names. | All three were decided by the owner (Decisions, below). |
 
 libedit check: no name here equals one in libedit 3.1 (20260512)
 `histedit.h`. Every name has an `el_bytes_` or `el_crc` prefix, and libedit
