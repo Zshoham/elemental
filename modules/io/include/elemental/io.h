@@ -25,6 +25,12 @@
  *                           returns the same.
  *   EL_ERR_IO             *n == 0. The environment failed. The object
  *                           behind the stream holds the detail.
+ *   EL_ERR_NO_SPACE       *n == 0. Writers only: the writer could not get
+ *                           storage for any of the bytes. Not permanent:
+ *                           the same call can succeed once storage is
+ *                           available again. Only from writers that
+ *                           allocate, such as el_grow_writer
+ *                           (elemental/io_alloc.h).
  *
  * Blocking: the interface does not say whether a call may wait. That is a
  * property of the stream, fixed by whoever created it, and documented by
