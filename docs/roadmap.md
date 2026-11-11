@@ -84,8 +84,7 @@ Deliverables and acceptance:
       not fit one.
 - [ ] **The CI workflow passes** on its first real run, or is fixed until it
       does. It has never run.
-- [ ] **A license is chosen** and added. Until then nobody else can use the
-      code.
+- [x] **A license is chosen** and added: Apache-2.0, in `LICENSE`.
 - [ ] **Older compilers.** The CI image's GCC and Clang build with warnings
       as errors, or the warning set is adjusted with reasons.
 - [ ] **A second operating system** for the POSIX backend (macOS or a BSD):
@@ -106,9 +105,8 @@ Out of scope: new interfaces.
 
 Deliverables:
 
-- An ADR on the capacity and bad-input statuses
-  ([module-plan.md](module-plan.md#3-decisions-that-must-come-first)),
-  before the proposal. `io_alloc` is the first module to return a capacity
+- An ADR on the capacity and bad-input statuses, before the proposal:
+  [ADR 0009](adr/0009-capacity-status.md), `EL_ERR_NO_SPACE`. `io_alloc` is the first module to return a capacity
   status.
 - A proposal, with usage examples that put sized free under pressure: a
   string, a growable buffer, an object handed across an API. The examples

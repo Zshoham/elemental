@@ -16,6 +16,7 @@ TEST(Status, CodesNeverChange)
     EXPECT_EQ(EL_ERR_WOULD_BLOCK, 1);
     EXPECT_EQ(EL_ERR_END_OF_STREAM, 2);
     EXPECT_EQ(EL_ERR_IO, 3);
+    EXPECT_EQ(EL_ERR_NO_SPACE, 4);
     EXPECT_EQ(sizeof(el_status), 4u);
 }
 
@@ -25,12 +26,13 @@ TEST(Status, EveryCodeHasAName)
     EXPECT_STREQ(el_status_name(EL_ERR_WOULD_BLOCK), "would_block");
     EXPECT_STREQ(el_status_name(EL_ERR_END_OF_STREAM), "end_of_stream");
     EXPECT_STREQ(el_status_name(EL_ERR_IO), "io");
+    EXPECT_STREQ(el_status_name(EL_ERR_NO_SPACE), "no_space");
 }
 
 TEST(Status, ValuesOutsideTheVocabularyAreNamedUnknown)
 {
     /* Never NULL, so the result can always be printed. */
-    EXPECT_STREQ(el_status_name(4), "unknown");
+    EXPECT_STREQ(el_status_name(5), "unknown");
     EXPECT_STREQ(el_status_name(-1), "unknown");
     EXPECT_STREQ(el_status_name(INT32_MAX), "unknown");
     EXPECT_STREQ(el_status_name(INT32_MIN), "unknown");
@@ -38,8 +40,8 @@ TEST(Status, ValuesOutsideTheVocabularyAreNamedUnknown)
 
 TEST(Status, NamesAreDistinct)
 {
-    for (el_status a = EL_OK; a <= EL_ERR_IO; a++) {
-        for (el_status b = a + 1; b <= EL_ERR_IO; b++) {
+    for (el_status a = EL_OK; a <= EL_ERR_NO_SPACE; a++) {
+        for (el_status b = a + 1; b <= EL_ERR_NO_SPACE; b++) {
             EXPECT_STRNE(el_status_name(a), el_status_name(b));
         }
     }

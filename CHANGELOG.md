@@ -7,6 +7,9 @@ level. See [docs/process/api-stability.md](docs/process/api-stability.md).
 
 First milestone: the project's foundation.
 
+- Licensed under Apache-2.0.
+- `status`: `EL_ERR_NO_SPACE` (4), the one capacity status
+  ([ADR 0009](docs/adr/0009-capacity-status.md)).
 - `status` (experimental): `el_status`, four codes, `el_status_name()`,
   `EL_ASSERT()`, and the application assertion handler.
 - `io` (experimental): `el_reader` and `el_writer`, `el_read`,

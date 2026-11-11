@@ -37,9 +37,13 @@ are listed with the module that would introduce them:
 
 | Candidate | Would arrive with |
 |---|---|
-| `EL_ERR_NO_MEMORY` | allocation |
-| `EL_ERR_INVALID_ARGUMENT` | the first module that validates input data rather than asserting |
-| `EL_ERR_UNSUPPORTED` | the first interface with an optional operation |
+| `EL_ERR_INVALID_DATA` | `frame` decode, the first module that rejects malformed input data |
+| `EL_ERR_UNSUPPORTED` | the first interface with an optional operation that has no harmless null meaning |
+
+`EL_ERR_NO_SPACE` was admitted by [ADR 0009](../../docs/adr/0009-capacity-status.md)
+ahead of its first module, because `alloc` and `fmt` are built in parallel.
+There is no `EL_ERR_NO_MEMORY` and no `EL_ERR_INVALID_ARGUMENT`; the ADR
+says why.
 
 Things that were considered and do not belong here: string helpers, byte
 order, a logging hook, error values that carry messages or context.

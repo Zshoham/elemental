@@ -15,6 +15,7 @@ by editing history.
 | [0006](0006-c11-and-naming.md) | C11 baseline and the `el_` prefix | Accepted |
 | [0007](0007-first-slice.md) | The first slice is status and byte I/O | Accepted; its freestanding contract suite is superseded by 0008 |
 | [0008](0008-googletest.md) | Tests are GoogleTest; target tests go through Zephyr | Accepted |
+| [0009](0009-capacity-status.md) | One capacity status, `EL_ERR_NO_SPACE` | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

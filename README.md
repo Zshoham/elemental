@@ -25,7 +25,7 @@ Version 0.1, first milestone. Everything is **experimental**.
 Allocation, logging, async, and IPC are designs or open questions, not code.
 See the [roadmap](docs/roadmap.md).
 
-No license has been chosen yet.
+Licensed under the [Apache License 2.0](LICENSE).
 
 ## Quick start
 

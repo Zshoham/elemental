@@ -13,6 +13,8 @@ const char *el_status_name(el_status status)
         return "end_of_stream";
     case EL_ERR_IO:
         return "io";
+    case EL_ERR_NO_SPACE:
+        return "no_space";
     default:
         return "unknown";
     }

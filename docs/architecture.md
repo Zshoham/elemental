@@ -442,8 +442,9 @@ Positions to test, each with its cost:
   pointer result, so a status plus `void **` would be worse: passing a typed
   pointer's address as `void **` is not valid C. This is the documented
   exception to "status return, value by output parameter"
-  ([conventions.md](conventions.md#errors)). `EL_ERR_NO_MEMORY` joins the
-  vocabulary for functions that allocate among other things.
+  ([conventions.md](conventions.md#errors)). Functions that allocate among
+  other things return `EL_ERR_NO_SPACE`
+  ([ADR 0009](adr/0009-capacity-status.md)).
 - **Storage ownership.** Memory is released through the allocator that
   provided it. A component that allocates stores the handle it was given;
   it never assumes a default.

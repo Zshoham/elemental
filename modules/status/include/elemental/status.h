@@ -61,12 +61,21 @@ enum {
      * The environment failed: a device, the operating system, a transport.
      * The object that reported it holds the platform-specific detail.
      */
-    EL_ERR_IO = 3
+    EL_ERR_IO = 3,
+
+    /*
+     * The storage available to the operation was not enough: a buffer the
+     * caller supplied is too small, a container is full, or an allocator
+     * is exhausted inside a function that allocates. The same call can
+     * succeed with more storage. What the outputs hold is documented by
+     * each function that returns it.
+     */
+    EL_ERR_NO_SPACE = 4
 };
 
 /*
  * A short, stable, lower-case name for a status, for logs and diagnostics:
- * "ok", "would_block", "end_of_stream", "io". Any value that is not a
+ * "ok", "would_block", "end_of_stream", "io", "no_space". Any value that is not a
  * defined code yields "unknown".
  *
  * Never returns NULL. The string has static storage duration; do not free

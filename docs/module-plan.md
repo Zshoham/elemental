@@ -269,7 +269,8 @@ Longest chain: `log_contract` → `log` → `ring` → `io` → `status`.
 Each decision is listed with the module it blocks and the recommended
 answer. Each becomes a short ADR when it is made.
 
-**Capacity and bad-input statuses. Before `alloc`.** One code,
+**Capacity and bad-input statuses. Before `alloc`.** *Decided in
+[ADR 0009](adr/0009-capacity-status.md).* One code,
 `EL_ERR_NO_SPACE`, means "the storage available was not enough". It covers
 a full format buffer, a full ring, a frame larger than its buffer, and an
 exhausted allocator inside a function that allocates. In every case the
