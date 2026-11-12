@@ -15,3 +15,13 @@ config IO_POSIX
 	  Reader and writer over a file descriptor the caller owns, using
 	  read(2) and write(2). Available only when the toolchain provides
 	  <unistd.h>.
+
+config IO_ALLOC
+	bool "io_alloc: a writer that grows, over an allocator"
+	default y
+	depends on IO && ALLOC
+	help
+	  el_grow_writer: an el_writer that collects what is written in
+	  memory from an el_allocator, growing as needed. It is the one part
+	  of io that needs alloc: turn it off and io builds and links no
+	  allocator. Freestanding: needs memcpy().

@@ -27,8 +27,10 @@ First milestone: the project's foundation.
   (`elemental/alloc_contract.h`, `.hpp`).
 - `alloc_libc` (experimental): `el_libc_allocator()`, over `malloc`,
   `aligned_alloc`, and `free`.
-- `io_alloc` (experimental): `el_grow_writer`, a writer that grows through
-  an allocator.
+- `io` (experimental): `el_grow_writer` (`elemental/io_alloc.h`), a writer
+  that grows through an allocator. Part of `elemental::io` when the Kconfig
+  symbol `IO_ALLOC` is on (the default), which makes `elemental::io` link
+  `elemental::alloc`. With `IO_ALLOC` off, io builds and links no allocator.
 - `fmt` (experimental): `el_fmt`, a cursor over caller memory, and
   `el_fmt_str`, `el_fmt_cstr`, `el_fmt_dec_u64`, `el_fmt_dec_i64`,
   `el_fmt_hex_u64`, `el_fmt_hex_bytes`; a printf subset in

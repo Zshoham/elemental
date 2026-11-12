@@ -9,6 +9,16 @@ Author, date: design pass for M2, 2026-11-11; accepted 2026-11-12
 The proposal below is kept as written for review, with names brought up to
 date. What changed between the draft and the implementation:
 
+- **`io_alloc` is part of `io`, not a library of its own.** The owner
+  decided on 2026-11-12 to merge it into `io` behind the Kconfig symbol
+  `IO_ALLOC` (default on, `depends on IO && ALLOC`). It builds into
+  `elemental::io` only then, and `elemental::io` links `elemental::alloc`
+  only then. Everywhere below, "the `io_alloc` library" and the target
+  `elemental::io_alloc` are that code and its target as first proposed; the
+  header is still `elemental/io_alloc.h`. Statements below that `io` gains
+  no dependency, or that `io_alloc` is a separate library, describe the
+  draft: with `IO_ALLOC` on, `elemental::io` links `elemental::alloc`.
+
 - **Two arenas, not one** (decision 2): `el_bump_arena`, whose free gives
   nothing back, and `el_stack_arena`, whose free gives back the most recent
   allocation, both in `elemental/alloc_arena.h`. The draft's `el_arena` is

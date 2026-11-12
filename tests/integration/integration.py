@@ -129,16 +129,19 @@ def case_subdirectory(work):
           "status, a dependency of io, was not built")
     check(not exists_under(build_dir, "io_contract.cpp.o"),
           "the io contract suite was compiled although nothing links it")
-    # io does not depend on alloc: an application that links only io builds
-    # no allocator (roadmap M2; the grow writer is io_alloc's).
+    # io depends on alloc only through IO_ALLOC, the grow writer. With that
+    # off, as in the application's defconfig, io builds no allocator
+    # (roadmap M2).
     check(not exists_under(build_dir, "libelemental_alloc.a"),
-          "alloc was built although the application links only io")
+          "alloc was built although the application links only io, with IO_ALLOC off")
     check(not exists_under(build_dir, "libelemental_io_posix.a"),
           "io_posix was built although the application's defconfig disables it")
 
     # The application's defconfig was applied.
     check("EL_CONFIG_IO_POSIX" not in config_header(build_dir),
           "the application's defconfig was not applied")
+    check("EL_CONFIG_IO_ALLOC" not in config_header(build_dir),
+          "the application's defconfig did not turn IO_ALLOC off")
 
     # As a subproject, Elemental adds libraries and nothing else: no tests,
     # no examples, and no short target names in the application's namespace.
@@ -173,7 +176,7 @@ def case_installed(work):
                  "alloc_contract.cpp", "alloc_checker.c",
                  "libelemental_status.a", "libelemental_io.a",
                  "libelemental_io_posix.a", "libelemental_alloc.a",
-                 "libelemental_alloc_libc.a", "libelemental_io_alloc.a",
+                 "libelemental_alloc_libc.a",
                  "ElementalConfig.cmake", "ElementalConfigVersion.cmake",
                  "ElementalTargets.cmake", "ElementalConfiguration.cmake",
                  "elemental.config"):

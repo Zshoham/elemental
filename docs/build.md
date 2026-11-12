@@ -194,10 +194,11 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO`, `ALLOC`, `IO_ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
+| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_BUILTIN` / `FMT_LIBC` | built-in | `FMT_LIBC` converts numbers with the C library's `snprintf`, for an image that links printf anyway. Output is identical ([modules/fmt](../modules/fmt/README.md#configuration)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
+| `IO_ALLOC` | on where `ALLOC` is on | `el_grow_writer`, part of `elemental::io`. Off, io builds and links no allocator. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
@@ -521,15 +522,15 @@ Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests:
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 395 872 | 407 532 of 524 288 |
+| Flash (code and read-only data) | 395 860 | 407 520 of 524 288 |
 | RAM, static | 43 696 | 41 704 |
-| Heap, peak during the run | 75 912 | 80 504 |
+| Heap, peak during the run | 74 120 | 78 808 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 396 KB of flash and 120 KB of RAM on the
-Cortex-M3, and about 408 KB and 122 KB on the Cortex-M0+ (the static figure
+So the image needs about 396 KB of flash and 118 KB of RAM on the
+Cortex-M3, and about 408 KB and 121 KB on the Cortex-M0+ (the static figure
 includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
-has the real STM32G0B1's 144 KB, which leaves about 24 KB of RAM and 115 KB
+has the real STM32G0B1's 144 KB, which leaves about 27 KB of RAM and 117 KB
 of flash for the tests still to come. The 11 byte-swap and bit-counting
 tests added about 18 KB of flash and 3.7 KB of peak heap. The 47 tests of `fmt`, `bytes`, and
 `crc` added about 59 KB of flash, almost all of it GoogleTest assertions
@@ -599,21 +600,22 @@ evidence about Zephyr integration, not about a target CPU.
 ### Code size of the assertion configurations
 
 `libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
-GCC 14.3.0 at Zephyr's default size optimization, text bytes:
+GCC 14.3.0 at Zephyr's default size optimization, text bytes, without and
+with the grow writer (`IO_ALLOC`, on by default):
 
-| Configuration | Bytes |
-|---|---|
-| Assertions off | 394 |
-| Trap in place (default) | 578 |
-| Application handler | 782 |
+| Configuration | `IO_ALLOC` off | `IO_ALLOC` on | The grow writer |
+|---|---|---|---|
+| Assertions off | 394 | 664 | 270 |
+| Trap in place (default) | 578 | 910 | 332 |
+| Application handler | 782 | 1 207 | 425 |
 
 The other libraries in the same build:
 
-| Configuration | `alloc` | `io_alloc` | `status` | `fmt` | `bytes` | `crc` |
-|---|---|---|---|---|---|---|
-| Assertions off | 322 | 270 | 93 | 1 627 | 548 | 212 |
-| Trap in place (default) | 478 | 332 | 93 | 1 705 | 596 | 224 |
-| Application handler | 668 | 425 | 93 | 1 896 | 756 | 255 |
+| Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
+|---|---|---|---|---|---|
+| Assertions off | 322 | 93 | 1 627 | 548 | 212 |
+| Trap in place (default) | 478 | 93 | 1 705 | 596 | 224 |
+| Application handler | 668 | 93 | 1 896 | 756 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -643,11 +645,11 @@ and exited successfully.
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed | not run |
-| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
+| Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
 | io contract suite: memory streams | passed | passed | passed | passed | passed | passed | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
 | io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed | not run |
-| io contract suite: grow writer (`io_alloc`) | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: grow writer (`IO_ALLOC`) | passed | passed | passed | passed | passed | passed | not run |
 | Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed | not run |

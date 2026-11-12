@@ -45,8 +45,8 @@ M3 to M8 takes an allocator. It still comes first, because:
   are built against them.
 - Applications want it, and as a leaf nothing can block it.
 
-The cost: until async or IPC discovery, its only consumers are `io_alloc`
-and its own examples. Its design is checked by examples, not by a module
+The cost: until async or IPC discovery, its only consumers are the grow
+writer in `io` and its own examples. Its design is checked by examples, not by a module
 that depends on it, and pools may revise it. Done one module at a time, it
 puts formatting and logging one module later.
 
@@ -120,12 +120,13 @@ Out of scope: new interfaces.
 [Sketch](architecture.md#62-allocation--proposed);
 [plan entry](module-plan.md#named-by-the-owner);
 [proposal](proposals/alloc.md) (accepted); [module](../modules/alloc/README.md);
-[`io_alloc`](../modules/io_alloc/README.md). **Done** as experimental.
+the grow writer, [`io`](../modules/io/README.md#the-grow-writer-io_alloc).
+**Done** as experimental.
 
 Deliverables:
 
 - An ADR on the capacity and bad-input statuses, before the proposal:
-  [ADR 0009](adr/0009-capacity-status.md), `EL_ERR_NO_SPACE`. `io_alloc` is the first module to return a capacity
+  [ADR 0009](adr/0009-capacity-status.md), `EL_ERR_NO_SPACE`. The grow writer in `io` is the first code to return a capacity
   status.
 - A proposal, with usage examples that put sized free under pressure: a
   string, a growable buffer, an object handed across an API. The examples
@@ -137,9 +138,9 @@ Deliverables:
   as two arenas, `el_bump_arena` and `el_stack_arena`, and a reclaim
   capability with three levels, because the stack arena reclaims only its
   latest allocation.
-- `io_alloc`: a growable `el_writer` in a separate library, as the first
-  consumer and as the test that `io` does not acquire a dependency on
-  allocation.
+- `io_alloc`: a growable `el_writer`, as the first consumer. Delivered as
+  a separate library, then merged into `io` behind the Kconfig symbol
+  `IO_ALLOC` (see the last acceptance item).
 
 Acceptance:
 
@@ -148,12 +149,16 @@ Acceptance:
       Both arenas, the libc heap, and the size classes example; fifteen
       broken variants, all caught ([build.md](build.md#what-is-verified)).
 - [x] The Zephyr symbol check shows no new external symbols, on ARMv7-M
-      and ARMv6-M: `alloc` needs none, `io_alloc` only `memcpy`.
+      and ARMv6-M: `alloc` needs none, the grow writer only `memcpy`.
 - [x] Once M1 has target tests: the arena's tests pass on a Zephyr
       Cortex-M target: `mps2/an385` under QEMU, by Twister, with the rest
-      of the allocator and `io_alloc` tests.
-- [x] `elemental::io` still links without `elemental::alloc`, checked by
-      `integration.subdirectory`.
+      of the allocator and grow writer tests.
+- [x] `elemental::io` links without `elemental::alloc` when `IO_ALLOC` is
+      off, checked by `integration.subdirectory`. With `IO_ALLOC` on (the
+      default) it links `elemental::alloc`. Originally the acceptance was
+      that `io` never depends on `alloc`, with the grow writer a separate
+      library; the owner decided on 2026-11-12 to merge it into `io` behind
+      `IO_ALLOC` instead.
 - [x] The sized-free decision is recorded in an ADR with the examples that
       decided it: [ADR 0012](adr/0012-sized-free.md).
 - [x] A Rust sketch shows how the allocator contract relates to

@@ -4,8 +4,8 @@
  * el_grow_writer collects whatever is written to it in memory it takes from
  * an allocator, growing as needed. It is an el_writer, so anything that
  * writes to a stream can write into memory without knowing the size first.
- * It lives in its own library so that elemental::io never depends on
- * elemental::alloc.
+ * It is part of elemental::io only when the Kconfig symbol IO_ALLOC is on,
+ * and then io links elemental::alloc. With it off, io needs no allocator.
  *
  * STATUS: experimental. See docs/process/api-stability.md.
  *

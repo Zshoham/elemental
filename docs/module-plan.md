@@ -28,7 +28,7 @@ function without a use case.
 | `fmt` | Pure | `status` | — | `log` | M |
 | `log` | Interface (sink), plus portable sinks | `fmt`, `time`, `io`; `ring` from M5 | drives io flush | Examples, the Zephyr UART example | M |
 | `io`, second iteration | Interface revision | `status` | `log`, `frame`, async | `log` writer sink, `frame` glue | M |
-| `alloc`, `io_alloc` | Interface, arena, libc backend | `status`; `alloc`, `io` | async and IPC storage | `io_alloc`, applications | M |
+| `alloc` | Interface, arena, libc backend; `io` gains the grow writer | `status` | async and IPC storage | the `io` grow writer, applications | M |
 | `frame` | Pure core, plus io glue | `bytes`, `io` | `crc` used beside it | UART example, IPC discovery | M |
 | Async, IPC | Discovery | — | `io`, `time`, `ring`, `frame`, `alloc` | — | L, M |
 | `time` *(new)* | Interface, manual clock, POSIX backend | `status` | — | `log` | S |
@@ -79,7 +79,8 @@ to flush" and returns `EL_OK`, so no `EL_ERR_UNSUPPORTED` is needed.
 **`alloc`: allocation.** As in
 [architecture.md](architecture.md#62-allocation--proposed): a handle, an
 arena over caller storage, a libc heap backend, and a contract suite. The
-growable writer goes in `io_alloc`, so that `io` never depends on `alloc`.
+growable writer is part of `io`, behind the Kconfig symbol `IO_ALLOC`, so
+that `io` depends on `alloc` only when it is on.
 Pools wait for a consumer; async or IPC message storage is the likely one.
 No other module in this plan takes an allocator, so allocation is a leaf.
 The roadmap builds it early (M2) anyway, as the second interface and
@@ -115,7 +116,7 @@ Growth is codes only, each arriving with the first module that returns it:
 
 | Code | Arrives with | Caller does |
 |---|---|---|
-| `EL_ERR_NO_SPACE` | `io_alloc` (a growable writer that cannot grow); then `fmt` truncation, `ring`, `frame` encode | Provide more storage |
+| `EL_ERR_NO_SPACE` | the `io` grow writer (cannot grow); then `fmt` truncation, `ring`, `frame` encode | Provide more storage |
 | `EL_ERR_INVALID_DATA` | `frame` decode | Drop the input, resynchronise |
 | `EL_ERR_TIMED_OUT` | IPC correlation, if discovery keeps it | Retry or give up |
 
@@ -223,6 +224,7 @@ create no link.
 ```mermaid
 graph BT
   io --> status
+  io -->|IO_ALLOC only| alloc
   io_posix --> io
   io_contract --> io
   fmt --> status
@@ -237,8 +239,6 @@ graph BT
   frame --> bytes
   frame --> io
   alloc --> status
-  io_alloc --> alloc
-  io_alloc --> io
   bytes --> status
   crc --> status
   crc -.->|used beside| frame
@@ -257,7 +257,7 @@ graph BT
 | Module | Hard dependencies | Informs, or is informed by |
 |---|---|---|
 | `status` | — | — |
-| `io` | `status` | revised by async discovery |
+| `io` | `status`; `alloc` when `IO_ALLOC` is on | revised by async discovery |
 | `io_contract` | `io` | — |
 | `bytes` | `status` | — |
 | `crc` | `status` | used beside `frame` |
@@ -266,7 +266,7 @@ graph BT
 | `ring` | `io` | async discovery |
 | `log`, `log_contract` | `fmt`, `time`, `io`, `ring`; `log` | drives io flush |
 | `frame` | `bytes`, `io` | drives io peek; IPC discovery |
-| `alloc`, `io_alloc` | `status`; `alloc`, `io` | async and IPC storage |
+| `alloc` | `status` | async and IPC storage |
 | IPC discovery | — | `frame`, `time`, async findings |
 | async discovery | — | `io`, `time`, `ring`, `alloc` |
 
@@ -278,9 +278,9 @@ Longest chain: `log_contract` → `log` → `ring` → `io` → `status`.
   backend wants to log.* `fmt` writes to memory, not to a writer.
   Backends never log; they keep detail on the object
   ([conventions.md](conventions.md#errors), rule 6).
-- *Allocation creeping into io.* The growable writer is `io_alloc`, a
-  separate library. Its acceptance check is that `elemental::io` links
-  without `elemental::alloc`.
+- *Allocation creeping into io.* The growable writer is part of `io`,
+  behind `IO_ALLOC`. The check is that `elemental::io` links without
+  `elemental::alloc` when `IO_ALLOC` is off.
 - *Contract suites reporting through logging.* They are GoogleTest suites
   and report through it, as `io_contract` does. Contract suites also depend
   on GoogleTest, which is a test-only dependency and outside this graph.

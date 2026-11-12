@@ -36,7 +36,8 @@ function(elemental_target_c_standard target)
     C_EXTENSIONS OFF)
 endfunction()
 
-# elemental_add_module(<name> SOURCES <file>... [DEPENDS <module>...])
+# elemental_add_module(<name> SOURCES <file>... [DEPENDS <module>...]
+#                      [OMIT_HEADERS <header>...])
 #
 # Defines the static library elemental_<name>, reachable as elemental::<name>
 # both in this build and from an installed package. Call it from the module's
@@ -46,10 +47,16 @@ endfunction()
 #     never see it (docs/adr/0004-private-configuration.md).
 #   - DEPENDS names other Elemental modules and is PUBLIC. A dependency that
 #     is not enabled is an error here, not a missing symbol at link time.
+#   - SOURCES and DEPENDS are ordinary lists, so a part of a module that
+#     needs another module is added to both under one `if()` in the module's
+#     CMakeLists.txt (modules/io).
+#   - OMIT_HEADERS names headers, relative to ./include, that belong to a
+#     part of the module that is switched off. They are neither installed
+#     nor checked by tests/headers.
 function(elemental_add_module name)
-  cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;DEPENDS")
+  cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;DEPENDS;OMIT_HEADERS")
   if(arg_UNPARSED_ARGUMENTS OR NOT arg_SOURCES)
-    message(FATAL_ERROR "elemental_add_module(${name}): expected SOURCES <file>... [DEPENDS <module>...]")
+    message(FATAL_ERROR "elemental_add_module(${name}): expected SOURCES <file>... [DEPENDS <module>...] [OMIT_HEADERS <header>...]")
   endif()
 
   set(target elemental_${name})
@@ -81,10 +88,17 @@ function(elemental_add_module name)
   set_property(GLOBAL APPEND PROPERTY ELEMENTAL_PUBLIC_INCLUDE_DIRS
                "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
+  set(omit_patterns "")
+  foreach(header IN LISTS arg_OMIT_HEADERS)
+    set_property(GLOBAL APPEND PROPERTY ELEMENTAL_OMITTED_HEADERS "${header}")
+    list(APPEND omit_patterns PATTERN "${header}" EXCLUDE)
+  endforeach()
+
   if(ELEMENTAL_INSTALL)
     install(TARGETS ${target} EXPORT ElementalTargets
             ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+            ${omit_patterns})
   endif()
 endfunction()
 

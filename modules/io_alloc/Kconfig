@@ -1,8 +1,0 @@
-config IO_ALLOC
-	bool "io_alloc: a writer that grows, over an allocator"
-	default y
-	depends on IO && ALLOC
-	help
-	  el_grow_writer: an el_writer that collects what is written in
-	  memory from an el_allocator, growing as needed. A separate library
-	  so that io never depends on alloc. Freestanding: needs memcpy().
