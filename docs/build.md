@@ -518,7 +518,12 @@ presets only.
 
 ### Memory the test image needs
 
-Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests:
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests.
+The flash and heap figures are approximate: they change with the path of
+the checkout, which reaches the image through GoogleTest's file names and
+messages. The same sources in two directories differed by about 1 KB of
+flash and up to 16 KB of peak heap. Read them as "about", and keep the
+headroom below with that margin in mind.
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
