@@ -438,3 +438,144 @@ new target, and as someone wiring a hardware CRC unit.
 libedit check: no name here equals one in libedit 3.1 (20260512)
 `histedit.h`. Every name has an `el_bytes_` or `el_crc` prefix, and libedit
 has neither.
+
+## Amendment (2026-11-12)
+
+Two additions the owner decided on 2026-11-12. Both keep the module
+boundaries above: no new module, no new dependency.
+
+### crc: the platform's CRC behind the same functions
+
+**Decision (owner).** Where the compiler or the platform already computes
+these CRCs, offer it as another option of the private Kconfig choice. The
+software tables stay the default. Every option gives identical results, so
+the choice stays private under
+[ADR 0004](../adr/0004-private-configuration.md) and nothing a caller sees
+changes.
+
+The choice becomes `CRC_IMPLEMENTATION`, with four options:
+
+| Option | Computes with | Available when |
+|---|---|---|
+| `CRC_TABLE_4BIT` (default) | 16-entry tables | Always |
+| `CRC_TABLE_8BIT` | 256-entry tables | Always |
+| `CRC_GCC_BUILTIN` | GCC's `__builtin_rev_crc32_data8` and `__builtin_crc16_data8` | CMake's compile probe finds both builtins |
+| `CRC_ZEPHYR` | Zephyr's `crc32_ieee_update()` and `crc16_itu_t()` from `<zephyr/sys/crc.h>` | A Zephyr build with `CONFIG_CRC=y` and no `CONFIG_CRC_HW_HANDLER` |
+
+Availability is a toolchain fact, probed by CMake and passed into Kconfig
+the way `PLATFORM_POSIX` is: the root `Kconfig` gains
+`COMPILER_GCC_CRC_BUILTINS` and `PLATFORM_ZEPHYR_CRC`, which have no prompt.
+An option whose fact is false cannot be selected, and asking for it in a
+defconfig stops configuration with the reason.
+
+Facts behind the options, measured or read on 2026-11-12:
+
+- **GCC builtins.** *Measured:* GCC has `__builtin_crc*` and
+  `__builtin_rev_crc*` only from GCC 15. The host's GCC 16.2.1 has them; the
+  Zephyr SDK's GCC 14.3.0 and Clang 23 do not. On x86-64, even with
+  `-mpclmul`, GCC 16 compiles them to a 1.5 KB table, not to a hardware
+  instruction. So the option buys nothing yet on the targets that matter. It
+  exists so that a GCC that does lower it to an instruction is used without
+  a source change, and it is tested where it builds (the host's GCC).
+- **Zephyr's `sys/crc.h`.** *Source fact* (Zephyr v4.5.0,
+  `subsys/crc/crc32_sw.c`, `subsys/crc/crc16_sw.c`): `crc32_ieee_update(crc,
+  …)` inverts on entry and exit and `crc32_ieee()` starts it from 0, which
+  is exactly `el_crc32_update` and `EL_CRC32_INIT`. `crc16_itu_t(seed, …)`
+  is the MSB-first polynomial 0x1021 with no final XOR, returning the raw
+  register, so `crc16_itu_t(0xFFFF, …)` is CRC-16/IBM-3740 and passing the
+  result back as the seed continues it, exactly as `el_crc16_ibm3740_update`.
+  Both are compiled whenever `CONFIG_CRC=y`; both are `__weak`.
+- **Why not with `CONFIG_CRC_HW_HANDLER`.** *Source fact*
+  (`subsys/crc/crc_hardware.c`): with a devicetree `zephyr,crc` chosen
+  node, Zephyr replaces the weak functions with calls into the CRC driver.
+  On a driver error they log and return 0. That breaks "cannot fail" and
+  "identical results", and the driver path is not known to be safe in an
+  interrupt handler. The probe therefore requires that handler to be off.
+
+**The hardware CRC engine is not built now.** The hardware that matters on
+microcontrollers is a CRC peripheral, reached through Zephyr's
+device-bound driver API (`<zephyr/drivers/crc.h>`: `crc_begin`,
+`crc_update`, `crc_finish` on a `const struct device *` and a
+`struct crc_ctx`; STM32, NXP, Renesas RA, Silicon Labs, Ambiq and other
+backends in v4.5.0). Each call returns an `int` that can be an error, and it
+needs a device. That does not fit `el_crc*_update`, which takes no handle
+and cannot fail. It is recorded in
+[module-plan.md](../module-plan.md#added-by-this-plan) as a deferred, separate
+small interface: a CRC-engine handle with a Zephyr-driver backend, waiting
+for a consumer.
+
+**Testing every option.** `configs/variant_defconfig` holds one option per
+choice, and keeps `CRC_TABLE_8BIT`: it is the only non-default option that
+builds both on the host and on Zephyr. Every option is covered by:
+
+- a generic integration case, `integration.choices`, which enumerates every
+  Kconfig `choice` and every option visible on the host's toolchain,
+  configures a build with that option selected, builds only the tests of
+  the module that owns the choice, and runs them. A future choice is
+  covered with no change to the case.
+- a Twister scenario, `elemental.tests.crc_zephyr`, on `mps2/an385`, for
+  `CRC_ZEPHYR`, which no host can select.
+
+### bytes: byte swap and bit counting
+
+**Decision (owner).** Add byte swap and bit counting to `bytes`. This is
+the owner's use case, and it widens "What is left out" above, which listed
+byte swap as having no consumer. They go in `bytes` rather than a new
+module, following the owner's preference for fewer, broader modules.
+
+```c
+/* Reverse the order of the bytes. */
+uint16_t el_bytes_swap16(uint16_t value);
+uint32_t el_bytes_swap32(uint32_t value);
+uint64_t el_bytes_swap64(uint64_t value);
+
+/* Bit counting, after C23 <stdbit.h>, which C11 does not have. Each is
+ * defined for every input, 0 included. */
+unsigned el_bytes_leading_zeros32(uint32_t value);  /* 32 for 0 */
+unsigned el_bytes_trailing_zeros32(uint32_t value); /* 32 for 0 */
+unsigned el_bytes_count_ones32(uint32_t value);
+bool el_bytes_has_single_bit32(uint32_t value);     /* false for 0 */
+unsigned el_bytes_bit_width32(uint32_t value);      /* 0 for 0 */
+uint32_t el_bytes_bit_floor32(uint32_t value);      /* 0 for 0 */
+uint32_t el_bytes_bit_ceil32(uint32_t value);       /* 1 for 0; 0 above 2^31 */
+/* ...and the same seven with 64 in place of 32. */
+```
+
+Decisions in the sketch:
+
+- **Names** follow `el_<module>_<verb>` with the width last, as the loads
+  and stores do. The bit-counting names are C23's (`stdc_leading_zeros`
+  becomes `el_bytes_leading_zeros32`), so the standard's documentation
+  applies to each. Counts return `unsigned`, as C23's do.
+- **At 0** every function has the C23 result: no zero is a contract
+  violation.
+- **Bit ceil without a representable result** (above 2^31, or 2^63)
+  **returns 0.** The argument can come from input data, a length read from
+  a message for instance, so under
+  [conventions.md](../conventions.md#arguments) it cannot be a contract
+  violation, and a status would turn a one-line function into an output
+  parameter. 0 is never a power of two, so the caller can test for it, and
+  it is what glibc 2.44's `stdc_bit_ceil` returns (`<stdbit.h>`, read on
+  this host). C23 itself does not promise it, and C++20's `std::bit_ceil`
+  makes the case undefined.
+- **No 8- and 16-bit counting.** Each derives from the 32-bit function in
+  one expression (`el_bytes_leading_zeros32(x) - 16` for a `uint16_t`), and
+  no caller needs them yet. Byte swap has all three widths, as decided.
+- **No contract violations.** These functions take no pointer.
+- **No compiler-runtime helpers.** On ARMv6-M, `__builtin_clz` and
+  `__builtin_popcount` become calls to `__clzsi2` and `__popcountsi2`,
+  because the core has no CLZ instruction, and ARMv7-M has no population
+  count instruction either. A builtin is used only where it is known to
+  become an instruction (CLZ where the Arm C Language Extensions define
+  `__ARM_FEATURE_CLZ`, and x86-64 and AArch64); everything else is portable
+  C. A 64-bit function on a 32-bit core is built from two 32-bit halves, so
+  it needs no 64-bit shift or multiply helper. The Zephyr symbol check on
+  `qemu_cortex_m0` and `nucleo_g0b1re_renode` enforces this.
+- **Byte swap** is written as shifts and masks, which GCC and Clang turn
+  into `rev` on Arm and `bswap` on x86-64.
+
+**Tests.** Every 16-bit input exhaustively, as the low and the high bits of
+the wider types; each power of two and its neighbours; and a bit-by-bit
+reference written in the test, compared on random values, on the host and
+in the Zephyr image. On the host, glibc's `<stdbit.h>` is a second oracle
+where it is available.
