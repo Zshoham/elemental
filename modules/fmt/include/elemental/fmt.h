@@ -66,7 +66,11 @@
  *
  * Concurrency: no internal synchronization. One object, one context at a
  * time; distinct objects are independent. Nothing blocks or allocates, so
- * use from an interrupt handler is fine under that rule.
+ * use from an interrupt handler is fine under that rule. One exception: a
+ * build configured with FMT_LIBC converts numbers with the C library's
+ * snprintf(), and is then exactly as safe in an interrupt or signal handler
+ * as that snprintf() is. glibc does not promise async-signal safety;
+ * picolibc's string snprintf() takes no lock and does not allocate.
  *
  * Contract violations: a null object; a null buffer with a nonzero
  * capacity; a null string or data with a nonzero length; a null C string;
