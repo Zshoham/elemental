@@ -1,0 +1,4 @@
+# Contract assertions compiled out, as a size-constrained product might ship.
+# The `assert-off` preset runs every test with it, so that no behavior
+# depends on an assertion being there. Death tests are not built.
+# EL_CONFIG_ASSERT is not set

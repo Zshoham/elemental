@@ -15,6 +15,22 @@ tests:
       - native_sim
       - mps2/an385
       - nucleo_g0b1re_renode
+  # The host presets' other configurations, on one Arm board: every
+  # non-default Kconfig choice, and contract assertions compiled out.
+  elemental.tests.variant:
+    harness: gtest
+    extra_args: ELEMENTAL_ZEPHYR_VARIANT=variant
+    platform_allow:
+      - mps2/an385
+    integration_platforms:
+      - mps2/an385
+  elemental.tests.assert_off:
+    harness: gtest
+    extra_args: ELEMENTAL_ZEPHYR_VARIANT=assert_off
+    platform_allow:
+      - mps2/an385
+    integration_platforms:
+      - mps2/an385
   # ARMv6-M on a small board: no hardware divide, no ldrex/strex. The test
   # image needs more memory than this board has, so only the libraries are
   # built, and the build fails if they need a symbol outside

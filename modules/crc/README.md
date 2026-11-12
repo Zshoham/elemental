@@ -49,8 +49,7 @@ The speed difference is Pigweed's measurement, not one made here.
 
 | Test | What it checks | Where |
 |---|---|---|
-| `crc.unit.*` | The catalogue's check values; the CRC of no bytes; lengths 0 to 300 against a table generated with Python's `zlib.crc32` and `binascii.crc_hqx`; every split point; the CRC-16 residue; unaligned input. | Host and Zephyr |
-| `crc.other_table.*` | The same tests against the table size not configured, so both choices run in every host preset. | Host only |
+| `crc.unit.*` | Run with the 16-entry tables by the default presets and with the 256-entry ones by `sanitize` ([configs/variant_defconfig](../../configs/variant_defconfig)). The catalogue's check values; the CRC of no bytes; lengths 0 to 300 against a table generated with Python's `zlib.crc32` and `binascii.crc_hqx`; every split point; the CRC-16 residue; unaligned input. | Host and Zephyr |
 | `crc.violations.*` | Null data with a nonzero length stops the program. | Host only (death tests) |
 
 ## Known gaps

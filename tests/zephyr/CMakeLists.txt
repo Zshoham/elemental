@@ -28,7 +28,23 @@ if(ELEMENTAL_ZEPHYR_TESTS)
 else()
   target_sources(app PRIVATE src/no_tests.c)
 endif()
-set(ELEMENTAL_DEFCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/elemental_defconfig" CACHE FILEPATH
+# A variant: one of the repository's configs/<name>_defconfig, applied on
+# top of this image's own elemental_defconfig, so the image runs the same
+# configurations as the host presets (testcase.yaml).
+set(ELEMENTAL_ZEPHYR_VARIANT "" CACHE STRING
+    "Name of a configs/<name>_defconfig to apply on top of elemental_defconfig")
+set(defconfig "${CMAKE_CURRENT_SOURCE_DIR}/elemental_defconfig")
+if(ELEMENTAL_ZEPHYR_VARIANT)
+  set(variant "${ELEMENTAL_ROOT}/configs/${ELEMENTAL_ZEPHYR_VARIANT}_defconfig")
+  if(NOT EXISTS "${variant}")
+    message(FATAL_ERROR "ELEMENTAL_ZEPHYR_VARIANT: ${variant} does not exist")
+  endif()
+  file(READ "${defconfig}" base_text)
+  file(READ "${variant}" variant_text)
+  set(defconfig "${CMAKE_CURRENT_BINARY_DIR}/elemental_${ELEMENTAL_ZEPHYR_VARIANT}_defconfig")
+  file(WRITE "${defconfig}" "${base_text}${variant_text}")
+endif()
+set(ELEMENTAL_DEFCONFIG "${defconfig}" CACHE FILEPATH
     "Kconfig fragment that seeds Elemental's configuration in this image")
 # Elemental's own sources with its strict warnings, as errors, under the
 # board's compiler. (Zephyr's flags come later on the command line and set

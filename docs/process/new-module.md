@@ -117,7 +117,11 @@ suite's `.hpp` is C++17 by design and is exercised by the tests that use it.
 
 ## Configuration options
 
-An option is added with its use case in the help text. Before adding one:
+An option is added with its use case in the help text. A Kconfig `choice` also
+adds its non-default alternative to
+[configs/variant_defconfig](../../configs/variant_defconfig), so the
+`sanitize` preset and the Zephyr `variant` scenario test it. Before adding
+one:
 
 - **Would the linker do it?** A function nobody calls is not linked from a
   static library. An option to leave it out adds a configuration to test

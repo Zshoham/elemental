@@ -8,6 +8,9 @@ level. See [docs/process/api-stability.md](docs/process/api-stability.md).
 First milestone: the project's foundation.
 
 - Licensed under Apache-2.0.
+- `configs/assert_application_defconfig` is now `configs/variant_defconfig`,
+  which also selects 256-entry CRC tables; `configs/assert_off_defconfig` and
+  the `assert-off` preset are new.
 - `status`: `EL_ERR_NO_SPACE` (4), the one capacity status
   ([ADR 0009](docs/adr/0009-capacity-status.md)).
 - `status` (experimental): `el_status`, four codes, `el_status_name()`,

@@ -97,7 +97,18 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, and the application assertion handler instead of the default trap. Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): every Kconfig choice that is not the default (the application assertion handler, 256-entry CRC tables). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
+
+**Configurations.** `gcc` and `clang` run the defaults, `sanitize` every
+non-default choice, and `assert-off` the configuration without assertions.
+Each is one defconfig under [configs/](../configs). A new Kconfig choice
+adds its alternative to `variant_defconfig`
+([new-module.md](process/new-module.md#configuration-options)), so both
+sides of every choice are tested without a preset per option. Module
+subsets are covered by `integration.module_subsets`: each module and
+backend alone, with only what its Kconfig entry depends on or selects,
+must configure, build exactly those libraries, and pass its tests.
 
 Every preset is a Linux host build. Microcontroller targets are built and
 tested through Zephyr ([Tests on Zephyr](#tests-on-zephyr)).
@@ -106,7 +117,7 @@ Each preset builds in `build/<preset>`. Useful subsets:
 
 ```sh
 ctest --preset gcc -LE integration     # unit, contract, interop: about a second
-ctest --preset gcc -L integration      # consumption and configuration: ~30 s
+ctest --preset gcc -L integration      # consumption and configuration: ~90 s
 ctest --preset gcc -R io.helpers       # one group of tests
 tools/format.sh                        # clang-format, in place
 ```
@@ -194,7 +205,7 @@ already provides, such as leaving out a function nobody calls, is not added.
 the defaults:
 
 ```sh
-cmake -B build -DELEMENTAL_DEFCONFIG=configs/assert_application_defconfig
+cmake -B build -DELEMENTAL_DEFCONFIG=configs/variant_defconfig
 ```
 
 It seeds a build directory that has no configuration yet. After that,
@@ -435,6 +446,8 @@ Twister builds that board's image and does not run it.
 | `elemental.tests` | `native_sim` | Every test, in a 32-bit Linux process. |
 | `elemental.tests` | `mps2/an385` | Every test, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
 | `elemental.tests` | `nucleo_g0b1re_renode` | Every test, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
+| `elemental.tests.variant` | `mps2/an385` | Every test with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
+| `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
 | `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
 
 **`nucleo_g0b1re_renode`** is a board defined in this repository
@@ -618,27 +631,30 @@ and exited successfully.
 | fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
 | bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed | not run |
 | crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
-| crc: the other table size | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
-| Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Integration (8 cases, including `module_subsets`) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed | passed | passed |
 
-The hosted presets run 265 GoogleTest tests, of which 18 are reported as
+The hosted presets run 257 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 277 CTest tests in
-all, 275 under sanitizers. The two Rust
+integration, and two format-attribute compile checks: 270 CTest tests in
+all, 268 under sanitizers. `assert-off` runs 229: the same less the 41
+death tests. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
 The Zephyr test image runs 168 of those GoogleTest tests: all but the POSIX
-and C library backends', the death tests, and the host-only `fmt.oracle` and
-`crc.other_table`. 9 are skipped, the same 9 as on the host for those
-fixtures. Twister reports the three `elemental.tests` configurations passed
-(159 passed and 9 skipped on each, by GoogleTest's count; Twister adds one
-case for the image itself) and
+and C library backends', the death tests, and the host-only `fmt.oracle`.
+9 are skipped, the same 9 as on the host for those fixtures. Twister reports
+the five test configurations passed (the three `elemental.tests` boards and
+the `variant` and `assert_off` scenarios on `mps2/an385`; 159 passed and 9
+skipped on each, by GoogleTest's count; Twister adds one case for the image
+itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.

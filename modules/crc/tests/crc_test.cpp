@@ -1,8 +1,8 @@
 /*
- * The CRCs against published and generated vectors. This file is built
- * twice: once against the library (the configured table size) and once with
- * the other table size compiled in, so both implementations meet the same
- * vectors in every preset.
+ * The CRCs against published and generated vectors, with whichever table
+ * size the build configured. The default presets build the 16-entry tables
+ * and `sanitize` the 256-entry ones (configs/variant_defconfig), so both
+ * implementations meet the same vectors.
  */
 #include <gtest/gtest.h>
 

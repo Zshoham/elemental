@@ -1,7 +1,8 @@
 # Elemental from the outside: consumption, configuration, and diagnostics.
 # Each case builds throwaway projects under this directory; see the
 # docstrings in integration.py for what each one asserts.
-set(cases subdirectory installed raw_source regenerate isolation diagnostics provenance)
+set(cases subdirectory installed raw_source regenerate isolation diagnostics provenance
+          module_subsets)
 
 foreach(case IN LISTS cases)
   add_test(

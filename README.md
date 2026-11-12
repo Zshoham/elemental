@@ -40,7 +40,7 @@ also need a C++17 compiler; the libraries do not.
 
 ```sh
 cmake -P tools/provision.cmake     # once: fetches the pinned Kconfig tool and GoogleTest
-cmake --preset gcc                 # or: clang, sanitize
+cmake --preset gcc                 # or: clang, sanitize, assert-off
 cmake --build --preset gcc
 ctest --preset gcc
 ```
@@ -91,7 +91,7 @@ Compile-time configuration uses Kconfig. Defaults work; change them with a
 defconfig or interactively:
 
 ```sh
-cmake -B build -DELEMENTAL_DEFCONFIG=configs/assert_application_defconfig
+cmake -B build -DELEMENTAL_DEFCONFIG=configs/variant_defconfig
 cmake --build build --target menuconfig
 ```
 

@@ -361,7 +361,7 @@ def case_isolation(work):
 
     configure(ARGS.source, application, *common,
               "-DELEMENTAL_DEFCONFIG={}".format(
-                  ARGS.source / "configs" / "assert_application_defconfig"))
+                  ARGS.source / "configs" / "variant_defconfig"))
     build(application)
 
     check("EL_CONFIG_ASSERT_HANDLER_TRAP 1" in trap_header,
@@ -542,6 +542,79 @@ def case_provenance(work):
          "-DELEMENTAL_BUILD_TESTS=OFF", *with_tests])
 
 
+def subset_symbols():
+    """Each module's and backend's Kconfig symbol, by the naming convention
+    (docs/process/new-module.md): modules/<m> is enabled by <M>, and
+    modules/<m>/backends/<b> by <M>_<B>."""
+    names = []
+    for module in sorted((ARGS.source / "modules").iterdir()):
+        if not (module / "Kconfig").is_file():
+            continue
+        names.append(module.name.upper())
+        backends = module / "backends"
+        if backends.is_dir():
+            names.extend("{}_{}".format(module.name, backend.name).upper()
+                         for backend in sorted(backends.iterdir())
+                         if backend.is_dir())
+    return names
+
+
+def case_module_subsets(work):
+    """Each module alone, with only what its Kconfig entry pulls in, builds and passes its tests."""
+    sys.path.insert(0, str(ARGS.kconfiglib))
+    import kconfiglib  # pylint: disable=import-outside-toplevel
+
+    # The probe CMake runs; this host is POSIX (Linux is the only host).
+    os.environ["EL_PLATFORM_POSIX"] = "y"
+    kconf = kconfiglib.Kconfig(str(ARGS.source / "Kconfig"), warn=False)
+    units = subset_symbols()
+    for name in units:
+        check(name in kconf.syms and kconf.syms[name].nodes,
+              "modules/ layout names {} but no Kconfig symbol defines it".format(name))
+
+    def pulled_in(name):
+        """`name`, and every module its Kconfig entry depends on or selects."""
+        wanted, pending = set(), [name]
+        while pending:
+            sym = kconf.syms[pending.pop()]
+            if sym.name in wanted:
+                continue
+            wanted.add(sym.name)
+            items = list(kconfiglib.expr_items(sym.direct_dep))
+            items += [select[0] for select in sym.selects]
+            pending.extend(item.name for item in items
+                           if isinstance(item, kconfiglib.Symbol) and item.name in units)
+        return wanted
+
+    for name in units:
+        enabled = pulled_in(name)
+        # Everything else is turned off explicitly. If Kconfig turns one back
+        # on (an undeclared select), configuration stops with the reason.
+        defconfig = write(work / (name.lower() + "_defconfig"), "".join(
+            "EL_CONFIG_{}=y\n".format(unit) if unit in enabled
+            else "# EL_CONFIG_{} is not set\n".format(unit)
+            for unit in units))
+        build_dir = work / name.lower()
+        configure(ARGS.source, build_dir,
+                  "-DELEMENTAL_DEFCONFIG={}".format(defconfig),
+                  "-DCMAKE_CXX_COMPILER={}".format(ARGS.cxx_compiler),
+                  "-DELEMENTAL_GOOGLETEST_DIR={}".format(ARGS.googletest),
+                  "-DELEMENTAL_WARNINGS_AS_ERRORS=ON")
+        build(build_dir)
+
+        # Exactly the enabled libraries were built.
+        for unit in units:
+            built = exists_under(build_dir, "libelemental_{}.a".format(unit.lower()))
+            check(built == (unit in enabled),
+                  "{} alone: {} was {}built".format(
+                      name, unit, "" if built else "not "))
+
+        # Its tests, and everything else that builds with this subset, pass.
+        # The integration cases are left out: they configure their own trees.
+        run(["ctest", "--test-dir", build_dir, "-LE", "integration",
+             "--output-on-failure", "-j", str(os.cpu_count() or 2)])
+
+
 CASES = {
     "subdirectory": case_subdirectory,
     "installed": case_installed,
@@ -550,6 +623,7 @@ CASES = {
     "isolation": case_isolation,
     "diagnostics": case_diagnostics,
     "provenance": case_provenance,
+    "module_subsets": case_module_subsets,
 }
 
 

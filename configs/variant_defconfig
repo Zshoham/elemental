@@ -1,0 +1,9 @@
+# Every Kconfig choice that is not the default, so that a preset run with
+# this file (`sanitize`) covers the alternatives while `gcc` and `clang`
+# cover the defaults. A new choice option adds its alternative here.
+#
+# Failed contract assertions go to el_assert_failed(), defined by the
+# application; the tests define one that aborts.
+EL_CONFIG_ASSERT_HANDLER_APPLICATION=y
+# 256-entry CRC tables instead of 16-entry ones.
+EL_CONFIG_CRC_TABLE_8BIT=y

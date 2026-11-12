@@ -34,7 +34,7 @@
     },
     {
       "name": "sanitize",
-      "displayName": "Clang with ASan and UBSan, application assertion handler",
+      "displayName": "Clang with ASan and UBSan, every non-default choice (configs/variant_defconfig)",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",
@@ -42,14 +42,26 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
-        "ELEMENTAL_DEFCONFIG": "${sourceDir}/configs/assert_application_defconfig"
+        "ELEMENTAL_DEFCONFIG": "${sourceDir}/configs/variant_defconfig"
+      }
+    },
+    {
+      "name": "assert-off",
+      "displayName": "GCC, contract assertions compiled out (configs/assert_off_defconfig)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "ELEMENTAL_DEFCONFIG": "${sourceDir}/configs/assert_off_defconfig"
       }
     }
   ],
   "buildPresets": [
     { "name": "gcc", "configurePreset": "gcc" },
     { "name": "clang", "configurePreset": "clang" },
-    { "name": "sanitize", "configurePreset": "sanitize" }
+    { "name": "sanitize", "configurePreset": "sanitize" },
+    { "name": "assert-off", "configurePreset": "assert-off" }
   ],
   "testPresets": [
     {
@@ -68,6 +80,7 @@
         "ASAN_OPTIONS": "detect_leaks=1:strict_string_checks=1:detect_stack_use_after_return=1:allocator_may_return_null=1",
         "UBSAN_OPTIONS": "print_stacktrace=1"
       }
-    }
+    },
+    { "name": "assert-off", "inherits": "base", "configurePreset": "assert-off" }
   ]
 }
