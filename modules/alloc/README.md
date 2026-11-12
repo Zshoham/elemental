@@ -40,6 +40,35 @@ if (items == NULL) {
 el_free(a, items, cap * sizeof(reading), _Alignof(reading));
 ```
 
+### Failures and contract violations
+
+The split follows [conventions.md](../../docs/conventions.md#arguments):
+what a correct program can run into is reported, and what only a bug can
+produce is a contract violation.
+
+| Reported, never asserted | How |
+|---|---|
+| The allocator is exhausted | `el_alloc` and `el_alloc_array` return `NULL`; nothing changed |
+| `count * size` overflows | `el_alloc_array` returns `NULL` without asking the allocator |
+| The allocator cannot provide the alignment asked for | `NULL` |
+| A function that allocates as part of other work runs out | `EL_ERR_NO_SPACE` ([ADR 0009](../../docs/adr/0009-capacity-status.md)) |
+
+| Contract violation, asserted | Why it is not a status |
+|---|---|
+| A handle that was never made; a null arena | A calling bug |
+| An alignment that is not a power of two | Alignments come from `_Alignof`, not from input |
+| Arena storage that is null with a nonzero size | A calling bug |
+| `el_free` of `NULL` with a nonzero size, or of the zero-size pointer with a nonzero size | A calling bug |
+| Freeing memory the allocator did not provide, twice, or with a different size or alignment, where the allocator can check it cheaply (the arenas' range check) | The heap is already being corrupted; no caller action could recover, and a status from `el_free` would have nothing to tell it to do |
+| An allocator returning a misaligned pointer | A broken backend |
+
+What a violation does is the build's choice (`ASSERT`, `ASSERT_HANDLER_*`
+in [build.md](../../docs/build.md#the-options)): trap in place, call the
+application's handler (log and reset, say), or, with assertions compiled
+out, no check at all. It never returns into the failed operation.
+
+### Choosing an allocator
+
 Which allocator a component gets is the application's choice:
 
 | Allocator | Free gives back | Reset | For |
