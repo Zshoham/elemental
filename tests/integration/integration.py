@@ -561,7 +561,9 @@ def subset_symbols():
 
 def load_kconfig(work):
     """Elemental's Kconfig tree, with the toolchain facts CMake probes for
-    this compiler: a libraries-only configure, whose cache records them."""
+    this compiler: a libraries-only configure, whose cache records every
+    probe's environment variable (ELEMENTAL_PROBED_FACTS). A new probe is
+    picked up here without a change."""
     probe = work / "probe"
     configure(ARGS.source, probe, "-DELEMENTAL_BUILD_TESTS=OFF")
     facts = None

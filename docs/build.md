@@ -97,7 +97,7 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
 | `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
 
 **Configurations.** `gcc` and `clang` run the defaults, `sanitize` one
@@ -110,9 +110,11 @@ choice is covered by `integration.choices`, which needs no change for a new
 choice: it enumerates the choices with Kconfiglib, and for each option this
 compiler can select configures a build with only that option set, builds
 the owning module's tests, and runs them. An option it cannot select must
-be hidden by a probed fact, which it names (with GCC 16 it tests
-`CRC_GCC_BUILTIN`; with Clang it cannot; no host can select `CRC_ZEPHYR`,
-which the Zephyr scenario `elemental.tests.crc_zephyr` covers). Module
+be hidden by a probed fact, which it names. With GCC 16 it tests the seven
+options of `ASSERT_HANDLER`, `CRC_IMPLEMENTATION`, and `FMT_DIGITS` this
+host has; with Clang, the same less `CRC_GCC_BUILTIN`. No host can select
+`CRC_ZEPHYR`, which the Zephyr scenario `elemental.tests.crc_zephyr`
+covers. Module
 subsets are covered by `integration.module_subsets`: each module and
 backend alone, with only what its Kconfig entry depends on or selects,
 must configure, build exactly those libraries, and pass its tests.
@@ -519,7 +521,7 @@ Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests:
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 395 856 | 407 508 of 524 288 |
+| Flash (code and read-only data) | 395 872 | 407 532 of 524 288 |
 | RAM, static | 43 696 | 41 704 |
 | Heap, peak during the run | 75 912 | 80 504 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
