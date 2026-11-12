@@ -281,13 +281,47 @@ static unsigned popcount32(uint32_t x)
 #endif
 }
 
-/* 2^n for n < 64, without a variable 64-bit shift. */
-static uint64_t power_of_two64(unsigned n)
+/*
+ * 64-bit shifts by a variable count, for n < 64. A 32-bit core has no such
+ * instruction, and the compiler would call __aeabi_llsl or __aeabi_llsr, so
+ * there they are built from the two 32-bit halves. A shift of a half by 32
+ * is undefined, so the bits that cross from one half to the other are
+ * shifted twice, by 1 and by (31 - n), which is correct for n = 0 as well.
+ */
+static uint64_t shl64(uint64_t value, unsigned n)
 {
+#if BYTES_WIDE
+    return value << n;
+#else
+    uint32_t low = (uint32_t)value;
+    uint32_t high = (uint32_t)(value >> 32);
     if (n >= 32) {
-        return (uint64_t)((uint32_t)1 << (n - 32)) << 32;
+        high = low << (n - 32);
+        low = 0;
+    } else {
+        high = high << n | (low >> 1) >> (31 - n);
+        low <<= n;
     }
-    return (uint64_t)((uint32_t)1 << n);
+    return (uint64_t)high << 32 | low;
+#endif
+}
+
+static uint64_t shr64(uint64_t value, unsigned n)
+{
+#if BYTES_WIDE
+    return value >> n;
+#else
+    uint32_t low = (uint32_t)value;
+    uint32_t high = (uint32_t)(value >> 32);
+    if (n >= 32) {
+        low = high >> (n - 32);
+        high = 0;
+    } else {
+        low = low >> n | (high << 1) << (31 - n);
+        high >>= n;
+    }
+    return (uint64_t)high << 32 | low;
+#endif
 }
 
 uint32_t el_bytes_leading_zeros32(uint32_t value)
@@ -361,7 +395,7 @@ uint32_t el_bytes_bit_floor32(uint32_t value)
 
 uint64_t el_bytes_bit_floor64(uint64_t value)
 {
-    return value == 0 ? 0 : power_of_two64(63u - el_bytes_leading_zeros64(value));
+    return value == 0 ? 0 : shl64(1, 63u - el_bytes_leading_zeros64(value));
 }
 
 uint32_t el_bytes_bit_ceil32(uint32_t value)
@@ -380,5 +414,242 @@ uint64_t el_bytes_bit_ceil64(uint64_t value)
         return 1;
     }
     const unsigned width = el_bytes_bit_width64(value - 1);
-    return width == 64 ? 0 : power_of_two64(width);
+    return width == 64 ? 0 : shl64(1, width);
+}
+
+uint32_t el_bytes_leading_ones32(uint32_t value)
+{
+    return clz32(~value);
+}
+
+uint32_t el_bytes_leading_ones64(uint64_t value)
+{
+    return el_bytes_leading_zeros64(~value);
+}
+
+uint32_t el_bytes_trailing_ones32(uint32_t value)
+{
+    return ctz32(~value);
+}
+
+uint32_t el_bytes_trailing_ones64(uint64_t value)
+{
+    return el_bytes_trailing_zeros64(~value);
+}
+
+uint32_t el_bytes_count_zeros32(uint32_t value)
+{
+    return 32u - popcount32(value);
+}
+
+uint32_t el_bytes_count_zeros64(uint64_t value)
+{
+    return 64u - el_bytes_count_ones64(value);
+}
+
+/* ---- Rotate and reverse ------------------------------------------------- */
+
+/*
+ * The count is reduced modulo the width first, and the opposite shift is
+ * written as (-count & 31), which is 0, not 32, for a count of 0: no shift
+ * is ever by the full width. GCC and Clang recognize the pattern and emit
+ * one rotate instruction where the core has one (`rol` on x86-64, `ror` on
+ * Arm). On a 32-bit core the 64-bit rotate is built from two 32-bit
+ * rotates and a mask, so it needs no 64-bit shift helper.
+ */
+
+static uint32_t rotl32(uint32_t value, uint32_t count)
+{
+    count &= 31u;
+    return value << count | value >> (-count & 31u);
+}
+
+static uint32_t rotr32(uint32_t value, uint32_t count)
+{
+    count &= 31u;
+    return value >> count | value << (-count & 31u);
+}
+
+static uint64_t rotl64(uint64_t value, uint32_t count)
+{
+    count &= 63u;
+#if BYTES_WIDE
+    return value << count | value >> (-count & 63u);
+#else
+    uint32_t low = (uint32_t)value;
+    uint32_t high = (uint32_t)(value >> 32);
+    if (count >= 32) {
+        /* A rotation by 32 swaps the halves. */
+        const uint32_t swapped = low;
+        low = high;
+        high = swapped;
+        count -= 32;
+    }
+    /* Rotate both halves by count < 32. The bits of each that stay in
+     * their half are the ones above `mask`; the rest belong to the other. */
+    const uint32_t mask = ((uint32_t)1 << count) - 1;
+    const uint32_t low_rotated = rotl32(low, count);
+    const uint32_t high_rotated = rotl32(high, count);
+    return (uint64_t)((high_rotated & ~mask) | (low_rotated & mask)) << 32 |
+           ((low_rotated & ~mask) | (high_rotated & mask));
+#endif
+}
+
+static uint64_t rotr64(uint64_t value, uint32_t count)
+{
+#if BYTES_WIDE
+    count &= 63u;
+    return value >> count | value << (-count & 63u);
+#else
+    return rotl64(value, -count);
+#endif
+}
+
+uint32_t el_bytes_rotate_left32(uint32_t value, uint32_t count)
+{
+    return rotl32(value, count);
+}
+
+uint64_t el_bytes_rotate_left64(uint64_t value, uint32_t count)
+{
+    return rotl64(value, count);
+}
+
+uint32_t el_bytes_rotate_right32(uint32_t value, uint32_t count)
+{
+    return rotr32(value, count);
+}
+
+uint64_t el_bytes_rotate_right64(uint64_t value, uint32_t count)
+{
+    return rotr64(value, count);
+}
+
+/* Swap the bits of each pair, then the pairs of each nibble, then the
+ * nibbles of each byte, then the bytes. */
+static uint32_t reverse32(uint32_t value)
+{
+    value = (value >> 1 & 0x55555555u) | (value & 0x55555555u) << 1;
+    value = (value >> 2 & 0x33333333u) | (value & 0x33333333u) << 2;
+    value = (value >> 4 & 0x0F0F0F0Fu) | (value & 0x0F0F0F0Fu) << 4;
+    return swap32(value);
+}
+
+uint32_t el_bytes_reverse_bits32(uint32_t value)
+{
+    return reverse32(value);
+}
+
+uint64_t el_bytes_reverse_bits64(uint64_t value)
+{
+    return (uint64_t)reverse32((uint32_t)value) << 32 | reverse32((uint32_t)(value >> 32));
+}
+
+/* ---- Bit fields --------------------------------------------------------- */
+
+/*
+ * Every shift below is by less than the width of its type, whatever the
+ * arguments: a mask of the full width is UINT_MAX >> 0, not (1 << width) - 1,
+ * and a field of width 0 returns before it shifts at all, because its shift
+ * may legitimately be the full width. The range check is written as
+ * `shift <= bits - width`, which cannot overflow, where `shift + width`
+ * could wrap.
+ */
+
+uint32_t el_bytes_mask32(uint32_t width)
+{
+    EL_ASSERT(width <= 32);
+    return width == 0 ? 0 : UINT32_MAX >> (32 - width);
+}
+
+uint64_t el_bytes_mask64(uint32_t width)
+{
+    EL_ASSERT(width <= 64);
+    return width == 0 ? 0 : shr64(UINT64_MAX, 64 - width);
+}
+
+uint32_t el_bytes_field_get32(uint32_t value, uint32_t shift, uint32_t width)
+{
+    EL_ASSERT(width <= 32 && shift <= 32 - width);
+    if (width == 0) {
+        return 0;
+    }
+    return value >> shift & el_bytes_mask32(width);
+}
+
+uint64_t el_bytes_field_get64(uint64_t value, uint32_t shift, uint32_t width)
+{
+    EL_ASSERT(width <= 64 && shift <= 64 - width);
+    if (width == 0) {
+        return 0;
+    }
+    return shr64(value, shift) & el_bytes_mask64(width);
+}
+
+uint32_t el_bytes_field_set32(uint32_t value, uint32_t shift, uint32_t width, uint32_t field)
+{
+    EL_ASSERT(width <= 32 && shift <= 32 - width);
+    if (width == 0) {
+        return value;
+    }
+    const uint32_t mask = el_bytes_mask32(width);
+    return (value & ~(mask << shift)) | (field & mask) << shift;
+}
+
+uint64_t el_bytes_field_set64(uint64_t value, uint32_t shift, uint32_t width, uint64_t field)
+{
+    EL_ASSERT(width <= 64 && shift <= 64 - width);
+    if (width == 0) {
+        return value;
+    }
+    const uint64_t mask = el_bytes_mask64(width);
+    return (value & ~shl64(mask, shift)) | shl64(field & mask, shift);
+}
+
+/* ---- Alignment ---------------------------------------------------------- */
+
+uint32_t el_bytes_align_down32(uint32_t value, uint32_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit32(align));
+    return value & ~(align - 1);
+}
+
+uint64_t el_bytes_align_down64(uint64_t value, uint64_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit64(align));
+    return value & ~(align - 1);
+}
+
+uint32_t el_bytes_align_up32(uint32_t value, uint32_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit32(align));
+    const uint32_t mask = align - 1;
+    if ((value & mask) == 0) {
+        return value;
+    }
+    /* value | mask is the last byte before the next multiple: adding 1 to
+     * it wraps to 0 exactly when that multiple is 2^32. */
+    return (value | mask) + 1;
+}
+
+uint64_t el_bytes_align_up64(uint64_t value, uint64_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit64(align));
+    const uint64_t mask = align - 1;
+    if ((value & mask) == 0) {
+        return value;
+    }
+    return (value | mask) + 1;
+}
+
+bool el_bytes_is_aligned32(uint32_t value, uint32_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit32(align));
+    return (value & (align - 1)) == 0;
+}
+
+bool el_bytes_is_aligned64(uint64_t value, uint64_t align)
+{
+    EL_ASSERT(el_bytes_has_single_bit64(align));
+    return (value & (align - 1)) == 0;
 }
