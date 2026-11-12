@@ -564,8 +564,10 @@ def case_module_subsets(work):
     sys.path.insert(0, str(ARGS.kconfiglib))
     import kconfiglib  # pylint: disable=import-outside-toplevel
 
-    # The probe CMake runs; this host is POSIX (Linux is the only host).
+    # The probes CMake runs; this host is POSIX with a hosted C library
+    # (Linux is the only host).
     os.environ["EL_PLATFORM_POSIX"] = "y"
+    os.environ["EL_PLATFORM_SNPRINTF"] = "y"
     kconf = kconfiglib.Kconfig(str(ARGS.source / "Kconfig"), warn=False)
     units = subset_symbols()
     for name in units:

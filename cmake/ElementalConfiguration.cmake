@@ -119,12 +119,33 @@ else()
   set(_elemental_platform_posix n)
 endif()
 
+# snprintf() that converts long long, for fmt's FMT_LIBC. A hosted C library
+# has it (C99 7.19.6). Zephyr's picolibc converts long long only at some
+# printf levels, which Zephyr's own Kconfig chooses, so there the answer is
+# that configuration.
+if(COMMAND zephyr_library)
+  if(CONFIG_PICOLIBC_IO_LONG_LONG OR CONFIG_PICOLIBC_IO_FLOAT)
+    set(_elemental_platform_snprintf y)
+  else()
+    set(_elemental_platform_snprintf n)
+  endif()
+else()
+  include(CheckSymbolExists)
+  check_symbol_exists(snprintf stdio.h ELEMENTAL_HAVE_SNPRINTF)
+  if(ELEMENTAL_HAVE_SNPRINTF)
+    set(_elemental_platform_snprintf y)
+  else()
+    set(_elemental_platform_snprintf n)
+  endif()
+endif()
+
 # Kconfig symbols are written without a prefix (IO, ASSERT). Generated names
 # get EL_CONFIG_, so Elemental's macros and CMake variables cannot collide
 # with a host project that also uses Kconfig and its default CONFIG_ prefix.
 set(_elemental_kconfig_env
     "CONFIG_=EL_CONFIG_"
     "EL_PLATFORM_POSIX=${_elemental_platform_posix}"
+    "EL_PLATFORM_SNPRINTF=${_elemental_platform_snprintf}"
     ${_elemental_python_env})
 
 # --- Seed handling ----------------------------------------------------------

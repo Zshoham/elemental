@@ -20,6 +20,10 @@ tests:
   elemental.tests.variant:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=variant
+    # FMT_LIBC needs a printf that converts long long (PLATFORM_SNPRINTF).
+    # Zephyr's default picolibc level does today; stated, not relied on.
+    extra_configs:
+      - CONFIG_PICOLIBC_IO_LONG_LONG=y
     platform_allow:
       - mps2/an385
     integration_platforms:

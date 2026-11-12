@@ -17,6 +17,12 @@ config PLATFORM_POSIX
 	help
 	  The toolchain provides <unistd.h>. Probed by CMake.
 
+config PLATFORM_SNPRINTF
+	def_bool $(EL_PLATFORM_SNPRINTF)
+	help
+	  The C library has snprintf(), and it converts long long. Probed by
+	  CMake: on Zephyr, from the libc's configured printf level.
+
 menu "Modules"
 
 rsource "modules/status/Kconfig"

@@ -364,6 +364,9 @@ nothing calls `el_fmt_printf`, it is not linked. A "32-bit only" option is
 not needed either, because the 32-bit fast path is internal and chosen by
 value at run time.
 
+Since amended: the choice `FMT_BUILTIN` / `FMT_LIBC`, see
+[Amendment (2026-11-12)](#amendment-2026-11-12).
+
 ## Verification
 
 - **Unit tests (GoogleTest).** For each function: `cap` 0, 1, exact fit,
@@ -424,6 +427,54 @@ Decided by the project owner on 2026-11-11, accepting each recommendation:
 
 The truncation rule is recorded in
 [ADR 0011](../adr/0011-formatting-truncation.md).
+
+## Amendment (2026-11-12)
+
+**Decision.** The project owner decided that `fmt` may be built on the
+platform's own formatter, behind the same API: glibc's `snprintf` on Linux,
+picolibc's on Zephyr. It is a private Kconfig choice, `FMT_BUILTIN` (the
+default, the code above) or `FMT_LIBC`, and observable behavior is
+identical: the same output, statuses, and truncation. So it stays private
+under [ADR 0004](../adr/0004-private-configuration.md).
+
+**Design.**
+
+- **Only the digits are delegated.** Every number, from a typed call or a
+  printf conversion, reaches one private function, `el_fmt_number_`. It
+  asks `el_fmt_digits_` for the digits, then adds the sign and padding and
+  copies the item only if it fits whole. `FMT_LIBC` implements
+  `el_fmt_digits_` as `snprintf` with `%llu`, `%llx`, or `%llX` into a
+  21-byte scratch buffer. `FMT_BUILTIN` implements it as the shift-and-add
+  conversion. The sign, width, and padding stay shared because an
+  `el_fmt` width is a `size_t` and may exceed both `snprintf`'s `int` width
+  and any scratch buffer. Sharing them also means the whole-or-absent rule
+  is one piece of code in both configurations.
+- **Text items are unchanged.** `el_fmt_str`, `el_fmt_cstr`, hex dumps, `%s`,
+  `%c`, and literal text keep the cut-at-the-last-byte rule and never call
+  the C library.
+- **The parser is unchanged.** `el_fmt_printf` still parses and checks each
+  format, with the same subset and assertions, and delegates one number at
+  a time. Handing the whole format to `vsnprintf` would cut numbers and lose
+  stickiness, and would accept formats outside the subset.
+- **Probed, not asserted.** `FMT_LIBC` depends on `PLATFORM_SNPRINTF`. CMake
+  sets it where a hosted C library has `snprintf` (C99 requires `long long`
+  conversions). On Zephyr it follows picolibc's printf level: `IO_LONG_LONG`
+  or `IO_FLOAT`. `IO_INTEGER` and `IO_MINIMAL` do not convert `long long`.
+  `IO_LONG_LONG` is Zephyr v4.5's default because `CBPRINTF_FULL_INTEGRAL`
+  is. The Zephyr `variant` scenario sets it explicitly.
+- **Symbols.** `snprintf` is allowed in the Zephyr symbol check only in the
+  configuration that chose it (`tests/zephyr/allowed-undefined.FMT_LIBC.txt`).
+
+**Cost**, on `mps2/an385` at `-Os`, trapping assertions: `fmt` is 1 705
+bytes with `FMT_BUILTIN` and 1 502 with `FMT_LIBC`. An image that already
+links picolibc's printf, as Zephyr's defaults do through `printk`, is 104
+bytes smaller with `FMT_LIBC`. An image with nothing else that formats is
+1 268 bytes larger, picolibc's `__l_vfprintf` and `snprintf`. Measured as
+recorded in [modules/fmt](../../modules/fmt/README.md#configuration).
+
+**Verification.** Every fmt test, the glibc oracle included, runs in the
+`sanitize` preset with `FMT_LIBC`. `fmt.unit` runs against picolibc on
+`mps2/an385` in the Zephyr `variant` scenario.
 
 ## Review: three seats
 

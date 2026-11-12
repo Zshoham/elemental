@@ -187,11 +187,13 @@ can sit side by side.
 |---|---|---|
 | `STATUS`, `IO`, `ALLOC`, `IO_ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
 | `CRC_TABLE_4BIT` / `_8BIT` | 4-bit | CRC code size against speed: 96 bytes of tables or 1.5 KiB. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
+| `FMT_BUILTIN` / `FMT_LIBC` | built-in | `FMT_LIBC` converts numbers with the C library's `snprintf`, for an image that links printf anyway. Output is identical ([modules/fmt](../modules/fmt/README.md#configuration)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
+| `PLATFORM_SNPRINTF` | probed | Not settable. A hosted C library's `snprintf`, or on Zephyr a picolibc printf level that converts `long long`. |
 
 An option needs a use case to be added
 ([new-module.md](process/new-module.md)). An option whose effect the linker
@@ -537,7 +539,11 @@ libraries: the symbols they leave undefined, after removing those they
 define for each other, must be in
 [allowed-undefined.txt](../tests/zephyr/allowed-undefined.txt), or the build
 fails. The list has two entries: `memcpy`, and `el_assert_failed` in the
-configuration that asks the application to define it.
+configuration that asks the application to define it. A symbol that only
+one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
+which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
+[allowed-undefined.FMT_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_LIBC.txt),
+so the other configurations still fail on it.
 
 It has caught one helper so far: GCC 14.3.0 for ARMv6-M at `-Os` compiles a
 dense `switch`, or an `if` chain it rebuilds into one, as a jump table that
@@ -548,7 +554,7 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`; with `FMT_LIBC` (`variant`) also `snprintf` |
 | `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
 | `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
 
@@ -590,14 +596,18 @@ The other libraries in the same build:
 
 | Configuration | `alloc` | `io_alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|---|
-| Assertions off | 322 | 270 | 93 | 1 611 | 178 | 212 |
-| Trap in place (default) | 478 | 332 | 93 | 1 689 | 226 | 224 |
-| Application handler | 668 | 425 | 93 | 1 880 | 386 | 255 |
+| Assertions off | 322 | 270 | 93 | 1 627 | 178 | 212 |
+| Trap in place (default) | 478 | 332 | 93 | 1 705 | 226 | 224 |
+| Application handler | 668 | 425 | 93 | 1 896 | 386 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
-it is 1 624 bytes (trap). Of `fmt`'s 1 689, 997 are the typed core and 692
-the printf front end, which a program that never calls `el_fmt_printf`
-does not link. Text includes read-only data such as the CRC tables.
+it is 1 624 bytes (trap). Of `fmt`'s 1 705, 1 013 are the typed core (290
+of them the built-in digit conversion) and 692 the printf front end, which
+a program that never calls `el_fmt_printf` does not link. With `FMT_LIBC`
+`fmt` is 1 502 bytes (trap), the conversion 87 of them; what that costs or
+saves in an image depends on whether printf is already linked: −104 bytes
+where it is (Zephyr's defaults), +1 268 where nothing else formats
+([modules/fmt](../modules/fmt/README.md#configuration)). Text includes read-only data such as the CRC tables.
 
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
@@ -632,11 +642,12 @@ and exited successfully.
 | bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed | not run |
 | crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
+| fmt: every fmt test with `FMT_LIBC` (`variant_defconfig`), against glibc's and picolibc's `snprintf` | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (8 cases, including `module_subsets`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed | passed | passed |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
 
 The hosted presets run 257 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
@@ -704,6 +715,13 @@ Additionally, each run once by hand and not part of the automated suite:
   first survived, because a null access crashes on the host anyway; the
   death tests of these modules now accept only a death by the check (a
   trap or an abort), not `SIGSEGV`.
+- Eight deliberately broken variants of `FMT_LIBC`, built with
+  `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
+  buffer too small for the digits, a dropped digit, the digits always in
+  decimal, a number allowed to overrun by a byte, and a number copied in
+  part when it does not fit. `%lu` for `%llu` first survived, since `long`
+  is 64 bits on x86-64; the format literals are now in the `snprintf` call,
+  so `-Wformat` rejects it on every target.
 
 Not verified:
 

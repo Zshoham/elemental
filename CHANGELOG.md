@@ -35,6 +35,10 @@ First milestone: the project's foundation.
   `elemental/fmt_printf.h` (`el_fmt_printf`, `el_fmt_vprintf`,
   `EL_FMT_PRINTF_CHECK`). Truncation keeps a prefix that ends on an item
   ([ADR 0011](docs/adr/0011-formatting-truncation.md)).
+- `fmt`: the private choice `FMT_BUILTIN` / `FMT_LIBC`. `FMT_LIBC` converts
+  numbers with the C library's `snprintf`, with identical output, and
+  depends on the new probed symbol `PLATFORM_SNPRINTF`. No public header
+  changes.
 - `bytes` (experimental): `el_bytes_load_{le,be}{16,32,64}` and
   `el_bytes_store_{le,be}{16,32,64}`, at any alignment.
 - `crc` (experimental): `el_crc32_update` (CRC-32/ISO-HDLC) and

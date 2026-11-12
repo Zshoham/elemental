@@ -72,17 +72,27 @@ elemental_use_board_flags("${ELEMENTAL_ROOT}")
 
 # The symbol check: what Elemental's libraries need from outside themselves,
 # compiled for this Cortex-M board by its toolchain. Anything not in
-# allowed-undefined.txt fails the build.
+# allowed-undefined.txt fails the build. A symbol only one configuration
+# needs goes in allowed-undefined.<SYMBOL>.txt, which is read only when
+# Elemental's EL_CONFIG_<SYMBOL> is set.
 if(CONFIG_ARM)
   get_property(modules GLOBAL PROPERTY ELEMENTAL_MODULES)
   set(archives "")
   foreach(module IN LISTS modules)
     list(APPEND archives "$<TARGET_FILE:elemental_${module}>")
   endforeach()
+  set(allow --allow "${CMAKE_CURRENT_SOURCE_DIR}/allowed-undefined.txt")
+  file(GLOB conditional_lists "${CMAKE_CURRENT_SOURCE_DIR}/allowed-undefined.*.txt")
+  foreach(list IN LISTS conditional_lists)
+    string(REGEX REPLACE ".*/allowed-undefined\\.(.*)\\.txt$" "\\1" symbol "${list}")
+    get_directory_property(enabled DIRECTORY "${ELEMENTAL_ROOT}" DEFINITION EL_CONFIG_${symbol})
+    if(enabled)
+      list(APPEND allow --allow "${list}")
+    endif()
+  endforeach()
   add_custom_target(elemental_symbols ALL
     COMMAND "${PYTHON_EXECUTABLE}" "${ELEMENTAL_ROOT}/tools/check_symbols.py"
-            --nm "${CMAKE_NM}"
-            --allow "${CMAKE_CURRENT_SOURCE_DIR}/allowed-undefined.txt"
+            --nm "${CMAKE_NM}" ${allow}
             ${archives}
     COMMENT "Checking the symbols Elemental's libraries leave undefined"
     VERBATIM)
