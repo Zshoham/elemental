@@ -4,4 +4,5 @@ config BYTES
 	select STATUS
 	help
 	  Load and store 16-, 32-, and 64-bit values, little and big endian,
-	  at any alignment. Freestanding: needs no runtime symbols.
+	  at any alignment; byte swap; and C23-style bit counting.
+	  Freestanding: needs no runtime symbols, compiler helpers included.
