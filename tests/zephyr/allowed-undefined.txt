@@ -4,7 +4,8 @@
 #
 # No other libc symbol, no compiler runtime helper (__aeabi_*, __atomic_*),
 # and no Zephyr symbol is on this list. Adding one is a decision that needs a
-# reason here.
+# reason here. A symbol that only one Kconfig choice needs is listed in
+# allowed-undefined.<SYMBOL>.txt instead, read only in that configuration.
 
 memcpy   # io_mem.c, io_alloc.c, and fmt.c copy bytes with it. GCC and
          # Clang already require every freestanding environment to provide it.

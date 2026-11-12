@@ -1,7 +1,17 @@
+# The number conversion is a private choice: both sources define
+# el_fmt_digits_(), and exactly one is built into the library. The defaults
+# build the built-in one; configs/variant_defconfig (the sanitize preset and
+# the Zephyr variant scenario) builds the C library one.
+if(EL_CONFIG_FMT_LIBC)
+  set(fmt_digits_source src/fmt_digits_libc.c)
+else()
+  set(fmt_digits_source src/fmt_digits_builtin.c)
+endif()
+
 # fmt_printf.c is its own object, so a program that never calls
 # el_fmt_printf() does not link it.
 elemental_add_module(fmt
-  SOURCES src/fmt.c src/fmt_printf.c
+  SOURCES src/fmt.c ${fmt_digits_source} src/fmt_printf.c
   DEPENDS status)
 
 # No jump tables: for a dense switch, or an if chain it rebuilds into one,

@@ -6,3 +6,29 @@ config FMT
 	  Integers in decimal and hex, strings, and hex dumps, written into
 	  a buffer the caller provides, plus a printf-style front end.
 	  No floating point. Freestanding: needs only memcpy().
+
+choice FMT_DIGITS
+	prompt "fmt: number conversion"
+	default FMT_BUILTIN
+	depends on FMT
+	help
+	  What turns a number into digits. Output, statuses, and truncation
+	  are identical either way, and nothing a caller sees changes.
+
+config FMT_BUILTIN
+	bool "Built-in conversion"
+	help
+	  Shifts and adds, so it needs no division helper and no C library
+	  beyond memcpy(). The right choice unless the image already links
+	  the C library's printf.
+
+config FMT_LIBC
+	bool "The C library's snprintf()"
+	depends on PLATFORM_SNPRINTF
+	help
+	  Each number is converted by snprintf() into a scratch buffer and
+	  copied only if it fits whole. For an image that links printf
+	  anyway (for logging, say), where the built-in conversion would be a
+	  second copy of the same code. Costs a snprintf() call per number.
+
+endchoice
