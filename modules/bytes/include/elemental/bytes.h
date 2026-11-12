@@ -68,16 +68,16 @@ uint64_t el_bytes_swap64(uint64_t value);
 /* ---- Bit counting, after C23 <stdbit.h> --------------------------------- */
 
 /* The number of 0 bits above the highest 1 bit. 32 (or 64) for 0. */
-unsigned el_bytes_leading_zeros32(uint32_t value);
-unsigned el_bytes_leading_zeros64(uint64_t value);
+uint32_t el_bytes_leading_zeros32(uint32_t value);
+uint32_t el_bytes_leading_zeros64(uint64_t value);
 
 /* The number of 0 bits below the lowest 1 bit. 32 (or 64) for 0. */
-unsigned el_bytes_trailing_zeros32(uint32_t value);
-unsigned el_bytes_trailing_zeros64(uint64_t value);
+uint32_t el_bytes_trailing_zeros32(uint32_t value);
+uint32_t el_bytes_trailing_zeros64(uint64_t value);
 
 /* The number of 1 bits. */
-unsigned el_bytes_count_ones32(uint32_t value);
-unsigned el_bytes_count_ones64(uint64_t value);
+uint32_t el_bytes_count_ones32(uint32_t value);
+uint32_t el_bytes_count_ones64(uint64_t value);
 
 /* True if `value` is a power of two: exactly one bit is 1. False for 0. */
 bool el_bytes_has_single_bit32(uint32_t value);
@@ -85,8 +85,8 @@ bool el_bytes_has_single_bit64(uint64_t value);
 
 /* The number of bits needed to represent `value`: 1 + the index of its
  * highest 1 bit. 0 for 0. */
-unsigned el_bytes_bit_width32(uint32_t value);
-unsigned el_bytes_bit_width64(uint64_t value);
+uint32_t el_bytes_bit_width32(uint32_t value);
+uint32_t el_bytes_bit_width64(uint64_t value);
 
 /* The largest power of two not greater than `value`. 0 for 0. */
 uint32_t el_bytes_bit_floor32(uint32_t value);

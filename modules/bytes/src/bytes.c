@@ -290,12 +290,12 @@ static uint64_t power_of_two64(unsigned n)
     return (uint64_t)((uint32_t)1 << n);
 }
 
-unsigned el_bytes_leading_zeros32(uint32_t value)
+uint32_t el_bytes_leading_zeros32(uint32_t value)
 {
     return clz32(value);
 }
 
-unsigned el_bytes_leading_zeros64(uint64_t value)
+uint32_t el_bytes_leading_zeros64(uint64_t value)
 {
 #if BYTES_WIDE
     return value == 0 ? 64u : (unsigned)__builtin_clzll(value);
@@ -305,12 +305,12 @@ unsigned el_bytes_leading_zeros64(uint64_t value)
 #endif
 }
 
-unsigned el_bytes_trailing_zeros32(uint32_t value)
+uint32_t el_bytes_trailing_zeros32(uint32_t value)
 {
     return ctz32(value);
 }
 
-unsigned el_bytes_trailing_zeros64(uint64_t value)
+uint32_t el_bytes_trailing_zeros64(uint64_t value)
 {
 #if BYTES_WIDE
     return value == 0 ? 64u : (unsigned)__builtin_ctzll(value);
@@ -320,12 +320,12 @@ unsigned el_bytes_trailing_zeros64(uint64_t value)
 #endif
 }
 
-unsigned el_bytes_count_ones32(uint32_t value)
+uint32_t el_bytes_count_ones32(uint32_t value)
 {
     return popcount32(value);
 }
 
-unsigned el_bytes_count_ones64(uint64_t value)
+uint32_t el_bytes_count_ones64(uint64_t value)
 {
 #if BYTES_POPCNT
     return (unsigned)__builtin_popcountll(value);
@@ -344,12 +344,12 @@ bool el_bytes_has_single_bit64(uint64_t value)
     return value != 0 && (value & (value - 1)) == 0;
 }
 
-unsigned el_bytes_bit_width32(uint32_t value)
+uint32_t el_bytes_bit_width32(uint32_t value)
 {
     return 32u - clz32(value);
 }
 
-unsigned el_bytes_bit_width64(uint64_t value)
+uint32_t el_bytes_bit_width64(uint64_t value)
 {
     return 64u - el_bytes_leading_zeros64(value);
 }

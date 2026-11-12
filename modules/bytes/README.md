@@ -34,7 +34,7 @@ el_bytes_store_le16(out, type);
 el_bytes_store_le32(out + 4 + len, crc);
 uint64_t time_us = el_bytes_load_be64(msg + 3); /* any alignment */
 
-unsigned slots = el_bytes_bit_ceil32(requested);  /* 0 if above 2^31 */
+uint32_t slots = el_bytes_bit_ceil32(requested);  /* 0 if above 2^31 */
 ```
 
 Use these instead of casting a byte pointer to a wider pointer, which is

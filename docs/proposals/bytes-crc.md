@@ -531,11 +531,11 @@ uint64_t el_bytes_swap64(uint64_t value);
 
 /* Bit counting, after C23 <stdbit.h>, which C11 does not have. Each is
  * defined for every input, 0 included. */
-unsigned el_bytes_leading_zeros32(uint32_t value);  /* 32 for 0 */
-unsigned el_bytes_trailing_zeros32(uint32_t value); /* 32 for 0 */
-unsigned el_bytes_count_ones32(uint32_t value);
+uint32_t el_bytes_leading_zeros32(uint32_t value);  /* 32 for 0 */
+uint32_t el_bytes_trailing_zeros32(uint32_t value); /* 32 for 0 */
+uint32_t el_bytes_count_ones32(uint32_t value);
 bool el_bytes_has_single_bit32(uint32_t value);     /* false for 0 */
-unsigned el_bytes_bit_width32(uint32_t value);      /* 0 for 0 */
+uint32_t el_bytes_bit_width32(uint32_t value);      /* 0 for 0 */
 uint32_t el_bytes_bit_floor32(uint32_t value);      /* 0 for 0 */
 uint32_t el_bytes_bit_ceil32(uint32_t value);       /* 1 for 0; 0 above 2^31 */
 /* ...and the same seven with 64 in place of 32. */
@@ -546,7 +546,7 @@ Decisions in the sketch:
 - **Names** follow `el_<module>_<verb>` with the width last, as the loads
   and stores do. The bit-counting names are C23's (`stdc_leading_zeros`
   becomes `el_bytes_leading_zeros32`), so the standard's documentation
-  applies to each. Counts return `unsigned`, as C23's do.
+  applies to each. Counts return `uint32_t`. C23's return `unsigned int`, but Elemental's ABI rule 2 ([conventions.md](../conventions.md#abi)) asks for a fixed-width type; the two are the same size on every supported target.
 - **At 0** every function has the C23 result: no zero is a contract
   violation.
 - **Bit ceil without a representable result** (above 2^31, or 2^63)
