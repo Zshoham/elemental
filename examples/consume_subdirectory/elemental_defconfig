@@ -1,3 +1,4 @@
-# Elemental configuration for this application: memory streams only.
-# Everything not mentioned keeps its default.
+# Elemental configuration for this application: memory streams only, and no
+# allocator. Everything not mentioned keeps its default.
 # EL_CONFIG_IO_POSIX is not set
+# EL_CONFIG_IO_ALLOC is not set

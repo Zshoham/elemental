@@ -19,6 +19,11 @@ foreach(dir IN LISTS include_dirs)
   list(APPEND headers ${found})
 endforeach()
 list(SORT headers)
+# Headers of parts of a module that are switched off (OMIT_HEADERS).
+get_property(omitted GLOBAL PROPERTY ELEMENTAL_OMITTED_HEADERS)
+if(omitted)
+  list(REMOVE_ITEM headers ${omitted})
+endif()
 
 function(write_header_check header extension out_var)
   string(MAKE_C_IDENTIFIER "${header}" id)

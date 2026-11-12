@@ -83,7 +83,7 @@ anything below it, waits for the reset
 ([alloc_arena.h](include/elemental/alloc_arena.h)).
 
 The growable writer that uses an allocator is
-[`io_alloc`](../io_alloc/README.md).
+[`el_grow_writer`](../io/README.md#the-grow-writer-io_alloc), in `io`.
 
 ## Implementing an allocator
 

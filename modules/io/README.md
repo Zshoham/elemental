@@ -7,9 +7,9 @@ and writers over caller-provided memory.
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
 | Targets | `elemental::io`, `elemental::io_contract`, `elemental::io_posix` |
-| Depends on | `status`. Runtime: `memcpy`. |
-| Allocates | No |
-| Kconfig | `IO`, `IO_POSIX` |
+| Depends on | `status`; `alloc` when `IO_ALLOC` is on. Runtime: `memcpy`. |
+| Allocates | Only the grow writer, through the allocator it is given |
+| Kconfig | `IO`, `IO_POSIX`, `IO_ALLOC` |
 
 ## What is here
 
@@ -17,6 +17,7 @@ and writers over caller-provided memory.
 |---|---|---|
 | `el_reader`, `el_writer`, `el_read`, `el_write`, `el_read_exact`, `el_write_all` | Interface contract | [`elemental/io.h`](include/elemental/io.h) |
 | `el_mem_reader`, `el_mem_writer` | Portable implementation | [`elemental/io_mem.h`](include/elemental/io_mem.h) |
+| `el_grow_writer` (`IO_ALLOC`) | Portable implementation of `el_writer`, over an allocator | [`elemental/io_alloc.h`](include/elemental/io_alloc.h) |
 | The io contract suite | GoogleTest tests, shipped as source | [`elemental/io_contract.hpp`](contract/include/elemental/io_contract.hpp), fixture in [`elemental/io_contract.h`](contract/include/elemental/io_contract.h) |
 | `el_posix_fd` | Platform backend | [`elemental/io_posix.h`](backends/posix/include/elemental/io_posix.h), [PORT.md](backends/posix/PORT.md) |
 
@@ -91,7 +92,7 @@ skipped rather than passed.
 | POSIX, blocking pipe | 8 | 3: cannot stall; a pipe cannot end after an exact count |
 | POSIX, non-blocking pipe | 10 | 1: a pipe cannot end after an exact count |
 | Ring pipe example | 10 | 1: stalls when full instead of ending |
-| Grow writer (`io_alloc`) | 8 | 3: cannot stall; reports `EL_ERR_NO_SPACE`, not permanent, instead of ending |
+| Grow writer (`IO_ALLOC`) | 8 | 3: cannot stall; reports `EL_ERR_NO_SPACE`, not permanent, instead of ending |
 
 What the suite does not cover is deliberate: behavior that belongs to one
 backend. Deliberately broken variants of the ring pipe were used to check
@@ -100,6 +101,40 @@ wrap-around, and a stall reported as end of stream. It did not catch
 "accepts writes after its write side is closed", because closing a write
 side is not part of the interface; the ring pipe's own test covers that.
 
+## The grow writer (`io_alloc`)
+
+`el_grow_writer`: an `el_writer` that collects what is written to it in
+memory from an `el_allocator`, growing as needed. It is the one part of io
+that needs `alloc`, so it is built into `elemental::io` only when the Kconfig
+symbol `IO_ALLOC` is on (the default, where `ALLOC` is on), and then
+`elemental::io` links `elemental::alloc`. With `IO_ALLOC` off, io builds and
+links no allocator, which `integration.subdirectory` checks. It was a
+separate library until the owner merged it into io on 2026-11-12.
+
+```c
+el_grow_writer body;
+el_grow_writer_init(&body, allocator);
+el_status status = el_write_all(el_grow_writer_as_writer(&body), data, len, NULL);
+/* EL_ERR_NO_SPACE: the allocator would not let it grow. */
+/* el_grow_writer_data(&body), el_grow_writer_len(&body) */
+el_grow_writer_deinit(&body);
+```
+
+A write that finds the buffer full grows it to twice its capacity, or to
+what the write needs if that is more, at least 16 bytes. If the allocator
+refuses, it asks once more for exactly what the write needs, then takes
+what fits. With no room at all it returns `EL_ERR_NO_SPACE`, which, unlike
+`EL_ERR_END_OF_STREAM`, is not permanent: the same write can succeed once
+the allocator has room. That status is one of the outcomes
+[io.h](include/elemental/io.h) lists for writers that allocate.
+
+Growth allocates the new buffer before freeing the old one. Over a bump
+arena a writer that has grown to n bytes has used up to about 2n.
+
+In the io contract suite, 3 tests are skipped for the grow writer: it cannot
+stall, and it does not end. The fixture's reader is a memory reader, because
+the suite requires one; the grow writer has no reader of its own.
+
 ## Tests
 
 | Test | What it checks |
@@ -107,6 +142,9 @@ side is not part of the interface; the ring pipe's own test covers that.
 | `io.contract.mem.*` | The contract suite against the memory streams. |
 | `io.helpers.*` | `el_read_exact` and `el_write_all` against a scripted stream: every interleaving of progress, would-block, and failure, and the bound on attempts. |
 | `io.violations.*` | Each documented contract violation stops the program, for callers and for implementations. Death tests, so they hold in every assertion configuration that has assertions on. |
+| `io.contract.grow.*` | The io contract suite against the grow writer, over a stack arena wrapped in the checking allocator. Only with `IO_ALLOC`. |
+| `io.unit.grow.*` | Growth sizes, the exact-size retry, a partial write at the limit, `EL_ERR_NO_SPACE` and recovery from it; every buffer freed with the size it was allocated with. Only with `IO_ALLOC`. |
+| `io.violations.grow.*` | Each documented contract violation of the grow writer stops the program. Death tests, host only. |
 | `io_posix.contract.*`, `io_posix.platform.*` | See [PORT.md](backends/posix/PORT.md). |
 
 Each `TEST` is one CTest test: `ctest --preset gcc -R io.helpers` runs a

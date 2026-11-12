@@ -59,20 +59,18 @@ if(ELEMENTAL_RUSTC AND EL_CONFIG_IO_ALLOC AND NOT sanitized)
     OUTPUT "${rust_alloc_binary}"
     COMMAND "${ELEMENTAL_RUSTC}" --edition 2021 -D warnings
             -o "${rust_alloc_binary}" "${CMAKE_CURRENT_SOURCE_DIR}/rust_alloc_sketch.rs"
-            -L "native=$<TARGET_FILE_DIR:elemental_io_alloc>"
             -L "native=$<TARGET_FILE_DIR:elemental_alloc>"
             -L "native=$<TARGET_FILE_DIR:elemental_io>"
             -L "native=$<TARGET_FILE_DIR:elemental_status>"
-            -l static=elemental_io_alloc -l static=elemental_alloc
-            -l static=elemental_io -l static=elemental_status
-    DEPENDS rust_alloc_sketch.rs elemental_io_alloc elemental_alloc elemental_io
-            elemental_status
+            -l static=elemental_io -l static=elemental_alloc
+            -l static=elemental_status
+    DEPENDS rust_alloc_sketch.rs elemental_io elemental_alloc elemental_status
     COMMENT "Compiling and linking the Rust allocator sketch"
     VERBATIM)
   add_custom_target(interop_rust_alloc_sketch ALL DEPENDS "${rust_alloc_binary}")
   add_test(NAME interop.rust_alloc COMMAND "${rust_alloc_binary}")
 else()
-  message(STATUS "Rust allocator sketch not built (no rustc, io_alloc disabled, or sanitizers on)")
+  message(STATUS "Rust allocator sketch not built (no rustc, IO_ALLOC disabled, or sanitizers on)")
 endif()
 
 # --- Python: compile check only ---------------------------------------------

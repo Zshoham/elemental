@@ -7,7 +7,7 @@
 # reason here. A symbol that only one Kconfig choice needs is listed in
 # allowed-undefined.<SYMBOL>.txt instead, read only in that configuration.
 
-memcpy   # io_mem.c, io_alloc.c, and fmt.c copy bytes with it. GCC and
+memcpy   # io_mem.c, io_alloc.c (io), and fmt.c copy bytes with it. GCC and
          # Clang already require every freestanding environment to provide it.
 
 el_assert_failed  # Only in the ASSERT_HANDLER_APPLICATION configuration, where

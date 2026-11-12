@@ -42,8 +42,8 @@ because free computes the block's class from the size and alignment. Rust's
 
 The hazard is met in tests: the checking allocator in
 `elemental::alloc_contract` stops the program on a free whose size or
-alignment does not match the allocation, and `io_alloc`'s tests run through
-it.
+alignment does not match the allocation, and the grow writer's tests (`io`, with
+`IO_ALLOC`) run through it.
 
 ## Cost
 

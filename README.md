@@ -19,11 +19,10 @@ Version 0.1, first milestone. Everything is **experimental**.
 | Module | What | Freestanding |
 |---|---|---|
 | [`status`](modules/status/README.md) | Status codes and contract assertions | Yes |
-| [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; streams over caller-provided memory; a contract test suite for backends | Yes, needs `memcpy` |
+| [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; streams over caller-provided memory; a writer that grows through an allocator (`IO_ALLOC`, needs `alloc`); a contract test suite for backends | Yes, needs `memcpy` |
 | [`io_posix`](modules/io/backends/posix/PORT.md) | Reader and writer over a file descriptor | No |
 | [`alloc`](modules/alloc/README.md) | Allocator interface; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes |
 | [`alloc_libc`](modules/alloc/backends/libc/PORT.md) | Allocator over the C library heap | No |
-| [`io_alloc`](modules/io_alloc/README.md) | A writer that grows through an allocator | Yes, needs `memcpy` |
 | [`fmt`](modules/fmt/README.md) | Text formatting into caller memory: integers, strings, hex dumps, a printf subset | Yes, needs `memcpy` |
 | [`bytes`](modules/bytes/README.md) | Little- and big-endian load and store at any alignment; byte swap; C23-style bit counting | Yes |
 | [`crc`](modules/crc/README.md) | CRC-32/ISO-HDLC and CRC-16/IBM-3740, incremental | Yes |
