@@ -340,7 +340,8 @@ in [conventions.md](conventions.md#concurrency-and-execution-context).
 
 **Sized free. Before anything stores an allocator.** *Decided in
 [ADR 0012](adr/0012-sized-free.md)*, by the allocation proposal's examples:
-`el_free` takes the size and alignment back.
+`el_free` takes the size and alignment back, as one `el_layout`
+([ADR 0013](adr/0013-allocation-layout.md)).
 
 **Optional operations. Before an operation table grows.** A null optional
 operation has a defined, harmless meaning, such as "nothing to flush", where

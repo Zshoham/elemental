@@ -6,7 +6,7 @@
  * operations of el_allocator_ops, and a function that hands out a handle.
  * It is also the allocator in this repository whose correctness depends on
  * sized free (docs/adr/0012-sized-free.md). A block carries no header: free
- * is told the size and alignment, and computes from them the same class
+ * is told the layout, and computes from it the same class
  * alloc chose. With pointer-only free, every block would need a header to
  * find its class, and keeping blocks aligned to their size would make that
  * header cost a whole block's alignment.

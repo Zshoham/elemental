@@ -23,14 +23,14 @@ static el_grow_writer *checked(void *ctx)
 /* Move the contents into a buffer of `cap` bytes. Returns 0 if refused. */
 static int grow_to(el_grow_writer *gw, size_t cap)
 {
-    uint8_t *const buf = el_alloc(gw->allocator, cap, 1);
+    uint8_t *const buf = el_alloc(gw->allocator, el_layout_make(cap, 1));
     if (buf == NULL) {
         return 0;
     }
     if (gw->len != 0) {
         memcpy(buf, gw->buf, gw->len);
     }
-    el_free(gw->allocator, gw->buf, gw->cap, 1);
+    el_free(gw->allocator, gw->buf, el_layout_make(gw->cap, 1));
     gw->buf = buf;
     gw->cap = cap;
     return 1;
@@ -108,7 +108,7 @@ size_t el_grow_writer_len(const el_grow_writer *gw)
 void el_grow_writer_deinit(el_grow_writer *gw)
 {
     EL_ASSERT(gw != NULL);
-    el_free(checked(gw)->allocator, gw->buf, gw->cap, 1);
+    el_free(checked(gw)->allocator, gw->buf, el_layout_make(gw->cap, 1));
     gw->allocator.ops = NULL;
     gw->buf = NULL;
     gw->len = 0;

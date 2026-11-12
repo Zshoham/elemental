@@ -7,29 +7,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void checker_fail(const char *what, const void *ptr, size_t size, size_t align)
+static void checker_fail(const char *what, const void *ptr, el_layout layout)
 {
-    fprintf(stderr, "el_alloc_checker: %s: pointer %p, size %zu, alignment %zu\n", what, ptr, size,
-            align);
+    fprintf(stderr, "el_alloc_checker: %s: pointer %p, size %zu, alignment %zu\n", what, ptr,
+            layout.size, layout.align);
     abort();
 }
 
-static void *checker_alloc(void *ctx, size_t size, size_t align)
+static void *checker_alloc(void *ctx, el_layout layout)
 {
     el_alloc_checker *const checker = ctx;
     if (checker->live == checker->cap) {
-        checker_fail("out of records (give the checker a larger array)", NULL, size, align);
+        checker_fail("out of records (give the checker a larger array)", NULL, layout);
     }
-    void *const ptr = el_alloc(checker->inner, size, align);
+    void *const ptr = el_alloc(checker->inner, layout);
     if (ptr != NULL) {
-        checker->records[checker->live] =
-            (el_alloc_check_record){.ptr = ptr, .size = size, .align = align};
+        checker->records[checker->live] = (el_alloc_check_record){.ptr = ptr, .layout = layout};
         checker->live++;
     }
     return ptr;
 }
 
-static void checker_free(void *ctx, void *ptr, size_t size, size_t align)
+static void checker_free(void *ctx, void *ptr, el_layout layout)
 {
     el_alloc_checker *const checker = ctx;
     for (size_t i = 0; i < checker->live; i++) {
@@ -37,22 +36,23 @@ static void checker_free(void *ctx, void *ptr, size_t size, size_t align)
         if (record->ptr != ptr) {
             continue;
         }
-        if (record->size != size) {
-            fprintf(stderr, "el_alloc_checker: allocated with size %zu\n", record->size);
-            checker_fail("freed with a different size", ptr, size, align);
+        if (record->layout.size != layout.size) {
+            fprintf(stderr, "el_alloc_checker: allocated with size %zu\n", record->layout.size);
+            checker_fail("freed with a different size", ptr, layout);
         }
-        if (record->align != align) {
-            fprintf(stderr, "el_alloc_checker: allocated with alignment %zu\n", record->align);
-            checker_fail("freed with a different alignment", ptr, size, align);
+        if (record->layout.align != layout.align) {
+            fprintf(stderr, "el_alloc_checker: allocated with alignment %zu\n",
+                    record->layout.align);
+            checker_fail("freed with a different alignment", ptr, layout);
         }
         *record = checker->records[checker->live - 1];
         checker->live--;
-        el_free(checker->inner, ptr, size, align);
+        el_free(checker->inner, ptr, layout);
         return;
     }
     checker_fail("freed a pointer that is not a live allocation (never allocated, or freed "
                  "already)",
-                 ptr, size, align);
+                 ptr, layout);
 }
 
 static const el_allocator_ops checker_ops = {
@@ -64,7 +64,8 @@ void el_alloc_checker_init(el_alloc_checker *checker, el_allocator inner,
                            el_alloc_check_record *records, size_t cap)
 {
     if (checker == NULL || inner.ops == NULL || (records == NULL && cap != 0)) {
-        checker_fail("el_alloc_checker_init called with a null argument", NULL, cap, 0);
+        checker_fail("el_alloc_checker_init called with a null argument", NULL,
+                     (el_layout){.size = cap, .align = 0});
     }
     checker->inner = inner;
     checker->records = records;

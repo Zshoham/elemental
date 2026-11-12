@@ -8,8 +8,8 @@
 
 /*
  * The front functions are the boundary between callers and allocators.
- * Zero sizes, overflowing arrays, and bad alignments are dealt with here,
- * so an operation never sees them, and an operation's result is checked
+ * Zero sizes and bad alignments are dealt with here, so an operation never
+ * sees them, and an operation's result is checked
  * here, so a broken allocator is caught where it returns.
  */
 
@@ -18,12 +18,12 @@ static int is_power_of_two(size_t value)
     return value != 0 && (value & (value - 1)) == 0;
 }
 
-static void check_handle(el_allocator allocator, size_t align)
+static void check_handle(el_allocator allocator, el_layout layout)
 {
     EL_ASSERT(allocator.ops != NULL);
     EL_ASSERT(allocator.ops->alloc != NULL);
     EL_ASSERT(allocator.ops->free != NULL);
-    EL_ASSERT(is_power_of_two(align));
+    EL_ASSERT(is_power_of_two(layout.align));
 }
 
 /*
@@ -38,10 +38,11 @@ static void *zero_size_pointer(size_t align)
 }
 
 /*
- * count * size, or 1 if it overflows. No division and no product wider than
- * size_t, so no compiler helper is needed where the CPU has neither (ARMv6-M
- * has no divide instruction and no 32x32->64 multiply): each operand is split
- * into halves, and every partial product fits in a size_t.
+ * Whether a * b overflows; if not, the product in *product. No division
+ * and no product wider than size_t, so no compiler helper is needed where
+ * the CPU has neither (ARMv6-M has no divide instruction and no 32x32->64
+ * multiply): each operand is split into halves, and every partial product
+ * fits in a size_t.
  */
 static int multiply_overflows(size_t a, size_t b, size_t *product)
 {
@@ -67,37 +68,48 @@ static int multiply_overflows(size_t a, size_t b, size_t *product)
     return 0;
 }
 
-void *el_alloc(el_allocator allocator, size_t size, size_t align)
+el_layout el_layout_make(size_t size, size_t align)
 {
-    check_handle(allocator, align);
+    EL_ASSERT(is_power_of_two(align));
+    return (el_layout){.size = size, .align = align};
+}
 
-    if (size == 0) {
-        return zero_size_pointer(align);
+el_status el_layout_array(el_layout elem, size_t count, el_layout *out)
+{
+    EL_ASSERT(out != NULL);
+    EL_ASSERT(is_power_of_two(elem.align));
+
+    size_t total = 0;
+    if (multiply_overflows(count, elem.size, &total)) {
+        /* A layout no allocator can satisfy: a caller that ignores the
+         * status gets NULL from el_alloc(), not a short allocation. */
+        *out = (el_layout){.size = SIZE_MAX, .align = elem.align};
+        return EL_ERR_NO_SPACE;
     }
-    void *const ptr = allocator.ops->alloc(allocator.ctx, size, align);
-    EL_ASSERT(((uintptr_t)ptr & (align - 1)) == 0);
+    *out = (el_layout){.size = total, .align = elem.align};
+    return EL_OK;
+}
+
+void *el_alloc(el_allocator allocator, el_layout layout)
+{
+    check_handle(allocator, layout);
+
+    if (layout.size == 0) {
+        return zero_size_pointer(layout.align);
+    }
+    void *const ptr = allocator.ops->alloc(allocator.ctx, layout);
+    EL_ASSERT(((uintptr_t)ptr & (layout.align - 1)) == 0);
     return ptr;
 }
 
-void *el_alloc_array(el_allocator allocator, size_t count, size_t size, size_t align)
+void el_free(el_allocator allocator, void *ptr, el_layout layout)
 {
-    check_handle(allocator, align);
+    check_handle(allocator, layout);
 
-    size_t total = 0;
-    if (multiply_overflows(count, size, &total)) {
-        return NULL;
-    }
-    return el_alloc(allocator, total, align);
-}
-
-void el_free(el_allocator allocator, void *ptr, size_t size, size_t align)
-{
-    check_handle(allocator, align);
-
-    if (size == 0) {
-        EL_ASSERT(ptr == NULL || ptr == zero_size_pointer(align));
+    if (layout.size == 0) {
+        EL_ASSERT(ptr == NULL || ptr == zero_size_pointer(layout.align));
         return;
     }
     EL_ASSERT(ptr != NULL);
-    allocator.ops->free(allocator.ctx, ptr, size, align);
+    allocator.ops->free(allocator.ctx, ptr, layout);
 }

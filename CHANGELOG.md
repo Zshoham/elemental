@@ -19,9 +19,13 @@ First milestone: the project's foundation.
   `el_write`, `el_read_exact`, `el_write_all`, memory streams, and the
   io contract suite.
 - `io_posix` (experimental): reader and writer over a file descriptor.
-- `alloc` (experimental): `el_allocator`, `el_alloc`, `el_alloc_array`,
-  and `el_free`, which takes the size and alignment back
-  ([ADR 0012](docs/adr/0012-sized-free.md)); `el_bump_arena` and
+- `alloc` (experimental): `el_allocator`, `el_alloc`, and `el_free`, which
+  takes back the layout the allocation was made with
+  ([ADR 0012](docs/adr/0012-sized-free.md)); `el_layout`, `el_layout_make`,
+  `EL_LAYOUT_OF`, and `el_layout_array` describe an allocation's size and
+  alignment as one value, in place of `(size, align)` pairs and of
+  `el_alloc_array`, which is removed
+  ([ADR 0013](docs/adr/0013-allocation-layout.md)); `el_bump_arena` and
   `el_stack_arena` over caller storage; the allocator contract suite
   `ElAllocContract` and the checking allocator `el_alloc_checker`
   (`elemental/alloc_contract.h`, `.hpp`).

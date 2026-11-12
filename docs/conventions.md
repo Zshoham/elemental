@@ -213,8 +213,11 @@ The rules that keep a contract usable through a C ABI:
 7. **Nothing unwinds through Elemental.** Callbacks and operations must not
    throw, panic across the boundary, or `longjmp` out. The one exception is
    the assertion handler, which never returns to its caller by definition.
-8. **Structs are passed by value only when they are handles**: two pointers,
-   trivially copyable.
+8. **Structs are passed by value only when they are handles** (two
+   pointers) **or layouts** (`el_layout`, two `size_t`): at most two words,
+   trivially copyable, with no `bool`, enum, or bit-field. Such a struct is
+   passed in registers on the AAPCS and on System V x86-64
+   ([ADR 0013](adr/0013-allocation-layout.md)).
 
 ## Other languages
 

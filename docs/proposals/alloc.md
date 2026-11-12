@@ -1,7 +1,9 @@
 # Proposal: alloc and io_alloc
 
 Status: Accepted (2026-11-12), with the owner's decisions recorded in
-[Decisions](#decisions), and implemented as experimental.
+[Decisions](#decisions), and implemented as experimental. Amended
+2026-11-13: an allocation's size and alignment are one `el_layout`, see
+[Amendment](#amendment-2026-11-13).
 Author, date: design pass for M2, 2026-11-11; accepted 2026-11-12
 
 ## As accepted and implemented
@@ -1062,6 +1064,55 @@ Decided by the owner on 2026-11-12: 1 (a); 2, both arenas (see below); 3 (a);
    **Recommended: (a)**, as [ADR 0009](../adr/0009-capacity-status.md)
    anticipated. `el_write` and `el_write_all` need no code change; existing
    writers are unaffected.
+
+## Amendment (2026-11-13)
+
+**Decision.** The project owner decided that an allocation is described by
+one value, an `el_layout` (a size and a power-of-two alignment), in place of
+the `(size, align)` pairs this proposal specifies. Recorded in
+[ADR 0013](../adr/0013-allocation-layout.md), which refines
+[ADR 0012](../adr/0012-sized-free.md). The text above is kept as it was
+reviewed; wherever it says `el_alloc(a, size, align)`,
+`el_free(a, ptr, size, align)`, or `el_alloc_array`, the implementation is:
+
+```c
+typedef struct el_layout { size_t size; size_t align; } el_layout;
+
+el_layout el_layout_make(size_t size, size_t align);
+#define EL_LAYOUT_OF(T) el_layout_make(sizeof(T), _Alignof(T))
+el_status el_layout_array(el_layout elem, size_t count, el_layout *out);
+
+void *el_alloc(el_allocator a, el_layout layout);
+void  el_free(el_allocator a, void *ptr, el_layout layout);
+
+/* el_allocator_ops: */
+void *(*alloc)(void *ctx, el_layout layout);
+void (*free)(void *ctx, void *ptr, el_layout layout);
+```
+
+What changed, and what did not:
+
+- **`el_alloc_array` is removed.** `el_layout_array` computes the layout of
+  `count` elements and reports a product that overflows as `EL_ERR_NO_SPACE`
+  with `*out` set to size `SIZE_MAX`, which no allocator can satisfy; `el_alloc` then allocates it, and the caller frees
+  with the same value. The "Arrays" contract above (overflow returns `NULL`
+  without consulting the allocator) becomes: the overflow is a status from
+  `el_layout_array`, and no allocator is involved. The half-split multiply is
+  the same code, and still needs no compiler helper on ARMv6-M.
+- **Unchanged:** sized free (the layout must equal the allocation's), `NULL`
+  on exhaustion, zero-size layouts answered by the front function and never
+  reaching an operation, the checks before and after each operation, and
+  which failures are statuses and which are assertions. An alignment that
+  is not a power of two stays an assertion, now also in `el_layout_make` and
+  `el_layout_array`.
+- **The contract suite loses one test.** "Overflowing array requests return
+  null without reaching the allocator" tested a front function, not an
+  allocator; its content is now the unit tests of `el_layout_array`. The
+  checking allocator stores a layout per record.
+- **The Rust sketch** maps `Layout` to `el_layout` field for field; the
+  mapping in "Relation to Rust's allocators" above is now one to one.
+- **ABI rule 8** is widened from handles to handles and `el_layout`
+  ([conventions.md](../conventions.md#abi)).
 
 ## Sources
 

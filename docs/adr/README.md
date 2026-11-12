@@ -18,7 +18,8 @@ by editing history.
 | [0009](0009-capacity-status.md) | One capacity status, `EL_ERR_NO_SPACE` | Accepted |
 | [0010](0010-zephyr-targets.md) | Microcontroller targets are Zephyr targets | Accepted |
 | [0011](0011-formatting-truncation.md) | Formatting writes to caller memory; truncation keeps a prefix that ends on an item | Accepted |
-| [0012](0012-sized-free.md) | Free takes the size and alignment back | Accepted |
+| [0012](0012-sized-free.md) | Free takes the size and alignment back | Accepted; refined by 0013 |
+| [0013](0013-allocation-layout.md) | An allocation is described by a layout | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

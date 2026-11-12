@@ -4,10 +4,10 @@
  * STATUS: experimental. See docs/process/api-stability.md, and PORT.md next
  * to this backend for what it does and does not support.
  *
- * Requests with an alignment up to _Alignof(max_align_t) go to malloc().
- * Larger alignments go to aligned_alloc(), with the size rounded up to a
+ * Layouts with an alignment up to _Alignof(max_align_t) go to malloc().
+ * Larger alignments go to aligned_alloc(), with the layout's size rounded up to a
  * multiple of the alignment, as C11 requires. Freeing calls free(); the
- * size and alignment el_free() passes are not used.
+ * layout el_free() passes is not used.
  *
  * Exhaustion: whatever the C library reports. A request it refuses returns
  * NULL, as does a size that overflows when rounded up for a large

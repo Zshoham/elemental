@@ -12,8 +12,10 @@
 
 /* Allocate from the top: align it, then take `size` bytes. Masks, not
  * division: `align` is a power of two (checked by el_alloc). */
-static void *arena_take(uint8_t *base, size_t cap, size_t *used, size_t size, size_t align)
+static void *arena_take(uint8_t *base, size_t cap, size_t *used, el_layout layout)
 {
+    const size_t size = layout.size;
+    const size_t align = layout.align;
     EL_ASSERT(*used <= cap);
 
     const size_t remaining = cap - *used;
@@ -40,17 +42,16 @@ static int arena_owns(const uint8_t *base, size_t used, const void *ptr, size_t 
 
 /* ---- One-shot ----------------------------------------------------------- */
 
-static void *bump_alloc(void *ctx, size_t size, size_t align)
+static void *bump_alloc(void *ctx, el_layout layout)
 {
     el_bump_arena *const arena = ctx;
-    return arena_take(arena->base, arena->cap, &arena->used, size, align);
+    return arena_take(arena->base, arena->cap, &arena->used, layout);
 }
 
-static void bump_free(void *ctx, void *ptr, size_t size, size_t align)
+static void bump_free(void *ctx, void *ptr, el_layout layout)
 {
-    (void)align;
     const el_bump_arena *const arena = ctx;
-    EL_ASSERT(arena_owns(arena->base, arena->used, ptr, size));
+    EL_ASSERT(arena_owns(arena->base, arena->used, ptr, layout.size));
 }
 
 static const el_allocator_ops bump_ops = {
@@ -81,21 +82,20 @@ void el_bump_arena_reset(el_bump_arena *arena)
 
 /* ---- Last in, first out ------------------------------------------------- */
 
-static void *stack_alloc(void *ctx, size_t size, size_t align)
+static void *stack_alloc(void *ctx, el_layout layout)
 {
     el_stack_arena *const arena = ctx;
-    return arena_take(arena->base, arena->cap, &arena->used, size, align);
+    return arena_take(arena->base, arena->cap, &arena->used, layout);
 }
 
-static void stack_free(void *ctx, void *ptr, size_t size, size_t align)
+static void stack_free(void *ctx, void *ptr, el_layout layout)
 {
-    (void)align;
     el_stack_arena *const arena = ctx;
-    EL_ASSERT(arena_owns(arena->base, arena->used, ptr, size));
+    EL_ASSERT(arena_owns(arena->base, arena->used, ptr, layout.size));
 
     /* The most recent allocation ends at the top. Anything else: no-op. */
     const size_t offset = (size_t)((uint8_t *)ptr - arena->base);
-    if (offset + size == arena->used) {
+    if (offset + layout.size == arena->used) {
         arena->used = offset;
     }
 }
