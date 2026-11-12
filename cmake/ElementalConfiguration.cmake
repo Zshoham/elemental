@@ -139,13 +139,62 @@ else()
   endif()
 endif()
 
+# GCC 15's CRC builtins, for crc's CRC_GCC_BUILTIN. A compiler fact, so the
+# same compile check on a host and in a Zephyr build: a compiler without
+# them fails it on the undeclared function. (The Zephyr SDK's GCC 14.3.0
+# does.)
+include(CheckCSourceCompiles)
+set(_elemental_required_flags "${CMAKE_REQUIRED_FLAGS}")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  string(APPEND CMAKE_REQUIRED_FLAGS " -Werror=implicit-function-declaration")
+endif()
+check_c_source_compiles("
+#include <stdint.h>
+int main(void)
+{
+    uint32_t crc32 = __builtin_rev_crc32_data8(0u, (uint8_t)1, 0x04C11DB7u);
+    uint16_t crc16 = __builtin_crc16_data8((uint16_t)0, (uint8_t)1, (uint16_t)0x1021);
+    return (int)(crc32 ^ crc16);
+}" ELEMENTAL_HAVE_GCC_CRC_BUILTINS)
+set(CMAKE_REQUIRED_FLAGS "${_elemental_required_flags}")
+if(ELEMENTAL_HAVE_GCC_CRC_BUILTINS)
+  set(_elemental_gcc_crc_builtins y)
+else()
+  set(_elemental_gcc_crc_builtins n)
+endif()
+
+# Zephyr's software CRCs (<zephyr/sys/crc.h>), for crc's CRC_ZEPHYR. Zephyr
+# compiles them whenever its CONFIG_CRC is set, so the answer is Zephyr's
+# configuration. With CONFIG_CRC_HW_HANDLER, Zephyr replaces them with driver
+# calls that return 0 on failure, which el_crc*_update must not do
+# (docs/proposals/bytes-crc.md, "Amendment (2026-11-12)"). Outside Zephyr
+# they do not exist.
+if(COMMAND zephyr_library)
+  if(CONFIG_CRC AND NOT CONFIG_CRC_HW_HANDLER)
+    set(_elemental_platform_zephyr_crc y)
+  else()
+    set(_elemental_platform_zephyr_crc n)
+  endif()
+else()
+  set(_elemental_platform_zephyr_crc n)
+endif()
+
+# Every probed fact, as Kconfig sees it. The integration tests read this to
+# know which options this toolchain can select, so a new probe is added here
+# and nowhere else.
+set(ELEMENTAL_PROBED_FACTS
+    "EL_PLATFORM_POSIX=${_elemental_platform_posix}"
+    "EL_PLATFORM_SNPRINTF=${_elemental_platform_snprintf}"
+    "EL_COMPILER_GCC_CRC_BUILTINS=${_elemental_gcc_crc_builtins}"
+    "EL_PLATFORM_ZEPHYR_CRC=${_elemental_platform_zephyr_crc}"
+    CACHE INTERNAL "Toolchain facts passed to Kconfig")
+
 # Kconfig symbols are written without a prefix (IO, ASSERT). Generated names
 # get EL_CONFIG_, so Elemental's macros and CMake variables cannot collide
 # with a host project that also uses Kconfig and its default CONFIG_ prefix.
 set(_elemental_kconfig_env
     "CONFIG_=EL_CONFIG_"
-    "EL_PLATFORM_POSIX=${_elemental_platform_posix}"
-    "EL_PLATFORM_SNPRINTF=${_elemental_platform_snprintf}"
+    ${ELEMENTAL_PROBED_FACTS}
     ${_elemental_python_env})
 
 # --- Seed handling ----------------------------------------------------------

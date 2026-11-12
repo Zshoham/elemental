@@ -1,8 +1,11 @@
 /*
- * The CRCs against published and generated vectors, with whichever table
- * size the build configured. The default presets build the 16-entry tables
- * and `sanitize` the 256-entry ones (configs/variant_defconfig), so both
- * implementations meet the same vectors.
+ * The CRCs against published and generated vectors, with whichever
+ * implementation the build configured. The default presets build the
+ * 16-entry tables and `sanitize` the 256-entry ones
+ * (configs/variant_defconfig); integration.choices runs these tests with
+ * every option the host's compiler can select, and the Zephyr scenario
+ * elemental.tests.crc_zephyr with Zephyr's CRC functions. So every
+ * implementation meets the same vectors.
  */
 #include <gtest/gtest.h>
 

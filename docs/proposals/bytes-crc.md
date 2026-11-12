@@ -577,5 +577,4 @@ Decisions in the sketch:
 **Tests.** Every 16-bit input exhaustively, as the low and the high bits of
 the wider types; each power of two and its neighbours; and a bit-by-bit
 reference written in the test, compared on random values, on the host and
-in the Zephyr image. On the host, glibc's `<stdbit.h>` is a second oracle
-where it is available.
+in the Zephyr image.

@@ -1,0 +1,4 @@
+# Zephyr's own CRC functions behind el_crc*_update. Only a Zephyr build with
+# CONFIG_CRC=y can select it, so no host preset uses this file: the Zephyr
+# test scenario elemental.tests.crc_zephyr does (tests/zephyr/testcase.yaml).
+EL_CONFIG_CRC_ZEPHYR=y

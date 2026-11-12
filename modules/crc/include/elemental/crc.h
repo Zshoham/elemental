@@ -26,8 +26,10 @@
  *
  * Contract violations: a null `data` with a nonzero `len`.
  *
- * Configuration: CRC_TABLE_4BIT (default) or CRC_TABLE_8BIT chooses the size
- * of the lookup tables and so the speed. Results are identical either way.
+ * Configuration: the choice CRC_IMPLEMENTATION picks what computes the CRCs:
+ * 16-entry tables (CRC_TABLE_4BIT, the default), 256-entry tables
+ * (CRC_TABLE_8BIT), GCC's CRC builtins (CRC_GCC_BUILTIN), or Zephyr's
+ * <zephyr/sys/crc.h> (CRC_ZEPHYR). Results are identical with every option.
  */
 #ifndef ELEMENTAL_CRC_H
 #define ELEMENTAL_CRC_H

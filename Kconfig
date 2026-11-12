@@ -23,6 +23,19 @@ config PLATFORM_SNPRINTF
 	  The C library has snprintf(), and it converts long long. Probed by
 	  CMake: on Zephyr, from the libc's configured printf level.
 
+config COMPILER_GCC_CRC_BUILTINS
+	def_bool $(EL_COMPILER_GCC_CRC_BUILTINS)
+	help
+	  The compiler has __builtin_rev_crc32_data8 and
+	  __builtin_crc16_data8 (GCC 15 and later). Probed by CMake.
+
+config PLATFORM_ZEPHYR_CRC
+	def_bool $(EL_PLATFORM_ZEPHYR_CRC)
+	help
+	  A Zephyr build whose <zephyr/sys/crc.h> functions are software that
+	  cannot fail: CONFIG_CRC without CONFIG_CRC_HW_HANDLER. Probed by
+	  CMake.
+
 menu "Modules"
 
 rsource "modules/status/Kconfig"

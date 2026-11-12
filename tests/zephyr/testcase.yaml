@@ -15,8 +15,9 @@ tests:
       - native_sim
       - mps2/an385
       - nucleo_g0b1re_renode
-  # The host presets' other configurations, on one Arm board: every
-  # non-default Kconfig choice, and contract assertions compiled out.
+  # The host presets' other configurations, on one Arm board: one
+  # non-default option of each Kconfig choice, and contract assertions
+  # compiled out.
   elemental.tests.variant:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=variant
@@ -31,6 +32,17 @@ tests:
   elemental.tests.assert_off:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=assert_off
+    platform_allow:
+      - mps2/an385
+    integration_platforms:
+      - mps2/an385
+  # CRC_ZEPHYR, the one choice option no host can select: crc's tests run
+  # through Zephyr's crc32_ieee_update() and crc16_itu_t().
+  elemental.tests.crc_zephyr:
+    harness: gtest
+    extra_args: ELEMENTAL_ZEPHYR_VARIANT=crc_zephyr
+    extra_configs:
+      - CONFIG_CRC=y
     platform_allow:
       - mps2/an385
     integration_platforms:

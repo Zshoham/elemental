@@ -559,16 +559,28 @@ def subset_symbols():
     return names
 
 
-def case_module_subsets(work):
-    """Each module alone, with only what its Kconfig entry pulls in, builds and passes its tests."""
+def load_kconfig(work):
+    """Elemental's Kconfig tree, with the toolchain facts CMake probes for
+    this compiler: a libraries-only configure, whose cache records them."""
+    probe = work / "probe"
+    configure(ARGS.source, probe, "-DELEMENTAL_BUILD_TESTS=OFF")
+    facts = None
+    for line in (probe / "CMakeCache.txt").read_text().splitlines():
+        if line.startswith("ELEMENTAL_PROBED_FACTS:"):
+            facts = line.split("=", 1)[1]
+    check(facts, "the CMake cache has no ELEMENTAL_PROBED_FACTS")
+    for fact in facts.split(";"):
+        name, value = fact.split("=", 1)
+        os.environ[name] = value
+
     sys.path.insert(0, str(ARGS.kconfiglib))
     import kconfiglib  # pylint: disable=import-outside-toplevel
+    return kconfiglib, kconfiglib.Kconfig(str(ARGS.source / "Kconfig"), warn=False)
 
-    # The probes CMake runs; this host is POSIX with a hosted C library
-    # (Linux is the only host).
-    os.environ["EL_PLATFORM_POSIX"] = "y"
-    os.environ["EL_PLATFORM_SNPRINTF"] = "y"
-    kconf = kconfiglib.Kconfig(str(ARGS.source / "Kconfig"), warn=False)
+
+def case_module_subsets(work):
+    """Each module alone, with only what its Kconfig entry pulls in, builds and passes its tests."""
+    kconfiglib, kconf = load_kconfig(work)
     units = subset_symbols()
     for name in units:
         check(name in kconf.syms and kconf.syms[name].nodes,
@@ -617,6 +629,63 @@ def case_module_subsets(work):
              "--output-on-failure", "-j", str(os.cpu_count() or 2)])
 
 
+def case_choices(work):
+    """Every option of every Kconfig choice that this compiler can select builds and passes its module's tests."""
+    kconfiglib, kconf = load_kconfig(work)
+    check(kconf.unique_choices, "the Kconfig tree has no choice")
+    modules = ARGS.source / "modules"
+
+    tested, unavailable = [], []
+    for choice in kconf.unique_choices:
+        # The module that owns the choice is the one whose Kconfig defines it.
+        defined_in = (ARGS.source / choice.nodes[0].filename).resolve()
+        check(modules in defined_in.parents,
+              "choice {} is not defined under modules/".format(choice.name))
+        module = defined_in.relative_to(modules).parts[0]
+
+        for option in choice.syms:
+            if option.visibility == 0:
+                # Only a probed toolchain fact may hide an option. Anything
+                # else would leave the option untested on every host.
+                facts = [item for item in kconfiglib.expr_items(option.direct_dep)
+                         if isinstance(item, kconfiglib.Symbol)
+                         and not any(node.prompt for node in item.nodes)
+                         and item.tri_value == 0]
+                check(facts, "{} cannot be selected here, and no probed fact explains "
+                      "why: {}".format(option.name,
+                                       kconfiglib.expr_str(option.direct_dep)))
+                unavailable.append("{} (needs {})".format(
+                    option.name, ", ".join(fact.name for fact in facts)))
+                continue
+
+            name = option.name.lower()
+            defconfig = write(work / (name + "_defconfig"),
+                              "EL_CONFIG_{}=y\n".format(option.name))
+            build_dir = work / name
+            configure(ARGS.source, build_dir,
+                      "-DELEMENTAL_DEFCONFIG={}".format(defconfig),
+                      "-DCMAKE_CXX_COMPILER={}".format(ARGS.cxx_compiler),
+                      "-DELEMENTAL_GOOGLETEST_DIR={}".format(ARGS.googletest),
+                      "-DELEMENTAL_WARNINGS_AS_ERRORS=ON")
+            check("#define EL_CONFIG_{} 1".format(option.name) in config_header(build_dir),
+                  "{} was asked for but not configured".format(option.name))
+
+            # Only the owning module's tests are built and run.
+            targets = sorted(target for target in target_names(build_dir)
+                             if target.startswith("test_{}_".format(module)))
+            check(targets, "module {} has no test executable".format(module))
+            build(build_dir, "--target", *targets)
+            output = run(["ctest", "--test-dir", build_dir, "-R", r"^{}\.".format(module),
+                          "--output-on-failure", "-j", str(os.cpu_count() or 2)])
+            check(said(output, "100% tests passed"),
+                  "{}: not every {} test passed:\n{}".format(option.name, module, output))
+            tested.append(option.name)
+
+    print("tested: " + ", ".join(tested))
+    if unavailable:
+        print("not selectable with this compiler: " + ", ".join(unavailable))
+
+
 CASES = {
     "subdirectory": case_subdirectory,
     "installed": case_installed,
@@ -626,6 +695,7 @@ CASES = {
     "diagnostics": case_diagnostics,
     "provenance": case_provenance,
     "module_subsets": case_module_subsets,
+    "choices": case_choices,
 }
 
 

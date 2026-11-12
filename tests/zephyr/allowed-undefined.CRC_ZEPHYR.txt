@@ -1,0 +1,6 @@
+# Allowed in addition to allowed-undefined.txt, only when Elemental is
+# configured with EL_CONFIG_CRC_ZEPHYR (tests/zephyr/CMakeLists.txt).
+
+crc32_ieee_update  # crc_zephyr.c: CRC_ZEPHYR computes the CRCs with Zephyr's
+crc16_itu_t        # <zephyr/sys/crc.h>, by choice; PLATFORM_ZEPHYR_CRC is
+                   # probed before it can be selected (modules/crc/Kconfig).

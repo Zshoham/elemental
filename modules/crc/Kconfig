@@ -4,15 +4,17 @@ config CRC
 	select STATUS
 	help
 	  CRC-32/ISO-HDLC and CRC-16/IBM-3740, computed incrementally over
-	  caller memory. Freestanding: needs no runtime symbols.
+	  caller memory. Freestanding: needs no runtime symbols, except
+	  Zephyr's own CRC functions under CRC_ZEPHYR.
 
-choice CRC_TABLE
-	prompt "CRC lookup tables"
+choice CRC_IMPLEMENTATION
+	prompt "CRC implementation"
 	default CRC_TABLE_4BIT
 	depends on CRC
 	help
-	  Code size against speed. Results are identical either way, and
-	  nothing a caller sees changes.
+	  What computes the CRCs: Elemental's own tables, or the compiler's
+	  or the platform's code. Results are identical with every option,
+	  and nothing a caller sees changes.
 
 config CRC_TABLE_4BIT
 	bool "16-entry tables (smaller)"
@@ -27,5 +29,23 @@ config CRC_TABLE_8BIT
 	  high-rate link on a target with flash to spare. Pigweed measured
 	  the 256-entry CRC-32 at about 1.4 times the speed of the 16-entry
 	  one on a Cortex-M4 (pw_checksum documentation).
+
+config CRC_GCC_BUILTIN
+	bool "GCC's CRC builtins"
+	depends on COMPILER_GCC_CRC_BUILTINS
+	help
+	  __builtin_rev_crc32_data8 and __builtin_crc16_data8, from GCC 15.
+	  For a target where GCC lowers them to a CRC instruction, which then
+	  needs no source change. On x86-64, GCC 16 compiles them to a 1.5 KB
+	  table, even with -mpclmul, so there they only cost size.
+
+config CRC_ZEPHYR
+	bool "Zephyr's CRC functions"
+	depends on PLATFORM_ZEPHYR_CRC
+	help
+	  crc32_ieee_update() and crc16_itu_t() from <zephyr/sys/crc.h>, for a
+	  Zephyr application that already links them, so the code is not
+	  there twice. Needs CONFIG_CRC=y in the application, and is not
+	  available with CONFIG_CRC_HW_HANDLER, whose driver calls can fail.
 
 endchoice

@@ -165,6 +165,30 @@ size against speed, invisible to callers, so a legitimate private option.
 integrity check, and libc has none. Zephyr (`sys/crc.h`) and Pigweed
 (`pw_checksum`) are prior art; neither was read for this plan.
 Hardware CRC units are the application's optimisation, not a backend.
+*Built* (M3, amended 2026-11-12): CRC-32/ISO-HDLC and CRC-16/IBM-3740, with
+a private choice of 16- or 256-entry tables, GCC's CRC builtins, or
+Zephyr's `sys/crc.h`, all with identical results
+([proposal](proposals/bytes-crc.md#amendment-2026-11-12)).
+
+### Deferred: a CRC engine
+
+**A CRC-engine handle with a Zephyr-driver backend**, a separate small
+interface beside `crc`, for CRC peripherals. *Deferred* (owner, 2026-11-12)
+until a consumer needs hardware CRC throughput.
+
+It cannot sit behind `el_crc*_update`. *Source facts* (Zephyr v4.5.0,
+`include/zephyr/drivers/crc.h`): the driver API is bound to a device,
+`crc_begin(dev, ctx)`, `crc_update(dev, ctx, buf, len)`, and
+`crc_finish(dev, ctx)` over a `const struct device *` and a caller-held
+`struct crc_ctx` (type, polynomial, seed, reflection flags, result); each
+returns an `int` that may be a negative errno; backends exist for STM32,
+NXP (two), Renesas RA, Silicon Labs, Ambiq and SiFli (`drivers/crc/`).
+`subsys/crc/crc_hardware.c` wraps it as the `sys/crc.h` functions when a
+devicetree `zephyr,crc` chosen node exists, logging a failure and returning
+0, which is why `CRC_ZEPHYR` refuses that configuration. So the interface
+needs a handle (the device), a status on every call, and a statement of
+execution context, none of which `crc` has. `el_crc32_update` and
+`el_crc16_ibm3740_update` are its test oracles.
 
 ### Considered and rejected
 
