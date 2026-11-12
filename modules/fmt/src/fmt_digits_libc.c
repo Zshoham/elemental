@@ -19,8 +19,13 @@
 
 const char *el_fmt_digits_(char *buf, uint64_t value, unsigned base, bool upper, size_t *count)
 {
-    const char *const format = base != 16 ? "%llu" : upper ? "%llX" : "%llx";
-    const int written = snprintf(buf, EL_FMT_DIGITS_SIZE, format, (unsigned long long)value);
+    /* The literals are in the call so that -Wformat checks each of them
+     * against the argument. */
+    const int written = snprintf(buf, EL_FMT_DIGITS_SIZE,
+                                 base != 16 ? "%llu"
+                                 : upper    ? "%llX"
+                                            : "%llx",
+                                 (unsigned long long)value);
     /* At least one digit, and never more than UINT64_MAX has: a C library
      * that breaks this does not provide what the probe promised. */
     EL_ASSERT(written > 0 && written < EL_FMT_DIGITS_SIZE);

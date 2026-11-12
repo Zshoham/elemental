@@ -96,15 +96,17 @@ el_status el_fmt_text_(el_fmt *f, size_t pad, const char *s, size_t len)
 el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base, bool upper,
                          size_t width, bool zero_pad)
 {
+    /* Before converting: with FMT_LIBC, a conversion is a snprintf() call. */
+    if (f->status != EL_OK) {
+        return EL_ERR_NO_SPACE;
+    }
+
     char digits[EL_FMT_DIGITS_SIZE];
     size_t count;
     const char *const first = el_fmt_digits_(digits, magnitude, base, upper, &count);
     const size_t body = count + (negative ? 1 : 0);
     const size_t total = width > body ? width : body;
 
-    if (f->status != EL_OK) {
-        return EL_ERR_NO_SPACE;
-    }
     if (total > room(f)) {
         return cut(f); /* whole or not at all */
     }
