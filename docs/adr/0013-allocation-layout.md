@@ -39,8 +39,8 @@ and the same `el_layout` in `el_allocator_ops.alloc` and `.free`.
 - `el_alloc_array` is removed. `el_layout_array` followed by `el_alloc`
   replaces it, and the caller then holds the one value it frees with.
 - `el_layout_array` reports `count * elem.size` overflowing as
-  `EL_ERR_NO_SPACE`, because the count may come from input, and leaves `*out`
-  unchanged. The check is the half-split multiply `el_alloc_array` had: no
+  `EL_ERR_NO_SPACE`, because the count may come from input, and sets `*out`
+  to size `SIZE_MAX`, which no allocator can satisfy. The check is the half-split multiply `el_alloc_array` had: no
   division and no double-width multiply, so no compiler helper on ARMv6-M.
 - An alignment that is not a power of two is a contract violation, caught
   where the layout is built (`el_layout_make`) and again where it is used
@@ -79,12 +79,12 @@ field (`tests/interop/rust_alloc_sketch.rs`).
 - **Two steps for an array** where `el_alloc_array` was one. In return the
   overflow is a status the caller can tell from exhaustion, and the
   multiplication is done once.
-- **`el_layout_array` leaves `*out` unchanged on failure**, an exception to
-  "output parameters are always written" (conventions, Errors rule 4). A
-  zeroed layout would be a valid layout (size 0) that a caller might go on to
-  use; leaving the caller's value untouched makes the misuse visible in the
-  caller's own variable. The exception is stated in the header and in
-  conventions.
+- **On failure `el_layout_array` writes a layout of size `SIZE_MAX`**, as
+  "output parameters are always written" (conventions, Errors rule 4)
+  requires. A zeroed layout would be a valid request (size 0) that succeeds,
+  and leaving `*out` unchanged would leave an uninitialized variable. Every
+  allocator refuses `SIZE_MAX`, so a caller that ignores the status gets
+  `NULL` from `el_alloc`, which it must check anyway.
 - **The fields are public**, so `(el_layout){8, 3}` compiles. `el_alloc` and
   `el_free` assert on it; with assertions compiled out it is undefined
   behavior, as every other precondition is.

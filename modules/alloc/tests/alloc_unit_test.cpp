@@ -147,10 +147,25 @@ TEST(AllocLayout, ArrayAcceptsTheLargestProductAndRefusesOneMore)
             EXPECT_EQ(out.align, 2u);
         } else {
             EXPECT_EQ(status, EL_ERR_NO_SPACE) << el_status_name(status);
-            EXPECT_EQ(out.size, kUntouched.size) << "*out changed on failure";
-            EXPECT_EQ(out.align, kUntouched.align) << "*out changed on failure";
+            EXPECT_EQ(out.size, SIZE_MAX) << "*out on failure";
+            EXPECT_EQ(out.align, 2u) << "*out on failure";
         }
     }
+}
+
+TEST(AllocLayout, TheLayoutWrittenOnOverflowIsRefusedByEveryArena)
+{
+    /* A caller that ignores the status gets NULL, not a short allocation. */
+    el_layout out = el_layout_make(1, 1);
+    ASSERT_EQ(el_layout_array(el_layout_make(2, 1), SIZE_MAX, &out), EL_ERR_NO_SPACE);
+
+    el_bump_arena bump;
+    el_bump_arena_init(&bump, storage, sizeof(storage));
+    EXPECT_EQ(el_alloc(el_bump_arena_as_allocator(&bump), out), nullptr);
+
+    el_stack_arena stack;
+    el_stack_arena_init(&stack, storage, sizeof(storage));
+    EXPECT_EQ(el_alloc(el_stack_arena_as_allocator(&stack), out), nullptr);
 }
 
 TEST(AllocLayout, ArrayOverflowAgreesWithTheCompiler)
@@ -184,7 +199,8 @@ TEST(AllocLayout, ArrayOverflowAgreesWithTheCompiler)
             const el_status status = el_layout_array(el_layout_make(size, 8), count, &out);
             if (overflows) {
                 EXPECT_EQ(status, EL_ERR_NO_SPACE) << count << " * " << size;
-                EXPECT_EQ(out.size, kUntouched.size) << count << " * " << size;
+                EXPECT_EQ(out.size, SIZE_MAX) << count << " * " << size;
+                EXPECT_EQ(out.align, 8u) << count << " * " << size;
             } else {
                 ASSERT_EQ(status, EL_OK) << count << " * " << size;
                 EXPECT_EQ(out.size, product) << count << " * " << size;

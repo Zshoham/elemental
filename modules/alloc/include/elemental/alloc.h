@@ -111,7 +111,9 @@ el_layout el_layout_make(size_t size, size_t align);
  *   EL_OK           *out holds the layout. A count of 0, or an element of
  *                   size 0, gives a layout of size 0.
  *   EL_ERR_NO_SPACE count * elem.size does not fit in a size_t; no
- *                   allocation could hold it. *out is left unchanged.
+ *                   allocation could hold it. *out is set to size
+ *                   SIZE_MAX, which no allocator can satisfy, so a caller
+ *                   that ignores the status gets NULL from el_alloc().
  *
  * No division and no wider arithmetic, so it needs no compiler runtime
  * helper on a CPU without a divide or a 64-bit multiply.

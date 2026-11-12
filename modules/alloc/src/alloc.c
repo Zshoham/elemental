@@ -38,10 +38,11 @@ static void *zero_size_pointer(size_t align)
 }
 
 /*
- * Whether a * b overflows; if not, the product in *product. No division and no product wider than
- * size_t, so no compiler helper is needed where the CPU has neither (ARMv6-M
- * has no divide instruction and no 32x32->64 multiply): each operand is split
- * into halves, and every partial product fits in a size_t.
+ * Whether a * b overflows; if not, the product in *product. No division
+ * and no product wider than size_t, so no compiler helper is needed where
+ * the CPU has neither (ARMv6-M has no divide instruction and no 32x32->64
+ * multiply): each operand is split into halves, and every partial product
+ * fits in a size_t.
  */
 static int multiply_overflows(size_t a, size_t b, size_t *product)
 {
@@ -80,6 +81,9 @@ el_status el_layout_array(el_layout elem, size_t count, el_layout *out)
 
     size_t total = 0;
     if (multiply_overflows(count, elem.size, &total)) {
+        /* A layout no allocator can satisfy: a caller that ignores the
+         * status gets NULL from el_alloc(), not a short allocation. */
+        *out = (el_layout){.size = SIZE_MAX, .align = elem.align};
         return EL_ERR_NO_SPACE;
     }
     *out = (el_layout){.size = total, .align = elem.align};

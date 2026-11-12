@@ -176,10 +176,11 @@ fn c_allocator_from_rust() {
         let elem = el_layout_make(12, 4);
         assert_eq!(el_layout_array(elem, 10, &mut array), EL_OK);
         assert_eq!(array.to_layout(), Some(Layout::array::<[u32; 3]>(10).unwrap()));
-        // An overflowing count is a status, and leaves the output alone.
-        let before = array;
+        // An overflowing count is a status, and the output is a layout no
+        // allocator can satisfy, which Rust's Layout also refuses.
         assert_eq!(el_layout_array(elem, usize::MAX, &mut array), EL_ERR_NO_SPACE);
-        assert_eq!(array, before);
+        assert_eq!(array, ElemLayout { size: usize::MAX, align: 4 });
+        assert_eq!(array.to_layout(), None);
     }
     println!("GlobalAlloc over el_stack_arena: aligned, reused, null when exhausted");
 }

@@ -102,8 +102,6 @@ The rules:
    return a status that is always `EL_OK`.
 4. **Output parameters are required and always written**, on every return
    path, including failures. What each holds for each status is documented.
-   The one exception is `el_layout_array`, which leaves its output
-   unchanged when it fails ([ADR 0013](adr/0013-allocation-layout.md)).
    An output parameter is optional only where its header says so and the
    value is redundant on success. The one case today is the count of
    `el_read_exact` and `el_write_all`, which on `EL_OK` can only be

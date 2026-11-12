@@ -57,7 +57,7 @@ produce is a contract violation.
 | Reported, never asserted | How |
 |---|---|
 | The allocator is exhausted | `el_alloc` returns `NULL`; nothing changed |
-| `count * size` overflows | `el_layout_array` returns `EL_ERR_NO_SPACE` and leaves `*out` unchanged; no allocator is asked |
+| `count * size` overflows | `el_layout_array` returns `EL_ERR_NO_SPACE` and sets `*out` to a size no allocator can satisfy; no allocator is asked |
 | The allocator cannot provide the alignment asked for | `NULL` |
 | A function that allocates as part of other work runs out | `EL_ERR_NO_SPACE` ([ADR 0009](../../docs/adr/0009-capacity-status.md)) |
 

@@ -1094,7 +1094,7 @@ What changed, and what did not:
 
 - **`el_alloc_array` is removed.** `el_layout_array` computes the layout of
   `count` elements and reports a product that overflows as `EL_ERR_NO_SPACE`
-  with `*out` unchanged; `el_alloc` then allocates it, and the caller frees
+  with `*out` set to size `SIZE_MAX`, which no allocator can satisfy; `el_alloc` then allocates it, and the caller frees
   with the same value. The "Arrays" contract above (overflow returns `NULL`
   without consulting the allocator) becomes: the overflow is a status from
   `el_layout_array`, and no allocator is involved. The half-split multiply is

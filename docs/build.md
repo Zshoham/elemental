@@ -680,22 +680,22 @@ and exited successfully.
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
 
-The hosted presets run 282 GoogleTest tests, of which 18 are reported as
+The hosted presets run 283 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 296 CTest tests in
-all, 294 under sanitizers. `assert-off` runs 253: the same less the 43
+integration, and two format-attribute compile checks: 297 CTest tests in
+all, 295 under sanitizers. `assert-off` runs 254: the same less the 43
 death tests. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 181 of those GoogleTest tests: all but the POSIX
+The Zephyr test image runs 182 of those GoogleTest tests: all but the POSIX
 and C library backends', the death tests, and the host-only `fmt.oracle`
 and `bytes.portable`.
 9 are skipped, the same 9 as on the host for those fixtures. Twister reports
 the six test configurations passed (the three `elemental.tests` boards and
-the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 172 passed and 9
+the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 173 passed and 9
 skipped on each, by GoogleTest's count; Twister adds one case for the image
 itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
