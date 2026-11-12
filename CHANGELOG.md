@@ -52,6 +52,15 @@ First milestone: the project's foundation.
   `el_bytes_has_single_bit`, `el_bytes_bit_width`, `el_bytes_bit_floor`,
   `el_bytes_bit_ceil` (each suffixed `32` or `64`). A bit ceil that does not
   fit is 0.
+- `bytes`: the rest of C23's counts, `el_bytes_leading_ones`,
+  `el_bytes_trailing_ones`, `el_bytes_count_zeros`; `el_bytes_rotate_left`,
+  `el_bytes_rotate_right` (any count, taken modulo the width), and
+  `el_bytes_reverse_bits`; bit fields, `el_bytes_mask`,
+  `el_bytes_field_get`, `el_bytes_field_set` (a field wider than its width is
+  ignored; a field outside its type is a contract violation); and
+  `el_bytes_align_up`, `el_bytes_align_down`, `el_bytes_is_aligned`, for a
+  power-of-two alignment (anything else is a contract violation; `align_up`
+  is 0 when the multiple does not fit). Each is suffixed `32` or `64`.
 - `crc`: the private choice `CRC_TABLE` is now `CRC_IMPLEMENTATION`, with
   two more options, `CRC_GCC_BUILTIN` and `CRC_ZEPHYR`, offered where CMake
   probes them (`COMPILER_GCC_CRC_BUILTINS`, `PLATFORM_ZEPHYR_CRC`). Results

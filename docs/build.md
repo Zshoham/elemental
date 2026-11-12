@@ -518,7 +518,7 @@ presets only.
 
 ### Memory the test image needs
 
-Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests.
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 200 tests.
 The flash and heap figures are approximate: they change with the path of
 the checkout, which reaches the image through GoogleTest's file names and
 messages. The same sources in two directories differed by about 1 KB of
@@ -527,17 +527,20 @@ headroom below with that margin in mind.
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 395 860 | 407 520 of 524 288 |
+| Flash (code and read-only data) | 432 944 | 444 116 of 524 288 |
 | RAM, static | 43 696 | 41 704 |
-| Heap, peak during the run | 74 120 | 78 808 |
+| Heap, peak during the run | 80 976 | 86 072 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 396 KB of flash and 118 KB of RAM on the
-Cortex-M3, and about 408 KB and 121 KB on the Cortex-M0+ (the static figure
+So the image needs about 433 KB of flash and 125 KB of RAM on the
+Cortex-M3, and about 444 KB and 128 KB on the Cortex-M0+ (the static figure
 includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
-has the real STM32G0B1's 144 KB, which leaves about 27 KB of RAM and 117 KB
+has the real STM32G0B1's 144 KB, which leaves about 19 KB of RAM and 80 KB
 of flash for the tests still to come. The 11 byte-swap and bit-counting
-tests added about 18 KB of flash and 3.7 KB of peak heap. The 47 tests of `fmt`, `bytes`, and
+tests added about 18 KB of flash and 3.7 KB of peak heap; the 21 tests of
+rotate, bit reversal, bit fields, and alignment added about 37 KB of flash
+and 7 to 8 KB of peak heap (the earlier figures were measured in another
+checkout directory, so the difference is good to a few KB). The 47 tests of `fmt`, `bytes`, and
 `crc` added about 59 KB of flash, almost all of it GoogleTest assertions
 instantiated in the tests (the three libraries are under 2 KB), and about
 15 KB of peak heap, GoogleTest's registry and the tests' strings; they keep
@@ -618,16 +621,17 @@ The other libraries in the same build:
 
 | Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|
-| Assertions off | 322 | 93 | 1 627 | 548 | 212 |
-| Trap in place (default) | 478 | 93 | 1 705 | 596 | 224 |
-| Application handler | 668 | 93 | 1 896 | 756 | 255 |
+| Assertions off | 322 | 93 | 1 627 | 1 084 | 212 |
+| Trap in place (default) | 478 | 93 | 1 705 | 1 318 | 224 |
+| Application handler | 668 | 93 | 1 896 | 1 642 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
 Zephyr's own code and table. `CRC_GCC_BUILTIN` cannot be built by this
 GCC 14.3.0; on x86-64, GCC 16.2.1 at `-Os` makes it 1 925 bytes against
 312 for the 16-entry tables. `bytes` grew by 370 bytes with byte swap and
-bit counting, portable code on this core except CLZ. Of `fmt`'s 1 705, 1 013 are the typed core (290
+bit counting, portable code on this core except CLZ, and by 722 more with
+rotate, bit reversal, bit fields, and alignment (1 318 bytes in all, trap). Of `fmt`'s 1 705, 1 013 are the typed core (290
 of them the built-in digit conversion) and 692 the printf front end, which
 a program that never calls `el_fmt_printf` does not link. With `FMT_LIBC`
 `fmt` is 1 502 bytes (trap), the conversion 87 of them; what that costs or
@@ -671,29 +675,30 @@ and exited successfully.
 | fmt: every fmt test with `FMT_LIBC` (`variant_defconfig`), against glibc's and picolibc's `snprintf` | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | crc: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin | passed: 4-bit, 8-bit | passed: 4-bit, 8-bit | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
-| bytes: byte swap and bit counting, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (portable) | not run |
+| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (portable) | not run |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
 
-The hosted presets run 279 GoogleTest tests, of which 18 are reported as
+The hosted presets run 326 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 293 CTest tests in
-all, 291 under sanitizers. `assert-off` runs 252: the same less the 41
-death tests. The two Rust
+integration, and two format-attribute compile checks: 340 CTest tests in
+all, 338 under sanitizers. `assert-off` runs 294: the same less the 46
+tests of the `*.violations` binaries, which are not built without
+assertions. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 179 of those GoogleTest tests: all but the POSIX
+The Zephyr test image runs 200 of those GoogleTest tests: all but the POSIX
 and C library backends', the death tests, and the host-only `fmt.oracle`
 and `bytes.portable`.
 9 are skipped, the same 9 as on the host for those fixtures. Twister reports
 the six test configurations passed (the three `elemental.tests` boards and
-the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 170 passed and 9
+the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 191 passed and 9
 skipped on each, by GoogleTest's count; Twister adds one case for the image
 itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
@@ -736,6 +741,14 @@ Additionally, each run once by hand and not part of the automated suite:
   `swap32` mask bit that the shift already clears). The two CRC builtin
   mutants were caught by `integration.choices`, run by hand on the mutated
   copy, because `mutant.sh` leaves out integration tests.
+- Twelve deliberately broken variants for rotate, bit fields, and alignment
+  (2026-11-13), all caught: a mask one bit short, a field not masked before
+  it is set, `align_up` off by one and treating only 0 as aligned, the
+  field range check written as `shift + width` (which wraps), a 64-bit
+  rotate right with the wrong count and one that adjusts by 31 instead of
+  32, a bit reversal without its byte swap, the portable 64-bit shift
+  shifting by the full width, `trailing_ones` counting zeros, a
+  `count_zeros` off by one, and the alignment and mask assertions removed.
 - Twenty-seven deliberately broken variants for M3, all caught (run on
   this branch before it was rebased onto M2; the M3 sources did not change
   in the rebase): the

@@ -578,3 +578,86 @@ Decisions in the sketch:
 the wider types; each power of two and its neighbours; and a bit-by-bit
 reference written in the test, compared on random values, on the host and
 in the Zephyr image.
+
+## Amendment (2026-11-13)
+
+**Decision (owner).** Extend `bytes` with the rest of the bit manipulation
+that firmware and parsers keep rewriting, in 32- and 64-bit forms only. **No
+8- and 16-bit forms, and no C23 `first_leading_one` / `first_trailing_zero`
+family** (`first_*`): they derive from the functions below in one expression
+and no caller has asked. This is the same reasoning as for the 8- and 16-bit
+counts in the amendment above. Still no new module and no new dependency.
+
+```c
+/* The rest of C23's counts. */
+uint32_t el_bytes_leading_ones32(uint32_t value);   /* 32 for all ones */
+uint32_t el_bytes_trailing_ones32(uint32_t value);  /* 32 for all ones */
+uint32_t el_bytes_count_zeros32(uint32_t value);
+
+/* Any count; it is taken modulo the width. */
+uint32_t el_bytes_rotate_left32(uint32_t value, uint32_t count);
+uint32_t el_bytes_rotate_right32(uint32_t value, uint32_t count);
+uint32_t el_bytes_reverse_bits32(uint32_t value);
+
+uint32_t el_bytes_mask32(uint32_t width);           /* low `width` bits set */
+uint32_t el_bytes_field_get32(uint32_t value, uint32_t shift, uint32_t width);
+uint32_t el_bytes_field_set32(uint32_t value, uint32_t shift, uint32_t width,
+                              uint32_t field);
+
+uint32_t el_bytes_align_up32(uint32_t value, uint32_t align);   /* 0: no fit */
+uint32_t el_bytes_align_down32(uint32_t value, uint32_t align);
+bool el_bytes_is_aligned32(uint32_t value, uint32_t align);
+/* ...and the same with 64 in place of 32 (`align` is a uint64_t there). */
+```
+
+Decisions in the sketch:
+
+- **Rotate counts are `uint32_t` in both widths**, as every count is
+  (ABI rule 2), and are taken modulo the width, so no count is a violation:
+  a rotate by 0 or by the width is the identity. The opposite shift is
+  written `-count & 31`, which is 0 for a count of 0, so no shift is by the
+  full width (undefined in C). GCC and Clang turn the pattern into one
+  rotate instruction.
+- **Full-width masks and fields are defined.** `el_bytes_mask32(32)` is all
+  ones. A field of width 0 is valid at any shift up to the type's width and
+  returns before it shifts, because that shift may be the full width.
+- **A field outside its type is a contract violation**, `width` above the
+  type's width or `shift + width` above it, checked as
+  `shift <= bits - width` so that a huge `shift` cannot wrap past the
+  check. Field positions are layout constants in code: only a program bug
+  produces a wrong one. A mask wider than its type is a violation for the
+  same reason.
+- **Bits of `field` above `width` are ignored, not asserted.** The
+  conventions' dividing line is whether a correct program can reach the
+  case with bad input ([conventions.md](../conventions.md#arguments)). The
+  value being packed can come from input (a length read from a message), so
+  an assertion is the wrong tool: with assertions compiled out it would
+  turn into silent corruption of the neighbouring field, whereas masking
+  costs one AND, gives every input a defined result, and matches what
+  assigning to a C bit-field does. A caller that must reject such a value
+  tests `el_bytes_bit_width32(field) <= width` first.
+- **`align` must be a power of two**, a violation otherwise, 0 included
+  (it is a constant of a layout or an ABI, not input). **`el_bytes_align_up`
+  returns 0 when the multiple does not fit**, like `bit_ceil`: `value` can be
+  a size read from input, so it is not a violation. Unlike `bit_ceil`, 0
+  is also the right answer for a `value` of 0, so the test is `result < value`,
+  which holds exactly when the multiple did not fit.
+- **`align` has the width of `value`** (`uint32_t`, `uint64_t`), not
+  `size_t`: these are fixed-width bit functions, and an arena that wants
+  `size_t` calls the 32- or 64-bit form for its target. The arenas may adopt
+  `el_bytes_align_up` later; this change does not touch them.
+- **No compiler-runtime helpers**, as above, and the same method. A 64-bit
+  shift by a variable count would call `__aeabi_llsl` on a 32-bit core, so
+  the 64-bit mask, field, and rotate functions are built from 32-bit halves
+  there; the two helpers that do it replace the previous private
+  `power_of_two64`. On x86-64 and AArch64 they are the plain shifts and
+  compile to a rotate instruction. The 64-bit `align_up` needs only add, or
+  and compare, which a 32-bit core does inline.
+
+**Tests.** A bit-by-bit (or remainder-based) reference for each in the test,
+compared on every rotate count from 0 to twice the width, every field
+position, every power-of-two alignment, every 16-bit value for bit reversal,
+and random values; a death test for each asserted violation, the wrapping
+`shift + width` included; and the edges of those contracts, which must not
+trip a check. The same bit tests run against the portable code
+(`bytes.portable`) and in the Zephyr image.
