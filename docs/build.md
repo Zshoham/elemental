@@ -518,24 +518,26 @@ presets only.
 
 ### Memory the test image needs
 
-Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests.
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 181 tests.
 The flash and heap figures are approximate: they change with the path of
 the checkout, which reaches the image through GoogleTest's file names and
 messages. The same sources in two directories differed by about 1 KB of
 flash and up to 16 KB of peak heap. Read them as "about", and keep the
-headroom below with that margin in mind.
+headroom below with that margin in mind. The figures below were taken in a
+checkout at a longer path than the earlier ones, which probably accounts for
+part of their rise.
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 395 860 | 407 520 of 524 288 |
-| RAM, static | 43 696 | 41 704 |
-| Heap, peak during the run | 74 120 | 78 808 |
+| Flash (code and read-only data) | 403 020 | 414 544 of 524 288 |
+| RAM, static | 43 688 | 41 696 |
+| Heap, peak during the run | 74 376 | 79 064 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 396 KB of flash and 118 KB of RAM on the
-Cortex-M3, and about 408 KB and 121 KB on the Cortex-M0+ (the static figure
+So the image needs about 403 KB of flash and 118 KB of RAM on the
+Cortex-M3, and about 415 KB and 121 KB on the Cortex-M0+ (the static figure
 includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
-has the real STM32G0B1's 144 KB, which leaves about 27 KB of RAM and 117 KB
+has the real STM32G0B1's 144 KB, which leaves about 27 KB of RAM and 110 KB
 of flash for the tests still to come. The 11 byte-swap and bit-counting
 tests added about 18 KB of flash and 3.7 KB of peak heap. The 47 tests of `fmt`, `bytes`, and
 `crc` added about 59 KB of flash, almost all of it GoogleTest assertions
@@ -582,7 +584,7 @@ a large `switch` will meet the same.
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
 Cortex-M0 first.
-`alloc` leaves no symbol undefined on either: `el_alloc_array` checks
+`alloc` leaves no symbol undefined on either: `el_layout_array` checks
 `count * size` for overflow by splitting each operand into halves, without
 a division or a double-width multiply, which on the Cortex-M0 would be
 `__aeabi_uidiv` and `__aeabi_lmul`.
@@ -610,17 +612,17 @@ with the grow writer (`IO_ALLOC`, on by default):
 
 | Configuration | `IO_ALLOC` off | `IO_ALLOC` on | The grow writer |
 |---|---|---|---|
-| Assertions off | 394 | 664 | 270 |
-| Trap in place (default) | 578 | 910 | 332 |
-| Application handler | 782 | 1 207 | 425 |
+| Assertions off | 394 | 710 | 316 |
+| Trap in place (default) | 578 | 956 | 378 |
+| Application handler | 782 | 1 255 | 473 |
 
 The other libraries in the same build:
 
 | Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|
-| Assertions off | 322 | 93 | 1 627 | 548 | 212 |
-| Trap in place (default) | 478 | 93 | 1 705 | 596 | 224 |
-| Application handler | 668 | 93 | 1 896 | 756 | 255 |
+| Assertions off | 376 | 93 | 1 627 | 548 | 212 |
+| Trap in place (default) | 568 | 93 | 1 705 | 596 | 224 |
+| Application handler | 794 | 93 | 1 896 | 756 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -643,7 +645,7 @@ the application without tests in each configuration.
 
 ## What is verified
 
-On one x86-64 Linux machine, 2026-11-12. "Passed" means the command was run
+On one x86-64 Linux machine, 2026-11-13. "Passed" means the command was run
 and exited successfully.
 
 | Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
@@ -678,22 +680,22 @@ and exited successfully.
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
 
-The hosted presets run 279 GoogleTest tests, of which 18 are reported as
+The hosted presets run 282 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 293 CTest tests in
-all, 291 under sanitizers. `assert-off` runs 252: the same less the 41
+integration, and two format-attribute compile checks: 296 CTest tests in
+all, 294 under sanitizers. `assert-off` runs 253: the same less the 43
 death tests. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 179 of those GoogleTest tests: all but the POSIX
+The Zephyr test image runs 181 of those GoogleTest tests: all but the POSIX
 and C library backends', the death tests, and the host-only `fmt.oracle`
 and `bytes.portable`.
 9 are skipped, the same 9 as on the host for those fixtures. Twister reports
 the six test configurations passed (the three `elemental.tests` boards and
-the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 170 passed and 9
+the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 172 passed and 9
 skipped on each, by GoogleTest's count; Twister adds one case for the image
 itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK

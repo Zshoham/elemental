@@ -12,24 +12,23 @@
  * rounding is correct under both), and returns NULL for an alignment the
  * implementation does not support.
  */
-static void *libc_alloc(void *ctx, size_t size, size_t align)
+static void *libc_alloc(void *ctx, el_layout layout)
 {
     (void)ctx;
-    if (align <= _Alignof(max_align_t)) {
-        return malloc(size);
+    if (layout.align <= _Alignof(max_align_t)) {
+        return malloc(layout.size);
     }
-    if (size > SIZE_MAX - (align - 1)) {
+    if (layout.size > SIZE_MAX - (layout.align - 1)) {
         return NULL;
     }
-    const size_t rounded = (size + (align - 1)) & ~(align - 1);
-    return aligned_alloc(align, rounded);
+    const size_t rounded = (layout.size + (layout.align - 1)) & ~(layout.align - 1);
+    return aligned_alloc(layout.align, rounded);
 }
 
-static void libc_free(void *ctx, void *ptr, size_t size, size_t align)
+static void libc_free(void *ctx, void *ptr, el_layout layout)
 {
     (void)ctx;
-    (void)size;
-    (void)align;
+    (void)layout;
     free(ptr);
 }
 

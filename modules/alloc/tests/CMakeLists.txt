@@ -5,7 +5,7 @@ elemental_add_test(alloc.contract.arena
 
 # The front functions and the arenas: placement, padding, what each free does.
 elemental_add_test(alloc.unit
-  SOURCES alloc_unit_test.cpp
+  SOURCES alloc_unit_test.cpp layout_probe.c
   LIBRARIES elemental::alloc)
 
 # Contract checks fire, in whichever way the configuration makes them fire,

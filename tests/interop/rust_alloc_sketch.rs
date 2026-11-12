@@ -11,10 +11,11 @@
 //!      in it.
 //!
 //! What lines up: null on failure; a power-of-two alignment on every
-//! request; the size and alignment given back on free (`dealloc` takes the
-//! `Layout`, `el_free` the size and alignment), so neither side needs a
-//! header; and no zero-size request ever reaches an implementation
+//! request; the layout given back on free (`dealloc` takes the `Layout`,
+//! `el_free` the `el_layout`, the same size and alignment), so neither side
+//! needs a header; and no zero-size request ever reaches an implementation
 //! (`GlobalAlloc::alloc` forbids it, `el_alloc` answers it itself).
+//! `ElemLayout` is `Layout` one to one: two words, passed by value.
 //!
 //! What does not: `GlobalAlloc` must be `Sync`, and an `el_allocator` handle
 //! carries no synchronization, so the arena sits behind a `Mutex`.
@@ -31,11 +32,36 @@ use std::sync::Mutex;
 
 pub type ElemStatus = i32;
 pub const EL_OK: ElemStatus = 0;
+pub const EL_ERR_NO_SPACE: ElemStatus = 4;
+
+/// `el_layout`: a size and a power-of-two alignment, two words, by value.
+/// Rust's `Layout` is not `repr(C)`, so it is converted field by field.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElemLayout {
+    pub size: usize,
+    pub align: usize,
+}
+
+impl From<Layout> for ElemLayout {
+    fn from(layout: Layout) -> Self {
+        ElemLayout { size: layout.size(), align: layout.align() }
+    }
+}
+
+impl ElemLayout {
+    /// Back to a `Layout`. `None` only for a size Rust cannot describe
+    /// (over `isize::MAX` once rounded up to the alignment); the alignment
+    /// is a power of two by `el_layout`'s contract.
+    pub fn to_layout(self) -> Option<Layout> {
+        Layout::from_size_align(self.size, self.align).ok()
+    }
+}
 
 #[repr(C)]
 pub struct ElemAllocatorOps {
-    pub alloc: unsafe extern "C" fn(*mut c_void, usize, usize) -> *mut c_void,
-    pub free: unsafe extern "C" fn(*mut c_void, *mut c_void, usize, usize),
+    pub alloc: unsafe extern "C" fn(*mut c_void, ElemLayout) -> *mut c_void,
+    pub free: unsafe extern "C" fn(*mut c_void, *mut c_void, ElemLayout),
 }
 
 /// A handle: two pointers, passed by value, owning nothing.
@@ -70,8 +96,10 @@ pub struct ElemGrowWriter {
 }
 
 extern "C" {
-    fn el_alloc(allocator: ElemAllocator, size: usize, align: usize) -> *mut c_void;
-    fn el_free(allocator: ElemAllocator, ptr: *mut c_void, size: usize, align: usize);
+    fn el_layout_make(size: usize, align: usize) -> ElemLayout;
+    fn el_layout_array(elem: ElemLayout, count: usize, out: *mut ElemLayout) -> ElemStatus;
+    fn el_alloc(allocator: ElemAllocator, layout: ElemLayout) -> *mut c_void;
+    fn el_free(allocator: ElemAllocator, ptr: *mut c_void, layout: ElemLayout);
     fn el_stack_arena_init(arena: *mut ElemStackArena, storage: *mut c_void, cap: usize);
     fn el_stack_arena_as_allocator(arena: *mut ElemStackArena) -> ElemAllocator;
     fn el_grow_writer_init(gw: *mut ElemGrowWriter, allocator: ElemAllocator);
@@ -114,14 +142,14 @@ unsafe impl GlobalAlloc for ElGlobal {
         // caller guarantees a nonzero size. Both are what el_alloc asks.
         let mut arena = self.arena.lock().unwrap_or_else(|e| e.into_inner());
         let handle = el_stack_arena_as_allocator(&mut **arena);
-        el_alloc(handle, layout.size(), layout.align()).cast()
+        el_alloc(handle, layout.into()).cast()
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // The layout the block was allocated with: exactly el_free's contract.
         let mut arena = self.arena.lock().unwrap_or_else(|e| e.into_inner());
         let handle = el_stack_arena_as_allocator(&mut **arena);
-        el_free(handle, ptr.cast(), layout.size(), layout.align());
+        el_free(handle, ptr.cast(), layout.into());
     }
 }
 
@@ -141,6 +169,17 @@ fn c_allocator_from_rust() {
         // Exhaustion is null, as GlobalAlloc requires.
         let too_big = Layout::from_size_align(8192, 8).unwrap();
         assert!(global.alloc(too_big).is_null());
+
+        // The two layout constructors agree with Rust's.
+        assert_eq!(el_layout_make(24, 8), ElemLayout::from(Layout::new::<[u64; 3]>()));
+        let mut array = ElemLayout { size: 0, align: 0 };
+        let elem = el_layout_make(12, 4);
+        assert_eq!(el_layout_array(elem, 10, &mut array), EL_OK);
+        assert_eq!(array.to_layout(), Some(Layout::array::<[u32; 3]>(10).unwrap()));
+        // An overflowing count is a status, and leaves the output alone.
+        let before = array;
+        assert_eq!(el_layout_array(elem, usize::MAX, &mut array), EL_ERR_NO_SPACE);
+        assert_eq!(array, before);
     }
     println!("GlobalAlloc over el_stack_arena: aligned, reused, null when exhausted");
 }
@@ -168,11 +207,11 @@ impl RustAllocator {
         ElemAllocator { ctx: (self as *mut Self).cast(), ops: &Self::OPS }
     }
 
-    unsafe extern "C" fn alloc_trampoline(ctx: *mut c_void, size: usize, align: usize) -> *mut c_void {
+    unsafe extern "C" fn alloc_trampoline(ctx: *mut c_void, layout: ElemLayout) -> *mut c_void {
         // Guaranteed by el_alloc(): size >= 1, align a power of two. A size
         // Rust cannot describe (over isize::MAX once rounded) is a refusal.
         let this = &mut *ctx.cast::<Self>();
-        let Ok(layout) = Layout::from_size_align(size, align) else { return null_mut() };
+        let Some(layout) = layout.to_layout() else { return null_mut() };
         match catch_unwind(AssertUnwindSafe(|| {
             let ptr = System.alloc(layout);
             if !ptr.is_null() {
@@ -186,12 +225,12 @@ impl RustAllocator {
         }
     }
 
-    unsafe extern "C" fn free_trampoline(ctx: *mut c_void, ptr: *mut c_void, size: usize, align: usize) {
+    unsafe extern "C" fn free_trampoline(ctx: *mut c_void, ptr: *mut c_void, layout: ElemLayout) {
         let this = &mut *ctx.cast::<Self>();
         let recorded = this.live.borrow_mut().remove(&(ptr as usize));
         // Rebuilt from what C passed back, with no lookup needed: the
         // recorded layout is only here to prove they agree.
-        let layout = Layout::from_size_align_unchecked(size, align);
+        let layout = Layout::from_size_align_unchecked(layout.size, layout.align);
         if recorded != Some(layout) {
             eprintln!("C freed {ptr:?} as {layout:?}, allocated as {recorded:?}");
             std::process::abort();

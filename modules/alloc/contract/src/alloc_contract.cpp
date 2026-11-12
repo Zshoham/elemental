@@ -5,7 +5,6 @@
  */
 #include <elemental/alloc_contract.hpp>
 
-#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <ostream>
@@ -72,18 +71,18 @@ struct Counting {
     int allocs = 0;
     int frees = 0;
 
-    static void *Alloc(void *ctx, size_t size, size_t align)
+    static void *Alloc(void *ctx, el_layout layout)
     {
         Counting *const self = static_cast<Counting *>(ctx);
         self->allocs++;
-        return el_alloc(self->inner, size, align);
+        return el_alloc(self->inner, layout);
     }
 
-    static void Free(void *ctx, void *ptr, size_t size, size_t align)
+    static void Free(void *ctx, void *ptr, el_layout layout)
     {
         Counting *const self = static_cast<Counting *>(ctx);
         self->frees++;
-        el_free(self->inner, ptr, size, align);
+        el_free(self->inner, ptr, layout);
     }
 
     el_allocator Handle()
@@ -129,7 +128,7 @@ class Harness
     /* Allocate and fill. Null if the allocator refused. */
     const Block *Take(size_t size, size_t align)
     {
-        uint8_t *const ptr = static_cast<uint8_t *>(el_alloc(a_, size, align));
+        uint8_t *const ptr = static_cast<uint8_t *>(el_alloc(a_, el_layout_make(size, align)));
         if (ptr == nullptr) {
             return nullptr;
         }
@@ -146,7 +145,7 @@ class Harness
         const Block b = blocks_[index];
         EXPECT_TRUE(Intact(b));
         blocks_.erase(blocks_.begin() + static_cast<std::ptrdiff_t>(index));
-        el_free(a_, b.ptr, b.size, b.align);
+        el_free(a_, b.ptr, el_layout_make(b.size, b.align));
     }
 
     bool AllIntact() const
@@ -313,37 +312,24 @@ TEST_P(ElAllocContract, ZeroSizeRequestsNeverReachTheAllocator)
     const el_allocator a = counting.Handle();
 
     for (size_t align = 1; align <= kAlignMax; align *= 2) {
-        void *const ptr = el_alloc(a, 0, align);
+        const el_layout zero = el_layout_make(0, align);
+        void *const ptr = el_alloc(a, zero);
         EXPECT_NE(ptr, nullptr) << "a zero-size request is not a failure";
         EXPECT_TRUE(IsAligned(ptr, align));
-        el_free(a, ptr, 0, align);
-        el_free(a, nullptr, 0, align);
+        el_free(a, ptr, zero);
+        el_free(a, nullptr, zero);
 
-        void *const none = el_alloc_array(a, 0, 8, align);
-        EXPECT_NE(none, nullptr);
-        el_free(a, none, 0, align);
-        EXPECT_NE(el_alloc_array(a, 8, 0, align), nullptr);
+        /* Zero-size arrays: no elements, or elements of no size. */
+        el_layout none = el_layout_make(1, 1);
+        ASSERT_EQ(el_layout_array(el_layout_make(8, align), 0, &none), EL_OK);
+        void *const empty = el_alloc(a, none);
+        EXPECT_NE(empty, nullptr);
+        el_free(a, empty, none);
+        ASSERT_EQ(el_layout_array(el_layout_make(0, align), 8, &none), EL_OK);
+        EXPECT_NE(el_alloc(a, none), nullptr);
     }
     EXPECT_EQ(counting.allocs, 0);
     EXPECT_EQ(counting.frees, 0);
-}
-
-TEST_P(ElAllocContract, OverflowingArrayRequestsReturnNullWithoutReachingTheAllocator)
-{
-    Harness h(GetParam());
-    Counting counting{h.Open()};
-    const el_allocator a = counting.Handle();
-
-    constexpr size_t kHalf = size_t{1} << (sizeof(size_t) * CHAR_BIT / 2);
-    const Request overflowing[] = {
-        {SIZE_MAX, 2},      {2, SIZE_MAX},        {SIZE_MAX / 2 + 1, 2}, {kHalf, kHalf},
-        {kHalf + 1, kHalf}, {SIZE_MAX, SIZE_MAX}, {SIZE_MAX / 3 + 1, 3},
-    };
-    for (const Request &r : overflowing) {
-        EXPECT_EQ(el_alloc_array(a, r.size, r.align, 1), nullptr)
-            << r.size << " * " << r.align << " overflows";
-    }
-    EXPECT_EQ(counting.allocs, 0);
 }
 
 TEST_P(ElAllocContract, ArrayRequestsAllocateTheProduct)
@@ -351,7 +337,9 @@ TEST_P(ElAllocContract, ArrayRequestsAllocateTheProduct)
     Harness h(GetParam());
     const el_allocator a = h.Open();
 
-    uint8_t *const bytes = static_cast<uint8_t *>(el_alloc_array(a, 10, 12, 4));
+    el_layout layout;
+    ASSERT_EQ(el_layout_array(el_layout_make(12, 4), 10, &layout), EL_OK);
+    uint8_t *const bytes = static_cast<uint8_t *>(el_alloc(a, layout));
     ASSERT_NE(bytes, nullptr);
     EXPECT_TRUE(IsAligned(bytes, 4));
     for (size_t i = 0; i < 120; i++) {
@@ -360,7 +348,7 @@ TEST_P(ElAllocContract, ArrayRequestsAllocateTheProduct)
     for (size_t i = 0; i < 120; i++) {
         ASSERT_EQ(bytes[i], static_cast<uint8_t>(i));
     }
-    el_free(a, bytes, 10 * 12, 4);
+    el_free(a, bytes, layout);
 }
 
 TEST_P(ElAllocContract, AnImpossibleRequestReturnsNull)
@@ -368,9 +356,9 @@ TEST_P(ElAllocContract, AnImpossibleRequestReturnsNull)
     Harness h(GetParam());
     const el_allocator a = h.Open();
 
-    EXPECT_EQ(el_alloc(a, SIZE_MAX, 1), nullptr);
-    EXPECT_EQ(el_alloc(a, SIZE_MAX, kAlignMax), nullptr);
-    EXPECT_EQ(el_alloc(a, SIZE_MAX - kAlignMax / 2, kAlignMax), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX, 1)), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX, kAlignMax)), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX - kAlignMax / 2, kAlignMax)), nullptr);
     /* And the allocator still works. */
     EXPECT_NE(h.Take(16, 8), nullptr);
 }
@@ -402,7 +390,7 @@ TEST_P(ElAllocContract, BoundedRefusesARequestLargerThanItsLimit)
     Harness h(GetParam());
     const el_allocator a = h.OpenBounded();
 
-    EXPECT_EQ(el_alloc(a, kLimit + 1, 1), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(kLimit + 1, 1)), nullptr);
     for (size_t align = 1; align <= kAlignMax; align *= 2) {
         SCOPED_TRACE(testing::Message() << "alignment " << align);
         h.OpenBounded();
@@ -419,9 +407,11 @@ TEST_P(ElAllocContract, AFailedRequestChangesNothing)
     const el_allocator a = h.OpenBounded();
 
     ASSERT_NE(h.Take(64, 8), nullptr);
-    EXPECT_EQ(el_alloc(a, kLimit, 1), nullptr);
-    EXPECT_EQ(el_alloc(a, SIZE_MAX, 1), nullptr);
-    EXPECT_EQ(el_alloc_array(a, kLimit, kLimit, 1), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(kLimit, 1)), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX, 1)), nullptr);
+    el_layout square;
+    ASSERT_EQ(el_layout_array(el_layout_make(kLimit, 1), kLimit, &square), EL_OK);
+    EXPECT_EQ(el_alloc(a, square), nullptr);
     /* What fitted before the failures still fits after them. */
     EXPECT_NE(h.Take(64, 8), nullptr);
     EXPECT_TRUE(h.AllIntact());

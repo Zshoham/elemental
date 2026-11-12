@@ -102,6 +102,8 @@ The rules:
    return a status that is always `EL_OK`.
 4. **Output parameters are required and always written**, on every return
    path, including failures. What each holds for each status is documented.
+   The one exception is `el_layout_array`, which leaves its output
+   unchanged when it fails ([ADR 0013](adr/0013-allocation-layout.md)).
    An output parameter is optional only where its header says so and the
    value is redundant on success. The one case today is the count of
    `el_read_exact` and `el_write_all`, which on `EL_OK` can only be
@@ -213,8 +215,11 @@ The rules that keep a contract usable through a C ABI:
 7. **Nothing unwinds through Elemental.** Callbacks and operations must not
    throw, panic across the boundary, or `longjmp` out. The one exception is
    the assertion handler, which never returns to its caller by definition.
-8. **Structs are passed by value only when they are handles**: two pointers,
-   trivially copyable.
+8. **Structs are passed by value only when they are handles** (two
+   pointers) **or layouts** (`el_layout`, two `size_t`): at most two words,
+   trivially copyable, with no `bool`, enum, or bit-field. Such a struct is
+   passed in registers on the AAPCS and on System V x86-64
+   ([ADR 0013](adr/0013-allocation-layout.md)).
 
 ## Other languages
 

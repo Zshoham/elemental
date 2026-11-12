@@ -399,17 +399,21 @@ module that wraps a status, not for growing the status.
 
 *Implemented in M2* as [modules/alloc](../modules/alloc/README.md) and
 the grow writer in [modules/io](../modules/io/README.md); the accepted design is the
-[proposal](proposals/alloc.md), and sized free is
-[ADR 0012](adr/0012-sized-free.md). The sketch below is kept as it was
-proposed.
+[proposal](proposals/alloc.md), sized free is
+[ADR 0012](adr/0012-sized-free.md), and the size and alignment travel as
+one `el_layout` ([ADR 0013](adr/0013-allocation-layout.md)). The sketch
+below is kept as it was proposed, with its `(size, align)` pairs written as
+layouts.
 
 The next module. A handle, because allocators must coexist (an arena for a
 request, a pool for messages, the heap for the rest).
 
 ```c
+typedef struct el_layout { size_t size; size_t align; } el_layout;
+
 typedef struct el_allocator_ops {
-    void *(*alloc)(void *ctx, size_t size, size_t align);
-    void (*free)(void *ctx, void *ptr, size_t size, size_t align);
+    void *(*alloc)(void *ctx, el_layout layout);
+    void (*free)(void *ctx, void *ptr, el_layout layout);
 } el_allocator_ops;
 
 typedef struct el_allocator {
@@ -417,8 +421,8 @@ typedef struct el_allocator {
     const el_allocator_ops *ops;
 } el_allocator;
 
-void *el_alloc(el_allocator a, size_t size, size_t align);
-void el_free(el_allocator a, void *ptr, size_t size, size_t align);
+void *el_alloc(el_allocator a, el_layout layout);
+void el_free(el_allocator a, void *ptr, el_layout layout);
 ```
 
 Usage, and the awkwardness it exposes:
@@ -429,17 +433,17 @@ el_arena arena;
 el_arena_init(&arena, storage, sizeof(storage));
 el_allocator a = el_arena_as_allocator(&arena);
 
-struct session *s = el_alloc(a, sizeof(*s), _Alignof(struct session));
+struct session *s = el_alloc(a, EL_LAYOUT_OF(struct session));
 if (s == NULL) { /* exhausted: the one way this fails */ }
 ...
-el_free(a, s, sizeof(*s), _Alignof(struct session));   /* must repeat both */
+el_free(a, s, EL_LAYOUT_OF(struct session));   /* must repeat the layout */
 ```
 
 Positions to test, each with its cost:
 
 - **Alignment is always explicit**, a power of two. No "suitable for any
   type" default, which wastes memory on small targets.
-- **Free takes the size and alignment back.** An arena or pool then needs no
+- **Free takes the layout back.** An arena or pool then needs no
   per-allocation header. *Source fact:* Zig's allocator `free` receives the
   slice and the alignment; Pigweed's `Deallocate` takes only the pointer.
   The cost is on callers, who must know the size, which is uncomfortable for

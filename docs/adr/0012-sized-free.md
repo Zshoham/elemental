@@ -1,7 +1,10 @@
 # 0012. Free takes the size and alignment back
 
 Status: Accepted (2026-11-12). Decided by the project owner, on the
-evidence of the [allocation proposal](../proposals/alloc.md).
+evidence of the [allocation proposal](../proposals/alloc.md). Refined by
+[ADR 0013](0013-allocation-layout.md): the size and alignment travel as one
+`el_layout`, and `el_alloc_array` is gone. The decision below stands; read its
+`size, align` as that layout.
 
 ## Context
 

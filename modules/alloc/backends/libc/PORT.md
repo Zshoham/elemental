@@ -20,15 +20,15 @@ This document follows the template in
 | Exhaustion as `NULL` | Yes | Whatever the C library refuses, and a size that overflows when rounded up. |
 | Bounded | No | The heap has no bound this backend sets. |
 | Reclaims on free | Yes | `free()`. Not observable by the contract suite without a bound. |
-| Uses the size and alignment at free | No | They are accepted and ignored. |
+| Uses the layout at free | No | It is accepted and ignored. |
 
 ## Unsupported semantics
 
-- **Does not detect a wrong size or alignment at free**, nor a foreign or
+- **Does not detect a wrong layout at free**, nor a foreign or
   double free beyond what the C library itself catches. Use the checking
   allocator in tests.
 - **Does not use C23 `free_sized` or `free_aligned_sized`.** The baseline is
-  C11. With sized free the backend knows the alignment at free, so it could
+  C11. With the layout at free the backend knows the alignment, so it could
   choose between them correctly, if a measurement ever asks for it.
 - No bound, no statistics, no reset.
 

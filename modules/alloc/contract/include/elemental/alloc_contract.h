@@ -98,7 +98,7 @@ typedef struct el_alloc_contract_fixture {
  *
  * Wraps another allocator and checks every call against the contract that
  * no allocator can check cheaply on its own: each free names a live
- * allocation with exactly the size and alignment it was made with. A
+ * allocation with exactly the layout it was made with. A
  * mismatch, a double free, or a pointer it never handed out is reported on
  * standard error and ends the process with abort(), so a test that frees
  * the length of a buffer instead of its capacity fails where it happens.
@@ -111,8 +111,7 @@ typedef struct el_alloc_contract_fixture {
 
 typedef struct el_alloc_check_record {
     void *ptr;
-    size_t size;
-    size_t align;
+    el_layout layout;
 } el_alloc_check_record;
 
 typedef struct el_alloc_checker {

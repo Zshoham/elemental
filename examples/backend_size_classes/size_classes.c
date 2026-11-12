@@ -1,13 +1,14 @@
 #include "size_classes.h"
 
-/* The class that serves (size, align): the smallest block from 16 bytes up
- * that holds `size` and is a multiple of `align`. -1 if none is large
- * enough. Blocks are aligned to their own size, so `align` holds too. */
-static int class_of(size_t size, size_t align)
+/* The class that serves a layout: the smallest block from 16 bytes up that
+ * holds `layout.size` and is a multiple of `layout.align`. -1 if none is
+ * large enough. Blocks are aligned to their own size, so the alignment holds
+ * too. */
+static int class_of(el_layout layout)
 {
     size_t block = 16;
     int i = 0;
-    while (block < size || block < align) {
+    while (block < layout.size || block < layout.align) {
         if (++i == SIZE_CLASSES_COUNT) {
             return -1;
         }
@@ -16,10 +17,10 @@ static int class_of(size_t size, size_t align)
     return i;
 }
 
-static void *size_classes_alloc(void *ctx, size_t size, size_t align)
+static void *size_classes_alloc(void *ctx, el_layout layout)
 {
     size_classes *const sc = ctx;
-    const int i = class_of(size, align);
+    const int i = class_of(layout);
     if (i < 0) {
         return NULL;
     }
@@ -39,10 +40,10 @@ static void *size_classes_alloc(void *ctx, size_t size, size_t align)
     return fresh;
 }
 
-static void size_classes_free(void *ctx, void *ptr, size_t size, size_t align)
+static void size_classes_free(void *ctx, void *ptr, el_layout layout)
 {
     size_classes *const sc = ctx;
-    const int i = class_of(size, align); /* the class alloc chose: no header */
+    const int i = class_of(layout); /* the class alloc chose: no header */
     *(void **)ptr = sc->free_list[i];
     sc->free_list[i] = ptr;
 }

@@ -27,11 +27,11 @@ TEST(AllocLibc, AlignsBeyondMaxAlignT)
     const el_allocator a = el_libc_allocator();
     for (size_t align = alignof(std::max_align_t) * 2; align <= 65536; align *= 2) {
         for (const size_t size : {size_t{1}, align - 1, align, align + 1}) {
-            uint8_t *const ptr = static_cast<uint8_t *>(el_alloc(a, size, align));
+            uint8_t *const ptr = static_cast<uint8_t *>(el_alloc(a, el_layout_make(size, align)));
             ASSERT_NE(ptr, nullptr) << size << " bytes aligned to " << align;
             EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % align, 0u);
             std::memset(ptr, 0xA5, size);
-            el_free(a, ptr, size, align);
+            el_free(a, ptr, el_layout_make(size, align));
         }
     }
 }
@@ -40,8 +40,8 @@ TEST(AllocLibc, RoundingASizeUpForAlignmentCannotOverflow)
 {
     const el_allocator a = el_libc_allocator();
     /* SIZE_MAX - 100 rounded up to 4096 does not fit in a size_t. */
-    EXPECT_EQ(el_alloc(a, SIZE_MAX - 100, 4096), nullptr);
-    EXPECT_EQ(el_alloc(a, SIZE_MAX, 128), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX - 100, 4096)), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(SIZE_MAX, 128)), nullptr);
 }
 
 } // namespace
