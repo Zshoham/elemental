@@ -1,0 +1,5 @@
+set(SUPPORTED_EMU_PLATFORMS renode)
+set(RENODE_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/support/nucleo_g0b1re_renode.resc)
+set(RENODE_UART sysbus.usart2)
+set_ifndef(BOARD_SIM_RUNNER renode)
+include(${ZEPHYR_BASE}/boards/common/renode.board.cmake)

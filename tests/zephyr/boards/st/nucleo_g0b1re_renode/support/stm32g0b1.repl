@@ -1,0 +1,20 @@
+// Renode's stock STM32G0 model, changed to match the STM32G0B1RE of the
+// nucleo_g0b1re board, so that Elemental's Zephyr test image fits:
+//
+//   flash  128 KiB -> 512 KiB  (the stock model is an STM32G071)
+//   ram     48 KiB -> 144 KiB
+//   cpu    "cortex-m0" -> "cortex-m0+"  (the G0 family's actual core)
+//
+// Nothing else differs. Peripherals the G0B1 has and the stock model lacks
+// are still missing; the test image uses only the core, the SysTick timer,
+// and USART2 for its console.
+using "platforms/cpus/stm32g0.repl"
+
+flash:
+    size: 0x80000
+
+ram:
+    size: 0x24000
+
+cpu:
+    cpuType: "cortex-m0+"

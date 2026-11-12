@@ -390,8 +390,9 @@ adds Elemental as a subproject and compiles every test registered with
 | Part | Pin |
 |---|---|
 | Zephyr | `v4.5.0`, commit `41d10b59730406bbab4ca9f1fbbe9e96aafb4966` |
-| West modules | `cmsis` `512cc7e895e8`, `cmsis_6` `1c1840af7a7e`, `picolibc` `01254932e8e8`, `hal_nordic` `c708b9fe1b7a` (for `qemu_cortex_m0` only); nothing else |
+| West modules | `cmsis` `512cc7e895e8`, `cmsis_6` `1c1840af7a7e`, `picolibc` `01254932e8e8`, `hal_nordic` `c708b9fe1b7a` (for `qemu_cortex_m0` only), `hal_stm32` `c95501991862` (for `nucleo_g0b1re_renode` only; 1.3 GB even fetched shallow); nothing else |
 | Zephyr SDK | 1.0.1, the minimal bundle with only the `arm-zephyr-eabi` toolchain (GCC 14.3.0); no SDK host tools |
+| Renode | 1.17.0, the Linux portable release (`renode-1.17.0.linux-portable.tar.gz`, SHA-256 `4ba7c68b59e2447f188ef4b4b112fcccd2802582c460beedceb63b84e5605a5f`), unpacked to `~/zephyrproject/renode` (184 MB) and put on `PATH`. No root, and no system .NET or Mono. |
 | Host tools | `qemu-system-arm`, `dtc`, `gperf`, and a 32-bit capable `gcc` for `native_sim`, from the distribution |
 
 Set up once, without root (the CI job does the same):
@@ -401,11 +402,14 @@ python3 -m venv ~/zephyrproject/.venv && . ~/zephyrproject/.venv/bin/activate
 pip install west
 west init -m https://github.com/zephyrproject-rtos/zephyr --mr v4.5.0 ~/zephyrproject
 cd ~/zephyrproject
-west config manifest.project-filter -- '-.*,+cmsis,+cmsis_6,+picolibc,+hal_nordic'
+west config manifest.project-filter -- '-.*,+cmsis,+cmsis_6,+picolibc,+hal_nordic,+hal_stm32'
 west update --narrow -o=--depth=1
 pip install -r zephyr/scripts/requirements-base.txt \
   -r zephyr/scripts/requirements-build-test.txt -r zephyr/scripts/requirements-run-test.txt
 west sdk install -t arm-zephyr-eabi -H
+mkdir renode && curl -L https://github.com/renode/renode/releases/download/v1.17.0/renode-1.17.0.linux-portable.tar.gz |
+  tar -xz -C renode --strip-components=1   # then check the SHA-256 above
+export PATH=~/zephyrproject/renode:$PATH
 ```
 
 Elemental's own dependencies are provisioned as for a host build
@@ -417,14 +421,35 @@ and GoogleTest checkouts in `.deps/`.
 From inside the workspace, with its environment active:
 
 ```sh
-west twister -T <elemental>/tests/zephyr --integration -O <output directory>
+west twister -T <elemental>/tests/zephyr --board-root <elemental>/tests/zephyr/boards \
+  --integration -O <output directory>
 ```
+
+`--board-root` names the directory that holds `nucleo_g0b1re_renode`;
+without it Twister does not know that board. Without `renode` on `PATH`,
+Twister builds that board's image and does not run it.
 
 | Scenario | Board | What it does |
 |---|---|---|
 | `elemental.tests` | `native_sim` | Every test, in a 32-bit Linux process. |
 | `elemental.tests` | `mps2/an385` | Every test, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
-| `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. |
+| `elemental.tests` | `nucleo_g0b1re_renode` | Every test, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
+| `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
+
+**`nucleo_g0b1re_renode`** is a board defined in this repository
+([tests/zephyr/boards](../tests/zephyr/boards/st/nucleo_g0b1re_renode/README.md)):
+Zephyr's `nucleo_g0b1re` (STM32G0B1RE, 512 KB flash, 144 KB RAM), run on
+Renode's stock STM32G0 model with three changes, each commented in
+[stm32g0b1.repl](../tests/zephyr/boards/st/nucleo_g0b1re_renode/support/stm32g0b1.repl):
+flash 128 KB to 512 KB and RAM 48 KB to 144 KB (the stock model is an
+STM32G071), and the CPU declared a Cortex-M0+ instead of a Cortex-M0. The
+board's devicetree is the stock one with the HSI48 clock off, because the
+model's clock controller never reports it ready. A run on it is an
+**emulator run on a modified model**: not a hardware run, and not a model
+Renode or Zephyr maintains. The tests use the core, SysTick, and USART2;
+Renode reports accesses to two blocks it does not model (`SYSCFG`, `DBG`)
+and one unmodelled flash-controller bit, all during start-up, none read
+back as anything the tests depend on.
 
 One board by hand: `west build -b mps2/an385 <elemental>/tests/zephyr`, then
 `west build -t run`. The image prints GoogleTest's report and then the
@@ -464,17 +489,21 @@ presets only.
 
 ### Memory the test image needs
 
-`mps2/an385`, Zephyr SDK GCC 14.3.0, Zephyr's default size optimization,
-121 tests:
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 121 tests:
 
-| | Bytes |
-|---|---|
-| Flash (code and read-only data) | 318 388 |
-| RAM, static | 43 696 |
-| Heap, peak during the run | 58 144 |
-| Main stack, used of 4 096 | 2 636 |
+| | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
+|---|---|---|
+| Flash (code and read-only data) | 318 388 | 330 496 of 524 288 |
+| RAM, static | 43 696 | 41 704 |
+| Heap, peak during the run | 58 144 | 61 716 |
+| Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 318 KB of flash and 102 KB of RAM (the static figure includes the stack). The allocator tests added the most: the arena and size-class fixtures' static storage (about 28 KB), and the contract suite's bookkeeping on the heap. It does not fit
+So the image needs about 318 KB of flash and 102 KB of RAM on the
+Cortex-M3, and about 331 KB and 103 KB on the Cortex-M0+ (the static figure
+includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
+has the real STM32G0B1's 144 KB, which leaves about 40 KB of RAM and 180 KB
+of flash for the tests still to come. The model was not enlarged past the
+real part, so a test image that fits it fits the board. The allocator tests added the most: the arena and size-class fixtures' static storage (about 28 KB), and the contract suite's bookkeeping on the heap. It does not fit
 `qemu_cortex_m0` (256 KB flash, 16 KB RAM), which is why that board only
 builds the libraries. The default 1 KB main stack is not enough: the first
 run on `mps2/an385` overflowed it silently, and two contract tests failed
@@ -493,6 +522,7 @@ configuration that asks the application to define it.
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
 | `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
 | `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
@@ -510,9 +540,9 @@ Five kinds of evidence, in increasing strength:
 | Level | What it shows | Here |
 |---|---|---|
 | Compile check | The sources are valid for the target. | Every board above. |
-| Symbol check | What the libraries need from outside. | `mps2/an385`, `qemu_cortex_m0` |
-| Link check | A complete image can be produced. | The test image, `mps2/an385` and `native_sim` |
-| Emulator run | The code behaves correctly on an emulated CPU. | The test image on `mps2/an385` under QEMU |
+| Symbol check | What the libraries need from outside. | `mps2/an385`, `nucleo_g0b1re_renode`, `qemu_cortex_m0` |
+| Link check | A complete image can be produced. | The test image, `mps2/an385`, `nucleo_g0b1re_renode`, and `native_sim` |
+| Emulator run | The code behaves correctly on an emulated CPU. | The test image on `mps2/an385` under QEMU (Cortex-M3), and on `nucleo_g0b1re_renode` under Renode 1.17.0, a modified model (Cortex-M0+) |
 | Hardware test | It works on a real device. | **Not done.** No board. |
 
 `native_sim` runs the tests on the host CPU in Zephyr's environment: it is
@@ -548,26 +578,26 @@ the application without tests in each configuration.
 On one x86-64 Linux machine, 2026-11-12. "Passed" means the command was run
 and exited successfully.
 
-| Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `qemu_cortex_m0` |
-|---|---|---|---|---|---|---|
-| Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) |
-| Unit and helper tests | passed | passed | passed | passed | passed | not run |
-| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | not run |
-| io contract suite: memory streams | passed | passed | passed | passed | passed | not run |
-| io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | passed | passed | not run |
-| io contract suite: grow writer (`io_alloc`) | passed | passed | passed | passed | passed | not run |
-| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | not run |
-| Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a |
-| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | not run |
-| libc heap platform tests | passed | passed | passed | n/a | n/a | n/a |
-| POSIX platform tests | passed | passed | passed | n/a | n/a | n/a |
-| Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run |
-| C++ interop, run | passed | passed | passed | not run | not run | not run |
-| Rust interop, run (io and allocator sketches) | passed | passed | skipped | not run | not run | not run |
-| Python sketch, compile only | passed | passed | passed | not run | not run | not run |
-| Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed | passed |
+| Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
+|---|---|---|---|---|---|---|---|
+| Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
+| Unit and helper tests | passed | passed | passed | passed | passed | passed | not run |
+| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
+| io contract suite: memory streams | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
+| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: grow writer (`io_alloc`) | passed | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed | not run |
+| libc heap platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
+| POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
+| C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
+| Rust interop, run (io and allocator sketches) | passed | passed | skipped | not run | not run | not run | not run |
+| Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
+| Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Symbol check | n/a | n/a | n/a | n/a | passed | passed | passed |
 
 The hosted presets run 189 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
@@ -579,10 +609,11 @@ sanitizer runtime.
 
 The Zephyr test image runs 121 of those GoogleTest tests: all but the POSIX
 and C library backends' and the death tests. 9 are skipped, the same 9 as on
-the host for those fixtures. Twister reports the two `elemental.tests` configurations
-passed and `elemental.symbols.armv6m` built, with no warnings: Zephyr
-v4.5.0, SDK 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for
-`native_sim`, QEMU from the host.
+the host for those fixtures. Twister reports the three `elemental.tests`
+configurations passed (112 passed and 9 skipped on each) and
+`elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
+1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
+from the host, Renode 1.17.0.
 
 Additionally, each run once by hand and not part of the automated suite:
 
@@ -622,9 +653,13 @@ Not verified:
 - Any compiler other than those above, including MSVC and vendor compilers.
   The MSVC branches in the build files and in `assert.h` are untested.
 - Any host operating system other than Linux. None is supported.
-- **Any real hardware.** The Cortex-M evidence is an emulated Cortex-M3 and
-  a symbol check for a Cortex-M0.
-- The tests on an ARMv6-M CPU: the test image does not fit
-  `qemu_cortex_m0`.
+- **Any real hardware.** The Cortex-M evidence is an emulated Cortex-M3
+  (QEMU), an emulated Cortex-M0+ on a modified Renode model of the
+  STM32G0B1, and a symbol check for a Cortex-M0.
+- The STM32G0B1's peripherals beyond what the tests touch: the Renode
+  model is an STM32G071's, enlarged, and was not checked against the G0B1
+  reference manual.
+- The CI `zephyr` job's Renode download and the `hal_stm32` fetch, which
+  were done by hand here.
 - Contract violations on a target: death tests run on the host only.
 - Anything executed in the Python sketch.

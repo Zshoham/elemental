@@ -1,0 +1,13 @@
+# Elemental's Zephyr test image on a modified Renode model of the STM32G0B1
+# (stm32g0b1.repl). $elf is set by whoever includes this script: Zephyr's
+# run_renode target, which Twister runs.
+using sysbus
+mach create "nucleo_g0b1re"
+machine LoadPlatformDescription $ORIGIN/stm32g0b1.repl
+# The console. Twister reads it from Renode's output.
+showAnalyzer sysbus.usart2
+macro reset
+"""
+    sysbus LoadELF $elf
+"""
+runMacro $reset

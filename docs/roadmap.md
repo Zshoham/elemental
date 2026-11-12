@@ -91,8 +91,12 @@ Deliverables and acceptance:
       Cortex-M0 Zephyr board is a bonus, not a requirement; GoogleTest may
       not fit one.
       Done for `qemu_cortex_m0`: the libraries need only `memcpy`. The test
-      image (about 272 KB flash, 40 KB RAM) does not fit that board's
-      16 KB of RAM, so the tests do not run there.
+      image does not fit that board's 16 KB of RAM. The owner then asked
+      for the tests on an ARMv6-M board as well: they pass (121 tests, 9
+      skipped, as elsewhere) on `nucleo_g0b1re_renode`, an emulator run on
+      a modified Renode model of the STM32G0B1, Cortex-M0+ (ARMv6-M),
+      enlarged from Renode's STM32G071 model. Not a hardware run, and not a
+      stock model ([build.md](build.md#running)).
 - [ ] **The CI workflow passes** on its first real run, or is fixed until it
       does. It has never run: the repository has no remote yet.
 - [x] **A license is chosen** and added: Apache-2.0, in `LICENSE`.

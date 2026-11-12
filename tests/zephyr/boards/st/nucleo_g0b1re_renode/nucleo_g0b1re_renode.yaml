@@ -1,0 +1,11 @@
+identifier: nucleo_g0b1re_renode
+name: Nucleo G0B1RE on a modified Renode model
+type: sim
+arch: arm
+toolchain:
+  - zephyr
+ram: 144
+flash: 512
+simulation:
+  - name: renode
+vendor: st

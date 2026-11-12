@@ -1,0 +1,11 @@
+/*
+ * The stock nucleo_g0b1re devicetree, with one change: the 48 MHz clock
+ * for USB is off. The Renode model's clock controller is written for an
+ * STM32G071, which has no HSI48, and never reports it ready, so a boot that
+ * enables it waits forever. Elemental's tests use no USB.
+ */
+#include "nucleo_g0b1re.dts"
+
+&clk_hsi48 {
+	status = "disabled";
+};

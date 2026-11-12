@@ -7,6 +7,8 @@
 # without a change here.
 
 cmake_minimum_required(VERSION 3.20.0)
+# boards/: nucleo_g0b1re_renode, the ARMv6-M board the tests run on.
+list(APPEND BOARD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(elemental_tests LANGUAGES C CXX)
 

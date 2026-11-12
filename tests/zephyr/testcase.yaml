@@ -2,18 +2,23 @@
 common:
   tags: elemental
 tests:
-  # Every Elemental test, in one image.
+  # Every Elemental test, in one image. nucleo_g0b1re_renode is a
+  # Cortex-M0+ (ARMv6-M) under Renode, defined in boards/; pass
+  # --board-root <this directory>/boards to Twister.
   elemental.tests:
     harness: gtest
     platform_allow:
       - native_sim
       - mps2/an385
+      - nucleo_g0b1re_renode
     integration_platforms:
       - native_sim
       - mps2/an385
-  # ARMv6-M: no hardware divide, no ldrex/strex. The test image needs more
-  # memory than this board has, so only the libraries are built, and the
-  # build fails if they need a symbol outside allowed-undefined.txt.
+      - nucleo_g0b1re_renode
+  # ARMv6-M on a small board: no hardware divide, no ldrex/strex. The test
+  # image needs more memory than this board has, so only the libraries are
+  # built, and the build fails if they need a symbol outside
+  # allowed-undefined.txt. The cheapest ARMv6-M check: no emulator needed.
   elemental.symbols.armv6m:
     build_only: true
     extra_args: ELEMENTAL_ZEPHYR_TESTS=OFF

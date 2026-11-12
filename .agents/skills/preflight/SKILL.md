@@ -36,10 +36,12 @@ names the step that did not and why.
    active:
 
    ```sh
-   cd "$ZEPHYR_BASE" && west twister -T <elemental>/tests/zephyr --integration -O /tmp/twister-out
+   cd "$ZEPHYR_BASE" && west twister -T <elemental>/tests/zephyr \
+     --board-root <elemental>/tests/zephyr/boards --integration -O /tmp/twister-out
    ```
 
-   Done when every configuration passes or is built, with no warnings. This
+   `renode` must be on `PATH`, or the Renode board is only built. Done when
+   every configuration passes or is built, with no warnings. This
    also runs the symbol check for each ARM board. Without a workspace,
    report the step as not run.
 

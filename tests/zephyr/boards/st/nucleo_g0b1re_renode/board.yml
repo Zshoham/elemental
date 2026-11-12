@@ -1,0 +1,8 @@
+# The nucleo_g0b1re board as Renode emulates it, for Elemental's tests on an
+# ARMv6-M (Cortex-M0+) CPU. See README.md here.
+board:
+  name: nucleo_g0b1re_renode
+  full_name: Nucleo G0B1RE on a modified Renode model
+  vendor: st
+  socs:
+    - name: stm32g0b1xx
