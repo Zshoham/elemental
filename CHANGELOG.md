@@ -44,6 +44,17 @@ First milestone: the project's foundation.
 - `crc` (experimental): `el_crc32_update` (CRC-32/ISO-HDLC) and
   `el_crc16_ibm3740_update` (CRC-16/IBM-3740), with `EL_CRC32_INIT` and
   `EL_CRC16_IBM3740_INIT`.
+- `bytes`: byte swap, `el_bytes_swap{16,32,64}`, and C23-style bit
+  counting for 32 and 64 bits: `el_bytes_leading_zeros`,
+  `el_bytes_trailing_zeros`, `el_bytes_count_ones`,
+  `el_bytes_has_single_bit`, `el_bytes_bit_width`, `el_bytes_bit_floor`,
+  `el_bytes_bit_ceil` (each suffixed `32` or `64`). A bit ceil that does not
+  fit is 0.
+- `crc`: the private choice `CRC_TABLE` is now `CRC_IMPLEMENTATION`, with
+  two more options, `CRC_GCC_BUILTIN` and `CRC_ZEPHYR`, offered where CMake
+  probes them (`COMPILER_GCC_CRC_BUILTINS`, `PLATFORM_ZEPHYR_CRC`). Results
+  are identical; the option symbols `CRC_TABLE_4BIT` and `CRC_TABLE_8BIT`
+  are unchanged.
 - `io`: a writer may return `EL_ERR_NO_SPACE`, not permanent, when it could
   not get storage. Only writers that allocate do.
 - Tests are GoogleTest, pinned and built from source. The io contract suite

@@ -25,7 +25,7 @@ Version 0.1, first milestone. Everything is **experimental**.
 | [`alloc_libc`](modules/alloc/backends/libc/PORT.md) | Allocator over the C library heap | No |
 | [`io_alloc`](modules/io_alloc/README.md) | A writer that grows through an allocator | Yes, needs `memcpy` |
 | [`fmt`](modules/fmt/README.md) | Text formatting into caller memory: integers, strings, hex dumps, a printf subset | Yes, needs `memcpy` |
-| [`bytes`](modules/bytes/README.md) | Little- and big-endian load and store at any alignment | Yes |
+| [`bytes`](modules/bytes/README.md) | Little- and big-endian load and store at any alignment; byte swap; C23-style bit counting | Yes |
 | [`crc`](modules/crc/README.md) | CRC-32/ISO-HDLC and CRC-16/IBM-3740, incremental | Yes |
 
 Logging, async, and IPC are designs or open questions, not code.

@@ -178,8 +178,9 @@ All pure computation.
 - [x] `bytes` and `crc` are tested against published vectors on the host
       and on a Zephyr Cortex-M target.
 - [x] No external symbols beyond `memcpy` in the Zephyr symbol check, on
-      Cortex-M3 and Cortex-M0. (`FMT_LIBC`, added later, needs `snprintf`
-      by choice; the default configuration still needs only `memcpy`.)
+      Cortex-M3 and Cortex-M0. (`FMT_LIBC` and `CRC_ZEPHYR`, added later,
+      need `snprintf` and Zephyr's two CRC functions by choice; the default
+      configuration still needs only `memcpy`.)
 
 ## M4 — Time and logging
 

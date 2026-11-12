@@ -36,10 +36,10 @@ CRC-16 stored big endian has a CRC-16 of 0.
 
 | Option | Computes with | Available | Size, Cortex-M3 |
 |---|---|---|---|
-| `CRC_TABLE_4BIT` (default) | 16-entry tables, 96 bytes; 2 lookups per byte | Always | SIZE_4BIT bytes |
-| `CRC_TABLE_8BIT` | 256-entry tables, 1.5 KiB; 1 lookup per byte | Always | SIZE_8BIT bytes |
-| `CRC_GCC_BUILTIN` | GCC's `__builtin_rev_crc32_data8`, `__builtin_crc16_data8` | GCC 15 or later (probed) | Not measured: the Zephyr SDK's GCC 14.3.0 lacks the builtins. SIZE_BUILTIN_HOST bytes on x86-64 (GCC 16.2.1, `-Os`) |
-| `CRC_ZEPHYR` | Zephyr's `crc32_ieee_update()`, `crc16_itu_t()` | Zephyr, `CONFIG_CRC=y`, no `CONFIG_CRC_HW_HANDLER` (probed) | SIZE_ZEPHYR_EL bytes, plus SIZE_ZEPHYR_FN bytes of Zephyr's two functions |
+| `CRC_TABLE_4BIT` (default) | 16-entry tables, 96 bytes; 2 lookups per byte | Always | 224 bytes |
+| `CRC_TABLE_8BIT` | 256-entry tables, 1.5 KiB; 1 lookup per byte | Always | 1 624 bytes |
+| `CRC_GCC_BUILTIN` | GCC's `__builtin_rev_crc32_data8`, `__builtin_crc16_data8` | GCC 15 or later (probed) | Not measured: the Zephyr SDK's GCC 14.3.0 lacks the builtins. On x86-64 (GCC 16.2.1, `-Os`, no unwind tables) 1 925 bytes, against 312 and 1 701 for the two tables |
+| `CRC_ZEPHYR` | Zephyr's `crc32_ieee_update()`, `crc16_itu_t()` | Zephyr, `CONFIG_CRC=y`, no `CONFIG_CRC_HW_HANDLER` (probed) | 20 bytes, plus 164 of Zephyr's: `crc32_ieee_update` 60 and its 64-byte table, `crc16_itu_t` 40 |
 
 Results are identical with every option; nothing a caller sees changes.
 Sizes are text, including the tables, with assertions trapping in place,

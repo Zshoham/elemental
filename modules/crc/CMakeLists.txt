@@ -20,8 +20,13 @@ elemental_add_module(crc
 
 # Zephyr's headers, and the generated configuration they need. Kconfig
 # offers CRC_ZEPHYR only in a Zephyr build, where this target exists.
+# Zephyr's headers are GNU C (named variadic macros, for one), so they are
+# system headers here: Elemental's -Wpedantic stays on its own code. A
+# directory given both ways is searched as a system one.
 if(EL_CONFIG_CRC_ZEPHYR)
   target_link_libraries(elemental_crc PRIVATE zephyr_interface)
+  get_target_property(zephyr_includes zephyr_interface INTERFACE_INCLUDE_DIRECTORIES)
+  target_include_directories(elemental_crc SYSTEM PRIVATE ${zephyr_includes})
 endif()
 
 if(COMMAND elemental_add_test)

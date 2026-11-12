@@ -97,15 +97,22 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): every Kconfig choice that is not the default (the application assertion handler, 256-entry CRC tables). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
 | `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
 
-**Configurations.** `gcc` and `clang` run the defaults, `sanitize` every
-non-default choice, and `assert-off` the configuration without assertions.
-Each is one defconfig under [configs/](../configs). A new Kconfig choice
-adds its alternative to `variant_defconfig`
-([new-module.md](process/new-module.md#configuration-options)), so both
-sides of every choice are tested without a preset per option. Module
+**Configurations.** `gcc` and `clang` run the defaults, `sanitize` one
+non-default option of every choice, and `assert-off` the configuration
+without assertions. Each is one defconfig under [configs/](../configs). A
+new Kconfig choice adds an alternative to `variant_defconfig`
+([new-module.md](process/new-module.md#configuration-options)), preferably
+one that builds both on the host and on Zephyr. Every option of every
+choice is covered by `integration.choices`, which needs no change for a new
+choice: it enumerates the choices with Kconfiglib, and for each option this
+compiler can select configures a build with only that option set, builds
+the owning module's tests, and runs them. An option it cannot select must
+be hidden by a probed fact, which it names (with GCC 16 it tests
+`CRC_GCC_BUILTIN`; with Clang it cannot; no host can select `CRC_ZEPHYR`,
+which the Zephyr scenario `elemental.tests.crc_zephyr` covers). Module
 subsets are covered by `integration.module_subsets`: each module and
 backend alone, with only what its Kconfig entry depends on or selects,
 must configure, build exactly those libraries, and pass its tests.
@@ -117,7 +124,7 @@ Each preset builds in `build/<preset>`. Useful subsets:
 
 ```sh
 ctest --preset gcc -LE integration     # unit, contract, interop: about a second
-ctest --preset gcc -L integration      # consumption and configuration: ~90 s
+ctest --preset gcc -L integration      # consumption and configuration: ~2 min
 ctest --preset gcc -R io.helpers       # one group of tests
 tools/format.sh                        # clang-format, in place
 ```
@@ -186,7 +193,7 @@ can sit side by side.
 | Symbol | Default | Use case |
 |---|---|---|
 | `STATUS`, `IO`, `ALLOC`, `IO_ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
-| `CRC_TABLE_4BIT` / `_8BIT` | 4-bit | CRC code size against speed: 96 bytes of tables or 1.5 KiB. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
+| `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_BUILTIN` / `FMT_LIBC` | built-in | `FMT_LIBC` converts numbers with the C library's `snprintf`, for an image that links printf anyway. Output is identical ([modules/fmt](../modules/fmt/README.md#configuration)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
@@ -194,6 +201,8 @@ can sit side by side.
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
 | `PLATFORM_SNPRINTF` | probed | Not settable. A hosted C library's `snprintf`, or on Zephyr a picolibc printf level that converts `long long`. |
+| `COMPILER_GCC_CRC_BUILTINS` | probed | Not settable. CMake compiles a call to `__builtin_rev_crc32_data8` and `__builtin_crc16_data8`. |
+| `PLATFORM_ZEPHYR_CRC` | probed | Not settable. A Zephyr build with `CONFIG_CRC` and without `CONFIG_CRC_HW_HANDLER`, read from Zephyr's configuration. |
 
 An option needs a use case to be added
 ([new-module.md](process/new-module.md)). An option whose effect the linker
@@ -450,6 +459,7 @@ Twister builds that board's image and does not run it.
 | `elemental.tests` | `nucleo_g0b1re_renode` | Every test, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
 | `elemental.tests.variant` | `mps2/an385` | Every test with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
+| `elemental.tests.crc_zephyr` | `mps2/an385` | The same with [configs/crc_zephyr_defconfig](../configs/crc_zephyr_defconfig) and `CONFIG_CRC=y`: `crc` through Zephyr's functions, the one choice option no host can select. |
 | `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
 
 **`nucleo_g0b1re_renode`** is a board defined in this repository
@@ -505,20 +515,21 @@ presets only.
 
 ### Memory the test image needs
 
-Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 168 tests:
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 179 tests:
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 377 768 | 389 588 of 524 288 |
+| Flash (code and read-only data) | 395 856 | 407 508 of 524 288 |
 | RAM, static | 43 696 | 41 704 |
-| Heap, peak during the run | 72 384 | 76 768 |
+| Heap, peak during the run | 75 912 | 80 504 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 378 KB of flash and 116 KB of RAM on the
-Cortex-M3, and about 390 KB and 118 KB on the Cortex-M0+ (the static figure
+So the image needs about 396 KB of flash and 120 KB of RAM on the
+Cortex-M3, and about 408 KB and 122 KB on the Cortex-M0+ (the static figure
 includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
-has the real STM32G0B1's 144 KB, which leaves about 25 KB of RAM and 130 KB
-of flash for the tests still to come. The 47 tests of `fmt`, `bytes`, and
+has the real STM32G0B1's 144 KB, which leaves about 24 KB of RAM and 115 KB
+of flash for the tests still to come. The 11 byte-swap and bit-counting
+tests added about 18 KB of flash and 3.7 KB of peak heap. The 47 tests of `fmt`, `bytes`, and
 `crc` added about 59 KB of flash, almost all of it GoogleTest assertions
 instantiated in the tests (the three libraries are under 2 KB), and about
 15 KB of peak heap, GoogleTest's registry and the tests' strings; they keep
@@ -543,7 +554,9 @@ configuration that asks the application to define it. A symbol that only
 one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
 which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
 [allowed-undefined.FMT_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_LIBC.txt),
-so the other configurations still fail on it.
+and Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
+[allowed-undefined.CRC_ZEPHYR.txt](../tests/zephyr/allowed-undefined.CRC_ZEPHYR.txt),
+so the other configurations still fail on them.
 
 It has caught one helper so far: GCC 14.3.0 for ARMv6-M at `-Os` compiles a
 dense `switch`, or an `if` chain it rebuilds into one, as a jump table that
@@ -596,12 +609,16 @@ The other libraries in the same build:
 
 | Configuration | `alloc` | `io_alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|---|
-| Assertions off | 322 | 270 | 93 | 1 627 | 178 | 212 |
-| Trap in place (default) | 478 | 332 | 93 | 1 705 | 226 | 224 |
-| Application handler | 668 | 425 | 93 | 1 896 | 386 | 255 |
+| Assertions off | 322 | 270 | 93 | 1 627 | 548 | 212 |
+| Trap in place (default) | 478 | 332 | 93 | 1 705 | 596 | 224 |
+| Application handler | 668 | 425 | 93 | 1 896 | 756 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
-it is 1 624 bytes (trap). Of `fmt`'s 1 705, 1 013 are the typed core (290
+it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
+Zephyr's own code and table. `CRC_GCC_BUILTIN` cannot be built by this
+GCC 14.3.0; on x86-64, GCC 16.2.1 at `-Os` makes it 1 925 bytes against
+312 for the 16-entry tables. `bytes` grew by 370 bytes with byte swap and
+bit counting, portable code on this core except CLZ. Of `fmt`'s 1 705, 1 013 are the typed core (290
 of them the built-in digit conversion) and 692 the printf front end, which
 a program that never calls `el_fmt_printf` does not link. With `FMT_LIBC`
 `fmt` is 1 502 bytes (trap), the conversion 87 of them; what that costs or
@@ -643,27 +660,31 @@ and exited successfully.
 | crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | fmt: every fmt test with `FMT_LIBC` (`variant_defconfig`), against glibc's and picolibc's `snprintf` | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
+| crc: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin | passed: 4-bit, 8-bit | passed: 4-bit, 8-bit | n/a | n/a | n/a | n/a |
+| crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
+| bytes: byte swap and bit counting, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (portable) | not run |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
-| Integration (8 cases, including `module_subsets`) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
 
-The hosted presets run 257 GoogleTest tests, of which 18 are reported as
+The hosted presets run 279 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 270 CTest tests in
-all, 268 under sanitizers. `assert-off` runs 229: the same less the 41
+integration, and two format-attribute compile checks: 293 CTest tests in
+all, 291 under sanitizers. `assert-off` runs 252: the same less the 41
 death tests. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 168 of those GoogleTest tests: all but the POSIX
-and C library backends', the death tests, and the host-only `fmt.oracle`.
+The Zephyr test image runs 179 of those GoogleTest tests: all but the POSIX
+and C library backends', the death tests, and the host-only `fmt.oracle`
+and `bytes.portable`.
 9 are skipped, the same 9 as on the host for those fixtures. Twister reports
-the five test configurations passed (the three `elemental.tests` boards and
-the `variant` and `assert_off` scenarios on `mps2/an385`; 159 passed and 9
+the six test configurations passed (the three `elemental.tests` boards and
+the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 170 passed and 9
 skipped on each, by GoogleTest's count; Twister adds one case for the image
 itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
@@ -701,6 +722,11 @@ Additionally, each run once by hand and not part of the automated suite:
   bump arena dropping its ownership check; and `io` linking `alloc`, caught
   by `integration.subdirectory` (run by hand, since the script leaves out
   integration tests).
+- Sixteen deliberately broken variants for byte swap, bit counting, and
+  the CRC builtin option (2026-11-12): fifteen caught, one equivalent (a
+  `swap32` mask bit that the shift already clears). The two CRC builtin
+  mutants were caught by `integration.choices`, run by hand on the mutated
+  copy, because `mutant.sh` leaves out integration tests.
 - Twenty-seven deliberately broken variants for M3, all caught (run on
   this branch before it was rebased onto M2; the M3 sources did not change
   in the rebase): the
