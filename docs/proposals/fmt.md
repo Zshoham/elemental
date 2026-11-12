@@ -190,6 +190,13 @@ did not do this for a plain fill loop. The Zephyr symbol check (ARMv7-M and
 ARMv6-M) on the GCC-based Zephyr toolchain is what will show it. If it
 happens, the fix is local: write the padding as part of the digit loop.
 
+*Found in implementation.* GCC 14.3.0 did not emit `memset`. It did emit a
+different helper: for ARMv6-M at `-Os` it turned the printf parser's
+dispatch into a jump table that calls libgcc's `__gnu_thumb1_case_uqi`, and
+it did the same after the dispatch was rewritten as `if` chains. The Zephyr
+symbol check caught it on `qemu_cortex_m0`. The fix is `-fno-jump-tables`
+on the `fmt` library (`modules/fmt/CMakeLists.txt`).
+
 ## Contracts
 
 ### Header sketch: `<elemental/fmt.h>`
@@ -368,7 +375,7 @@ value at run time.
   crossed with boundary and random values. When the result fits, the output
   must equal host glibc `snprintf`. When it does not, it must equal the
   prefix rule applied to the `snprintf` result.
-- **Decimal against `/` and `%` (host only):** 10⁷ random `uint64_t` values
+- **Decimal against `/` and `%` (host only):** 2×10⁶ random `uint64_t` and `int64_t` values
   per run, plus the boundaries above.
 - **Byte-identical on target.** The literal-expectation tests (not the
   oracle tests, because a target libc's printf may differ) run under Zephyr

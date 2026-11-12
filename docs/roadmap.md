@@ -167,17 +167,17 @@ safety.
 
 All pure computation.
 
-- [ ] Proposals for `fmt`, `bytes`, and `crc`. Each is short; `bytes` and
+- [x] Proposals for `fmt`, `bytes`, and `crc`. Each is short; `bytes` and
       `crc` can share one review.
-- [ ] `fmt` output is byte-identical on the host and on a Zephyr Cortex-M
+- [x] `fmt` output is byte-identical on the host and on a Zephyr Cortex-M
       target. Truncation returns the capacity status from M2, and the
       output holds what fitted.
-- [ ] The printf-subset header is checked by the compiler's format
+- [x] The printf-subset header is checked by the compiler's format
       attribute where one is available. Its core is callable from the Rust
       sketch.
-- [ ] `bytes` and `crc` are tested against published vectors on the host
+- [x] `bytes` and `crc` are tested against published vectors on the host
       and on a Zephyr Cortex-M target.
-- [ ] No external symbols beyond `memcpy` in the Zephyr symbol check, on
+- [x] No external symbols beyond `memcpy` in the Zephyr symbol check, on
       Cortex-M3 and Cortex-M0.
 
 ## M4 — Time and logging

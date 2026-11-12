@@ -33,8 +33,8 @@ function without a use case.
 | Async, IPC | Discovery | — | `io`, `time`, `ring`, `frame`, `alloc` | — | L, M |
 | `time` *(new)* | Interface, manual clock, POSIX backend | `status` | — | `log` | S |
 | `ring` *(new)* | Pure | `io` | async discovery | `log` deferred sink | S |
-| `bytes` *(new)* | Pure | — | — | `frame` | S |
-| `crc` *(new)* | Pure | — | — | UART framing example | S |
+| `bytes` *(new)* | Pure | `status` (assertions) | — | `frame` | S |
+| `crc` *(new)* | Pure | `status` (assertions) | — | UART framing example | S |
 
 ### Named by the owner
 
@@ -215,7 +215,8 @@ graph BT
   alloc --> status
   io_alloc --> alloc
   io_alloc --> io
-  crc
+  bytes --> status
+  crc --> status
   crc -.->|used beside| frame
   log -.->|needs flush| io2[io second iteration]
   frame -.->|needs peek| io2
@@ -234,8 +235,8 @@ graph BT
 | `status` | — | — |
 | `io` | `status` | revised by async discovery |
 | `io_contract` | `io` | — |
-| `bytes` | — | — |
-| `crc` | — | used beside `frame` |
+| `bytes` | `status` | — |
+| `crc` | `status` | used beside `frame` |
 | `fmt` | `status` | — |
 | `time`, `time_posix` | `status`; `time` | — |
 | `ring` | `io` | async discovery |

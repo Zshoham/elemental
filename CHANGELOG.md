@@ -26,6 +26,17 @@ First milestone: the project's foundation.
   `aligned_alloc`, and `free`.
 - `io_alloc` (experimental): `el_grow_writer`, a writer that grows through
   an allocator.
+- `fmt` (experimental): `el_fmt`, a cursor over caller memory, and
+  `el_fmt_str`, `el_fmt_cstr`, `el_fmt_dec_u64`, `el_fmt_dec_i64`,
+  `el_fmt_hex_u64`, `el_fmt_hex_bytes`; a printf subset in
+  `elemental/fmt_printf.h` (`el_fmt_printf`, `el_fmt_vprintf`,
+  `EL_FMT_PRINTF_CHECK`). Truncation keeps a prefix that ends on an item
+  ([ADR 0011](docs/adr/0011-formatting-truncation.md)).
+- `bytes` (experimental): `el_bytes_load_{le,be}{16,32,64}` and
+  `el_bytes_store_{le,be}{16,32,64}`, at any alignment.
+- `crc` (experimental): `el_crc32_update` (CRC-32/ISO-HDLC) and
+  `el_crc16_ibm3740_update` (CRC-16/IBM-3740), with `EL_CRC32_INIT` and
+  `EL_CRC16_IBM3740_INIT`.
 - `io`: a writer may return `EL_ERR_NO_SPACE`, not permanent, when it could
   not get storage. Only writers that allocate do.
 - Tests are GoogleTest, pinned and built from source. The io contract suite

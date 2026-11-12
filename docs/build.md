@@ -174,7 +174,8 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO`, `ALLOC`, `IO_ALLOC` | on | Build only the modules a product uses. |
+| `STATUS`, `IO`, `ALLOC`, `IO_ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
+| `CRC_TABLE_4BIT` / `_8BIT` | 4-bit | CRC code size against speed: 96 bytes of tables or 1.5 KiB. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
@@ -489,20 +490,26 @@ presets only.
 
 ### Memory the test image needs
 
-Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 121 tests:
+Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 168 tests:
 
 | | `mps2/an385` (Cortex-M3) | `nucleo_g0b1re_renode` (Cortex-M0+) |
 |---|---|---|
-| Flash (code and read-only data) | 318 388 | 330 496 of 524 288 |
+| Flash (code and read-only data) | 377 768 | 389 588 of 524 288 |
 | RAM, static | 43 696 | 41 704 |
-| Heap, peak during the run | 58 144 | 61 716 |
+| Heap, peak during the run | 72 384 | 76 768 |
 | Main stack, used of 4 096 | 2 636 | 2 732 |
 
-So the image needs about 318 KB of flash and 102 KB of RAM on the
-Cortex-M3, and about 331 KB and 103 KB on the Cortex-M0+ (the static figure
+So the image needs about 378 KB of flash and 116 KB of RAM on the
+Cortex-M3, and about 390 KB and 118 KB on the Cortex-M0+ (the static figure
 includes the stack; the heap is whatever RAM is left). The Cortex-M0+ board
-has the real STM32G0B1's 144 KB, which leaves about 40 KB of RAM and 180 KB
-of flash for the tests still to come. The model was not enlarged past the
+has the real STM32G0B1's 144 KB, which leaves about 25 KB of RAM and 130 KB
+of flash for the tests still to come. The 47 tests of `fmt`, `bytes`, and
+`crc` added about 59 KB of flash, almost all of it GoogleTest assertions
+instantiated in the tests (the three libraries are under 2 KB), and about
+15 KB of peak heap, GoogleTest's registry and the tests' strings; they keep
+no static buffers. One of them had briefly taken the main stack to 3 580
+bytes: a `std::mt19937_64` (2.5 KB of state) on the stack, replaced by a
+small generator. The model was not enlarged past the
 real part, so a test image that fits it fits the board. The allocator tests added the most: the arena and size-class fixtures' static storage (about 28 KB), and the contract suite's bookkeeping on the heap. It does not fit
 `qemu_cortex_m0` (256 KB flash, 16 KB RAM), which is why that board only
 builds the libraries. The default 1 KB main stack is not enough: the first
@@ -518,6 +525,13 @@ define for each other, must be in
 [allowed-undefined.txt](../tests/zephyr/allowed-undefined.txt), or the build
 fails. The list has two entries: `memcpy`, and `el_assert_failed` in the
 configuration that asks the application to define it.
+
+It has caught one helper so far: GCC 14.3.0 for ARMv6-M at `-Os` compiles a
+dense `switch`, or an `if` chain it rebuilds into one, as a jump table that
+calls libgcc's `__gnu_thumb1_case_uqi`. `fmt`'s printf parser hit it on
+`qemu_cortex_m0`, and `fmt` is now compiled with `-fno-jump-tables`
+([modules/fmt/CMakeLists.txt](../modules/fmt/CMakeLists.txt)). A module with
+a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
@@ -561,11 +575,16 @@ GCC 14.3.0 at Zephyr's default size optimization, text bytes:
 
 The other libraries in the same build:
 
-| Configuration | `alloc` | `io_alloc` | `status` |
-|---|---|---|---|
-| Assertions off | 322 | 270 | 93 |
-| Trap in place (default) | 478 | 332 | 93 |
-| Application handler | 668 | 425 | 93 |
+| Configuration | `alloc` | `io_alloc` | `status` | `fmt` | `bytes` | `crc` |
+|---|---|---|---|---|---|---|
+| Assertions off | 322 | 270 | 93 | 1 611 | 178 | 212 |
+| Trap in place (default) | 478 | 332 | 93 | 1 689 | 226 | 224 |
+| Application handler | 668 | 425 | 93 | 1 880 | 386 | 255 |
+
+`crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
+it is 1 624 bytes (trap). Of `fmt`'s 1 689, 997 are the typed core and 692
+the printf front end, which a program that never calls `el_fmt_printf`
+does not link. Text includes read-only data such as the CRC tables.
 
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
@@ -582,7 +601,7 @@ and exited successfully.
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed | not run |
-| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
+| Contract violations stop the program (`io.violations`, `alloc.violations`, `io_alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
 | io contract suite: memory streams | passed | passed | passed | passed | passed | passed | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
 | io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed | not run |
@@ -594,26 +613,40 @@ and exited successfully.
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
 | C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
-| Rust interop, run (io and allocator sketches) | passed | passed | skipped | not run | not run | not run | not run |
+| fmt: typed calls and printf subset, literal expectations | passed | passed | passed | passed | passed | passed | not run |
+| fmt: printf subset against glibc `snprintf`, every capacity; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
+| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed | not run |
+| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
+| crc: the other table size | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (7 cases) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed | passed | passed |
 
-The hosted presets run 189 GoogleTest tests, of which 18 are reported as
+The hosted presets run 265 GoogleTest tests, of which 18 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
-[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop and
-integration tests: 199 CTest tests in all, 197 under sanitizers. The two Rust
+[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
+integration, and two format-attribute compile checks: 277 CTest tests in
+all, 275 under sanitizers. The two Rust
 sketches are skipped under sanitizers because a plain `rustc` link has no
 sanitizer runtime.
 
-The Zephyr test image runs 121 of those GoogleTest tests: all but the POSIX
-and C library backends' and the death tests. 9 are skipped, the same 9 as on
-the host for those fixtures. Twister reports the three `elemental.tests`
-configurations passed (112 passed and 9 skipped on each) and
+The Zephyr test image runs 168 of those GoogleTest tests: all but the POSIX
+and C library backends', the death tests, and the host-only `fmt.oracle` and
+`crc.other_table`. 9 are skipped, the same 9 as on the host for those
+fixtures. Twister reports the three `elemental.tests` configurations passed
+(159 passed and 9 skipped on each, by GoogleTest's count; Twister adds one
+case for the image itself) and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.
+
+`fmt`'s literal-expectation tests (`fmt.unit`) pass unchanged on
+`mps2/an385` and `nucleo_g0b1re_renode`, so its output is byte-identical
+on the host, on an emulated ARMv7-M, and on an emulated ARMv6-M. The
+ARMv6-M evidence is an emulator run on a modified model, not hardware.
 
 Additionally, each run once by hand and not part of the automated suite:
 
@@ -641,6 +674,20 @@ Additionally, each run once by hand and not part of the automated suite:
   bump arena dropping its ownership check; and `io` linking `alloc`, caught
   by `integration.subdirectory` (run by hand, since the script leaves out
   integration tests).
+- Twenty-seven deliberately broken variants for M3, all caught (run on
+  this branch before it was rebased onto M2; the M3 sources did not change
+  in the rebase): the
+  shift-and-add divide by 10 without its correction step (32- and 64-bit)
+  and without its 64-bit shift; each of the four sticky-truncation checks;
+  a number allowed to overrun by its padding or by one byte; a missing
+  terminator; the printf parser ignoring the `0` flag, a `%s` precision, or
+  `hh`, and accepting a precision on `%d`; a hex dump without separators;
+  wrong entries and a missing final inversion in both CRC table sizes;
+  swapped halves and byte orders in `bytes`, and a store one byte too wide;
+  and the null checks removed from `crc`, `bytes`, and `fmt`. The last three
+  first survived, because a null access crashes on the host anyway; the
+  death tests of these modules now accept only a death by the check (a
+  trap or an abort), not `SIGSEGV`.
 
 Not verified:
 

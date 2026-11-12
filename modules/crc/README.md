@@ -36,13 +36,14 @@ CRC-16 stored big endian has a CRC-16 of 0.
 
 | Choice | Tables | Lookups per byte | Size, Cortex-M3 |
 |---|---|---|---|
-| `CRC_TABLE_4BIT` (default) | 16 entries each, 96 bytes | 2 | 256 bytes |
-| `CRC_TABLE_8BIT` | 256 entries each, 1.5 KiB | 1 | 1648 bytes |
+| `CRC_TABLE_4BIT` (default) | 16 entries each, 96 bytes | 2 | 224 bytes |
+| `CRC_TABLE_8BIT` | 256 entries each, 1.5 KiB | 1 | 1 624 bytes |
 
 Results are identical; nothing a caller sees changes. Sizes are text,
-including the tables, with assertions trapping in place, built by Clang 23
-at `MinSizeRel` before the move to Zephyr builds. The speed difference is
-Pigweed's measurement, not one made here.
+including the tables, with assertions trapping in place, built for
+`mps2/an385` by the Zephyr SDK's GCC 14.3.0 at Zephyr's default size
+optimization ([build.md](../../docs/build.md#code-size-of-the-assertion-configurations)).
+The speed difference is Pigweed's measurement, not one made here.
 
 ## Tests
 
