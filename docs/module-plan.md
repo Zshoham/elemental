@@ -52,6 +52,9 @@ text. The caller then sends the bytes with `el_write_all`, which is
 resumable. *Effects:* none. *Open:* whether to use its own small cursor or
 `el_mem_writer`. Recommended: its own cursor, which keeps `io` out.
 *Risk:* creep toward full `printf`.
+*Under review:* the [io buffers and fmt proposal](proposals/io-buffers-fmt.md)
+would reduce the core to conversions and make printf format into `io`
+buffers, which reverses the "own cursor" choice above.
 
 **`log`: logging.** A logger is a minimum level plus a sink handle. A sink
 receives a record: level, timestamp, message bytes. The contract is
@@ -75,6 +78,9 @@ buffered type. It becomes an operation in `el_writer_ops` only if a holder
 of a bare handle must flush. In that case a null operation means "nothing
 to flush" and returns `EL_OK`, so no `EL_ERR_UNSUPPORTED` is needed.
 *Risk:* freezing buffer ownership before async discovery has looked at it.
+*Under review:* the [io buffers and fmt proposal](proposals/io-buffers-fmt.md)
+designs the buffer, the buffered writer and the buffered reader, and would
+build the first two before M4.
 
 **`alloc`: allocation.** As in
 [architecture.md](architecture.md#62-allocation--proposed): a handle, an
