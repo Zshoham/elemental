@@ -13,7 +13,8 @@ was rejected, and the decisions each one waits on are in
 | M1 | Close the verification gaps | M0 | Evidence |
 | M2 | Allocation | M0 | Module |
 | M3 | Formatting, bytes, crc | M0 | Modules |
-| M4 | Time and logging | M3 | Modules |
+| M3a | Buffers and formatting, second pass | M2, M3 | Module revision |
+| M4 | Time and logging | M3a | Modules |
 | M5 | Ring and interrupt context | M4 | Module and decision |
 | M6 | Framing | M3 (`bytes`) | Module |
 | M7 | I/O, second iteration | M4, M6 | Module revision |
@@ -26,7 +27,8 @@ item waits for M1's target tests. M6 can start as soon as `bytes` lands,
 alongside M4 and M5. M8 and M9 can run together.
 
 **Why this order.** M3, M4, and M5 each settle a contract decision that
-everything after them inherits: formatting into caller memory, the time
+everything after them inherits: formatting into caller memory (revised in
+M3a: formatting into `io` buffers), the time
 representation and the first exception to
 [ADR 0004](adr/0004-private-configuration.md), and atomics and interrupt
 context. Each is settled on the smallest module that forces it. Discovery
@@ -187,6 +189,26 @@ All pure computation.
       need `snprintf` and Zephyr's two CRC functions by choice; the default
       configuration still needs only `memcpy`.)
 
+## M3a — Buffers and formatting, second pass
+
+The [io buffers and fmt proposal](proposals/io-buffers-fmt.md), accepted on
+2026-11-13. `el_buf` and `el_grow_buf` replace `el_mem_writer` and
+`el_grow_writer`; the buffered writer with flush; `fmt` reduced to
+conversions, with printf into a buffer or a buffered writer; the platform
+option moved to printf. Built in the proposal's four steps.
+
+- [ ] The three ADRs the proposal names are recorded: superseding
+      ADR 0011, flush outside the operation table (provisional until M4),
+      and private choices that widen a contract.
+- [ ] The io contract suite passes for both storages and the buffered
+      writer, with the `writer_full_after` capability.
+- [ ] printf output is identical on the host and on Zephyr Cortex-M3 and
+      Cortex-M0+ in both printf options, for the portable subset.
+- [ ] The Zephyr symbol check shows only `memcpy` and `memmove` in the
+      default configuration.
+- [ ] The proposal's Example 2 runs on a Zephyr target against a writer
+      that stalls.
+
 ## M4 — Time and logging
 
 - [ ] An ADR fixing the time representation, before the log record is
@@ -203,6 +225,8 @@ All pure computation.
 - [ ] No clock is read except through the handle the caller passed.
 - [ ] The author's earlier `mlog` prototype is reviewed. The proposal lists
       what was taken and what was left.
+- [ ] The writer sink confirms or reopens M3a's provisional decision to
+      keep flush out of `el_writer_ops`.
 
 Not in this milestone: logging from an interrupt handler (M5).
 
@@ -234,18 +258,23 @@ examples cannot settle.
       across calls.
 - [ ] The glue runs over the ring pipe, over a Unix socket via `io_posix`,
       and over the M5 UART example on a Zephyr target with a `crc` trailer.
+- [ ] The buffered reader, sketched in the
+      [io buffers and fmt proposal](proposals/io-buffers-fmt.md), is
+      proposed again with the COBS example deciding its primitive
+      (`peek(min)` or a `fill`), and built.
 - [ ] `EL_ERR_INVALID_DATA` is admitted under the
       [status rule](../modules/status/README.md#why-this-module-is-allowed-to-be-everyones-dependency).
 
 ## M7 — I/O, second iteration
 
-Additions to `io` that M4 and M6 will have shown to be needed, not guessed:
-a buffered writer with flush, and a buffered reader with peek.
+The buffer and the buffered writer came early, in M3a, and the buffered
+reader comes with `frame` in M6. What is left is what M4 and M6 will have
+shown to be needed, not guessed.
 
 - [ ] Each addition names its consumer: `log` or `frame`.
 - [ ] The contract suite grows with it, and existing backends still pass.
-- [ ] The decision on flush in the operation table is recorded, with the
-      log example that decided it.
+- [ ] Flush in the operation table is checked again with `frame`'s
+      evidence, after M4's writer sink has confirmed or reopened it.
 - [ ] No promotion assessment yet; that waits for M9.
 
 ## M8 — IPC discovery

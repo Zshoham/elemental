@@ -25,7 +25,7 @@ function without a use case.
 
 | Module | Kind | Hard deps | Soft or informing | First consumer | Size |
 |---|---|---|---|---|---|
-| `fmt` | Pure | `status` | — | `log` | M |
+| `fmt` | Pure core, printf over `io` buffers | `status`, `io` | — | `log` | M |
 | `log` | Interface (sink), plus portable sinks | `fmt`, `time`, `io`; `ring` from M5 | drives io flush | Examples, the Zephyr UART example | M |
 | `io`, second iteration | Interface revision | `status` | `log`, `frame`, async | `log` writer sink, `frame` glue | M |
 | `alloc` | Interface, arena, libc backend; `io` gains the grow writer | `status` | async and IPC storage | the `io` grow writer, applications | M |
@@ -41,20 +41,15 @@ function without a use case.
 **`fmt`: text formatting.** Integers (decimal and hex, with width and
 sign), strings, and hex dumps into caller memory. A non-variadic core of
 typed calls, plus a printf-subset convenience in a separate C-only header,
-as [conventions.md](conventions.md#abi) allows. No floating point: it pulls
-in soft-float helpers on small targets and has no consumer. The core does
-not format into an `el_writer`. A writer may return
-`EL_ERR_WOULD_BLOCK` halfway through a number, and a formatter cannot
-resume in the middle of a digit sequence. Formatting into memory is the
-Sans-I/O rule from
-[architecture.md](architecture.md#logic-separated-from-effects) applied to
-text. The caller then sends the bytes with `el_write_all`, which is
-resumable. *Effects:* none. *Open:* whether to use its own small cursor or
-`el_mem_writer`. Recommended: its own cursor, which keeps `io` out.
-*Risk:* creep toward full `printf`.
-*Under review:* the [io buffers and fmt proposal](proposals/io-buffers-fmt.md)
-would reduce the core to conversions and make printf format into `io`
-buffers, which reverses the "own cursor" choice above.
+as [conventions.md](conventions.md#abi) allows. No floating point in the
+built-in option: it pulls in soft-float helpers on small targets and has no
+consumer. The core is pure conversions into a caller's scratch array.
+printf formats into an `el_buf` or an `el_buffered_writer` from `io`, which
+know their free space, so a number is still whole or absent; it never
+writes to a bare `el_writer`. *Effects:* none. *Risk:* creep toward full
+`printf`. *Decided* by the
+[io buffers and fmt proposal](proposals/io-buffers-fmt.md) (M3a), which
+reversed the earlier choice of its own cursor.
 
 **`log`: logging.** A logger is a minimum level plus a sink handle. A sink
 receives a record: level, timestamp, message bytes. The contract is
@@ -70,17 +65,15 @@ through a clock handle the caller supplies; interrupt context, in M5 only.
 ([section 3](#3-decisions-that-must-come-first)).
 *Risk:* importing every feature of `mlog` at once.
 
-**`io`, second iteration.** A buffered writer with flush, and a buffered
-reader with peek. Each comes with the consumer that needed it: the log
-writer sink (one write per record on a descriptor) and the frame glue
-(reading until a delimiter). Flush starts as a function on the concrete
-buffered type. It becomes an operation in `el_writer_ops` only if a holder
+**`io`, second iteration.** The buffer (`el_buf`, `el_grow_buf`) and the
+buffered writer with flush come first, in M3a, from the
+[io buffers and fmt proposal](proposals/io-buffers-fmt.md); `fmt`'s printf
+is their first consumer. The buffered reader comes with the frame glue
+(reading until a delimiter) in M6. Flush starts as a function on the
+concrete buffered type, per a provisional ADR. It becomes an operation in `el_writer_ops` only if a holder
 of a bare handle must flush. In that case a null operation means "nothing
 to flush" and returns `EL_OK`, so no `EL_ERR_UNSUPPORTED` is needed.
 *Risk:* freezing buffer ownership before async discovery has looked at it.
-*Under review:* the [io buffers and fmt proposal](proposals/io-buffers-fmt.md)
-designs the buffer and the buffered writer, to be built before M4; the
-buffered reader is sketched there and is to be proposed again with `frame`.
 
 **`alloc`: allocation.** As in
 [architecture.md](architecture.md#62-allocation--proposed): a handle, an
@@ -234,6 +227,7 @@ graph BT
   io_posix --> io
   io_contract --> io
   fmt --> status
+  fmt --> io
   time --> status
   time_posix --> time
   ring --> io
@@ -267,7 +261,7 @@ graph BT
 | `io_contract` | `io` | — |
 | `bytes` | `status` | — |
 | `crc` | `status` | used beside `frame` |
-| `fmt` | `status` | — |
+| `fmt` | `status`, `io` | — |
 | `time`, `time_posix` | `status`; `time` | — |
 | `ring` | `io` | async discovery |
 | `log`, `log_contract` | `fmt`, `time`, `io`, `ring`; `log` | drives io flush |
@@ -281,7 +275,8 @@ Longest chain: `log_contract` → `log` → `ring` → `io` → `status`.
 **No cycles.** The apparent ones, and how they are broken:
 
 - *Logging needs formatting, formatting writes to a writer, and a writer
-  backend wants to log.* `fmt` writes to memory, not to a writer.
+  backend wants to log.* `fmt` writes into an io buffer; `io` does not
+  depend on `fmt`.
   Backends never log; they keep detail on the object
   ([conventions.md](conventions.md#errors), rule 6).
 - *Allocation creeping into io.* The growable writer is part of `io`,
@@ -316,8 +311,9 @@ assertion.
 **Where stream glue lives. Before `fmt` and `frame`.** Core logic takes
 bytes in and gives results out. A module adds `io` as a dependency only for
 glue that holds real logic. `frame` qualifies, because resynchronising
-across would-block is logic. `fmt` does not, because its glue is one
-`el_write_all`.
+across would-block is logic. `fmt` depends on `io` after all (owner,
+2026-11-13): its output targets are io buffers, and that glue holds real
+logic, fitting items and making room by flushing.
 
 **Time representation. Before the log record.** Recommended: a monotonic
 `uint64_t` tick count, with the frequency stated by the clock instance. Add

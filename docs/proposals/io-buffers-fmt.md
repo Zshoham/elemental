@@ -1,6 +1,7 @@
 # Proposal: buffers in io, and fmt reworked on them
 
-Status: Draft, revised after an independent review (2026-11-13)
+Status: Accepted by the owner on 2026-11-13, with every recommendation,
+including decisions 16–18. Implemented in roadmap milestone M3a.
 Author, date: design pass, 2026-11-13; revised the same day
 
 This changes two existing modules rather than adding one.
@@ -1586,7 +1587,7 @@ Names: `el_buf_*`, `el_grow_buf_*`, `el_buffered_writer_*`,
 - **B.** Grown storage grows instead of waiting, bounded by the allocator.
 - **C.** `el_buf` is four words, and grown storage is `el_grow_buf`.
 
-**Still open:**
+**Decided at acceptance** (owner, 2026-11-13), each as recommended:
 
 16. **Roadmap: an M3a before M4** containing steps 1–4, with the reader in
     M6 and M7 shrunk to match. *Recommended.* The owner applies it.
