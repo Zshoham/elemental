@@ -203,12 +203,12 @@ option moved to printf. Built in the proposal's four steps.
 - [x] The io contract suite passes for both storages and the buffered
       writer, with the `writer_full_after` capability. (Host presets;
       Zephyr `native_sim` and `mps2/an385`.)
-- [ ] printf output is identical on the host and on Zephyr Cortex-M3 and
-      Cortex-M0+ in both printf options, for the portable subset. (Shown:
-      `fmt.unit` passes on the host, `mps2/an385` and
-      `nucleo_g0b1re_renode` (the `fmt` image) with `FMT_PRINTF_BUILTIN`, and on the host and
-      `mps2/an385` with `FMT_PRINTF_LIBC`. Not shown: `FMT_PRINTF_LIBC` on
-      the Cortex-M0+, which no scenario builds.)
+- [x] printf output is identical on the host and on Zephyr Cortex-M3 and
+      Cortex-M0+ in both printf options, for the portable subset.
+      (`fmt.unit` on the host, `mps2/an385` and `nucleo_g0b1re_renode`
+      with `FMT_PRINTF_BUILTIN`; with `FMT_PRINTF_LIBC` on the host,
+      `mps2/an385` (`elemental.tests.variant`) and `nucleo_g0b1re_renode`
+      (`elemental.tests.fmt.variant`).)
 - [x] The Zephyr symbol check shows only `memcpy` and `memmove` in the
       default configuration. (`mps2/an385`, `nucleo_g0b1re_renode`,
       `qemu_cortex_m0`.)

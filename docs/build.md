@@ -462,6 +462,7 @@ Twister builds that board's image and does not run it.
 | `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
 | `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
+| `elemental.tests.fmt.variant` | `nucleo_g0b1re_renode` | The `fmt` image with `variant_defconfig`: the libc printf option (`FMT_PRINTF_LIBC`) on ARMv6-M. |
 | `elemental.tests.crc_zephyr` | `mps2/an385` | The same with [configs/crc_zephyr_defconfig](../configs/crc_zephyr_defconfig) and `CONFIG_CRC=y`: `crc` through Zephyr's functions, the one choice option no host can select. |
 | `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
 
@@ -724,7 +725,7 @@ and exited successfully.
 | bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
-| fmt: every fmt test with `FMT_PRINTF_LIBC` (`variant_defconfig`), `fmt.libc` against glibc's and picolibc's `snprintf` (floats skipped at picolibc's integer level) | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
+| fmt: every fmt test with `FMT_PRINTF_LIBC` (`variant_defconfig`), `fmt.libc` against glibc's and picolibc's `snprintf` (floats skipped at picolibc's integer level) | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | passed, `elemental.tests.fmt.variant` | n/a |
 | crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
 | bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per module) | not run |
@@ -748,7 +749,7 @@ binaries, which are not built without assertions.
 The Zephyr tests are 284 of those GoogleTest tests: all but the POSIX and
 C library backends', the death tests, and the host-only `fmt.oracle` and
 `bytes.portable`; 291 in the `variant` scenario, with `fmt.libc`. Twister
-(2026-11-13, M3a) reports 21 test configurations passed and
+(2026-11-13, M3a) reports 22 test configurations passed and
 `elemental.symbols.armv6m` built, with no warnings:
 
 - `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
@@ -757,7 +758,10 @@ C library backends', the death tests, and the host-only `fmt.oracle` and
   `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (284 together);
 - the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 264 passed
   and 20 skipped, `variant` 271 and 21 (`fmt.libc`'s float test skipped at
-  picolibc's integer level).
+  picolibc's integer level);
+- the `fmt` image with `variant_defconfig` on `nucleo_g0b1re_renode`
+  (`elemental.tests.fmt.variant`): 39 passed and 1 skipped, the same float
+  test. 292 704 B of flash, 17 616 B of static RAM, 15 996 B of peak heap.
 
 Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU

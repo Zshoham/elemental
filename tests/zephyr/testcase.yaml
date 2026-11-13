@@ -90,6 +90,20 @@ tests:
       - mps2/an385
     integration_platforms:
       - mps2/an385
+  # The fmt image with the variant configuration on the Cortex-M0+, so that
+  # the libc printf option (FMT_PRINTF_LIBC) runs on ARMv6-M as well as on
+  # the Cortex-M3 above.
+  elemental.tests.fmt.variant:
+    harness: gtest
+    extra_args:
+      - ELEMENTAL_TEST_MODULE=fmt
+      - ELEMENTAL_ZEPHYR_VARIANT=variant
+    extra_configs:
+      - CONFIG_PICOLIBC_IO_LONG_LONG=y
+    platform_allow:
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - nucleo_g0b1re_renode
   elemental.tests.assert_off:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=assert_off
