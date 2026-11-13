@@ -88,6 +88,12 @@ class Harness
         return fx_->writer_ending_after(fx_->ctx, room);
     }
 
+    el_writer OpenWriterFullAfter(size_t room)
+    {
+        fx_->reset(fx_->ctx);
+        return fx_->writer_full_after(fx_->ctx, room);
+    }
+
     /* Moves what the writer's sink received into `received`. */
     size_t TakeWritten()
     {
@@ -502,6 +508,40 @@ TEST_P(ElIoContract, WriterEndOfStreamIsPermanentAndKeepsWhatFit)
     const el_writer full = h.OpenWriterEndingAfter(0);
     size_t n;
     EXPECT_EQ(h.WriteOnce(full, h.content, 1, &n), EL_ERR_END_OF_STREAM);
+    EXPECT_EQ(h.TakeWritten(), 0u);
+}
+
+TEST_P(ElIoContract, WriterNoSpaceKeepsWhatFitAndRepeats)
+{
+    if (GetParam()->writer_full_after == nullptr) {
+        GTEST_SKIP() << "the fixture has no writer_full_after: this writer cannot be made full "
+                        "after an exact byte count";
+    }
+    Harness h(GetParam());
+    const size_t room = 10;
+    const el_writer writer = h.OpenWriterFullAfter(room);
+
+    /* More than fits: the part that fit is reported alongside the status. */
+    el_status last;
+    const size_t total = h.WriteAllResuming(writer, h.content, 16, &last);
+    EXPECT_EQ(last, EL_ERR_NO_SPACE);
+    EXPECT_EQ(total, room);
+
+    /* Full stays full while nothing makes room, and takes nothing. */
+    for (int i = 0; i < 3; i++) {
+        size_t n;
+        EXPECT_EQ(h.WriteOnce(writer, h.content + room, 1, &n), EL_ERR_NO_SPACE);
+    }
+
+    const size_t taken = h.TakeWritten();
+    EXPECT_EQ(taken, room);
+    const size_t common = std::min(taken, room);
+    EXPECT_EQ(Bytes(h.received, common), Bytes(h.content, common));
+
+    /* No room at all: full from the first write. */
+    const el_writer full = h.OpenWriterFullAfter(0);
+    size_t n;
+    EXPECT_EQ(h.WriteOnce(full, h.content, 1, &n), EL_ERR_NO_SPACE);
     EXPECT_EQ(h.TakeWritten(), 0u);
 }
 

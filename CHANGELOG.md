@@ -83,5 +83,19 @@ First milestone: the project's foundation.
   microcontroller targets are Zephyr targets
   ([ADR 0010](docs/adr/0010-zephyr-targets.md)), and the tests and the
   symbol check run in the Zephyr test application (`tests/zephyr`).
+- `io` (M3a): `el_buf` (`elemental/io_buf.h`), a memory buffer with fixed
+  storage: `el_buf_init`, `el_buf_data`, `el_buf_data_mut`, `el_buf_len`,
+  `el_buf_room`, `el_buf_append` (whole or nothing), `el_buf_reserve`,
+  `el_buf_spare`, `el_buf_commit`, `el_buf_truncate`, and the memory
+  endpoint `el_buf_as_writer`, which reports `EL_ERR_NO_SPACE` when full.
+  `el_grow_buf` (`elemental/io_alloc.h`, `IO_ALLOC`): `el_grow_buf_init`,
+  which returns its `el_buf *`, and `el_grow_buf_deinit`. They replace
+  `el_mem_writer` (removed from `elemental/io_mem.h`) and `el_grow_writer`
+  (removed). A full memory writer now reports `EL_ERR_NO_SPACE`, not
+  `EL_ERR_END_OF_STREAM`; `EL_ERR_NO_SPACE` is no longer only from writers
+  that allocate.
+- `io_contract` (M3a): the optional fixture capability `writer_full_after`
+  and the test `WriterNoSpaceKeepsWhatFitAndRepeats`. A fixture written with
+  designated initializers before it existed leaves it null and skips it.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

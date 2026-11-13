@@ -10,7 +10,7 @@
  * is plain C, so a backend written in C is described in C; only the line
  * that hands the fixture to the suite is C++.
  *
- * See modules/io/tests/fixture_mem.c for the smallest complete fixture.
+ * See modules/io/tests/fixture_buf.c for the smallest complete fixture.
  */
 #ifndef ELEMENTAL_IO_CONTRACT_H
 #define ELEMENTAL_IO_CONTRACT_H
@@ -79,6 +79,14 @@ typedef struct el_io_contract_fixture {
 
     /* A writer that accepts exactly `room` bytes and then has ended. */
     el_writer (*writer_ending_after)(void *ctx, size_t room);
+
+    /*
+     * A writer that accepts exactly `room` bytes and then reports
+     * EL_ERR_NO_SPACE, which is not permanent: a writer that stores what it
+     * takes, such as a full memory buffer. Last, so that a fixture written
+     * before it existed, with designated initializers, leaves it null.
+     */
+    el_writer (*writer_full_after)(void *ctx, size_t room);
 } el_io_contract_fixture;
 
 #ifdef __cplusplus

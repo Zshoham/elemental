@@ -28,7 +28,7 @@ function without a use case.
 | `fmt` | Pure core, printf over `io` buffers | `status`, `io` | — | `log` | M |
 | `log` | Interface (sink), plus portable sinks | `fmt`, `time`, `io`; `ring` from M5 | drives io flush | Examples, the Zephyr UART example | M |
 | `io`, second iteration | Interface revision | `status` | `log`, `frame`, async | `log` writer sink, `frame` glue | M |
-| `alloc` | Interface, arena, libc backend; `io` gains the grow writer | `status` | async and IPC storage | the `io` grow writer, applications | M |
+| `alloc` | Interface, arena, libc backend; `io` gains the grow writer (since M3a, `el_grow_buf`) | `status` | async and IPC storage | the `io` grow writer, applications | M |
 | `frame` | Pure core, plus io glue | `bytes`, `io` | `crc` used beside it | UART example, IPC discovery | M |
 | Async, IPC | Discovery | — | `io`, `time`, `ring`, `frame`, `alloc` | — | L, M |
 | `time` *(new)* | Interface, manual clock, POSIX backend | `status` | — | `log` | S |
@@ -115,7 +115,7 @@ Growth is codes only, each arriving with the first module that returns it:
 
 | Code | Arrives with | Caller does |
 |---|---|---|
-| `EL_ERR_NO_SPACE` | the `io` grow writer (cannot grow); then `fmt` truncation, `ring`, `frame` encode | Provide more storage |
+| `EL_ERR_NO_SPACE` | the `io` buffers (full, or cannot grow); then `fmt` truncation, `ring`, `frame` encode | Provide more storage |
 | `EL_ERR_INVALID_DATA` | `frame` decode | Drop the input, resynchronise |
 | `EL_ERR_TIMED_OUT` | IPC correlation, if discovery keeps it | Retry or give up |
 

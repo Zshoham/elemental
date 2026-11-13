@@ -6,6 +6,7 @@
  * or a socket. Only main() decides that the bytes live in a static buffer.
  */
 #include <elemental/io.h>
+#include <elemental/io_buf.h>
 #include <elemental/io_mem.h>
 #include <elemental/status.h>
 
@@ -53,26 +54,26 @@ int main(void)
 {
     /* Storage is the application's: a fixed buffer, no heap anywhere. */
     static uint8_t frame[32];
-    el_mem_writer writer;
-    el_mem_writer_init(&writer, frame, sizeof(frame));
-    const el_writer out = el_mem_writer_as_writer(&writer);
+    el_buf message;
+    el_buf_init(&message, frame, sizeof(frame));
+    const el_writer out = el_buf_as_writer(&message);
 
     if (write_record(out, "hello") != EL_OK || write_record(out, "elemental") != EL_OK) {
         fprintf(stderr, "unexpected: the first two records fit\n");
         return 1;
     }
 
-    /* The third record does not fit. The writer says so; nothing overflows. */
+    /* The third record does not fit. The buffer says so; nothing overflows. */
     const el_status full = write_record(out, "this record is too long for the frame");
-    printf("third record: %s after %zu of %zu bytes\n", el_status_name(full),
-           el_mem_writer_len(&writer), sizeof(frame));
-    if (full != EL_ERR_END_OF_STREAM) {
+    printf("third record: %s after %zu of %zu bytes\n", el_status_name(full), el_buf_len(&message),
+           sizeof(frame));
+    if (full != EL_ERR_NO_SPACE) {
         return 1;
     }
 
     /* Read back what a receiver would get: two records, then a torn one. */
     el_mem_reader reader;
-    el_mem_reader_init(&reader, frame, el_mem_writer_len(&writer));
+    el_mem_reader_init(&reader, el_buf_data(&message), el_buf_len(&message));
     const el_reader in = el_mem_reader_as_reader(&reader);
 
     char text[64];

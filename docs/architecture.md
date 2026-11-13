@@ -173,12 +173,12 @@ Use the weakest mechanism that does the job, in this order
 ([ADR 0002](adr/0002-interface-model.md)):
 
 **1. Plain functions on caller-owned objects. The default.** Most code needs
-no backend at all. A memory writer is a struct and four functions; there is
-nothing to select.
+no backend at all. A memory buffer is a struct and a few functions; there
+is nothing to select.
 
 ```c
-el_mem_writer writer;
-el_mem_writer_init(&writer, frame, sizeof(frame));
+el_buf message;
+el_buf_init(&message, frame, sizeof(frame));
 ```
 
 **2. A handle: context pointer plus a constant table of operations.** Use it
@@ -398,7 +398,7 @@ module that wraps a status, not for growing the status.
 ### 6.2 Allocation — proposed
 
 *Implemented in M2* as [modules/alloc](../modules/alloc/README.md) and
-the grow writer in [modules/io](../modules/io/README.md); the accepted design is the
+the grow writer in [modules/io](../modules/io/README.md) (since M3a, `el_grow_buf`); the accepted design is the
 [proposal](proposals/alloc.md), sized free is
 [ADR 0012](adr/0012-sized-free.md), and the size and alignment travel as
 one `el_layout` ([ADR 0013](adr/0013-allocation-layout.md)). The sketch

@@ -122,7 +122,7 @@ Out of scope: new interfaces.
 [Sketch](architecture.md#62-allocation--proposed);
 [plan entry](module-plan.md#named-by-the-owner);
 [proposal](proposals/alloc.md) (accepted); [module](../modules/alloc/README.md);
-the grow writer, [`io`](../modules/io/README.md#the-grow-writer-io_alloc).
+the grow writer, [`io`](../modules/io/README.md#buffers-io_buf-io_alloc) (since M3a, `el_grow_buf`).
 **Done** as experimental.
 
 Deliverables:

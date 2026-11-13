@@ -3,9 +3,10 @@ config IO
 	default y
 	select STATUS
 	help
-	  The el_reader and el_writer interfaces, helpers built on them,
-	  readers and writers over caller-provided memory, and the contract
-	  test suite for backends. Freestanding: needs only memcpy().
+	  The el_reader and el_writer interfaces, helpers built on them, a
+	  reader over caller-provided memory, the el_buf memory buffer and
+	  the writer that ends in one, and the contract test suite for
+	  backends. Freestanding: needs only memcpy().
 
 config IO_POSIX
 	bool "io_posix: POSIX file descriptor backend"
@@ -17,11 +18,11 @@ config IO_POSIX
 	  <unistd.h>.
 
 config IO_ALLOC
-	bool "io_alloc: a writer that grows, over an allocator"
+	bool "io_alloc: buffer storage that grows, over an allocator"
 	default y
 	depends on IO && ALLOC
 	help
-	  el_grow_writer: an el_writer that collects what is written in
-	  memory from an el_allocator, growing as needed. It is the one part
-	  of io that needs alloc: turn it off and io builds and links no
-	  allocator. Freestanding: needs memcpy().
+	  el_grow_buf: an el_buf whose storage comes from an el_allocator
+	  and grows as needed, for a message or a burst of unknown size. It
+	  is the one part of io that needs alloc: turn it off and io builds
+	  and links no allocator. Freestanding: needs memcpy().

@@ -87,8 +87,9 @@ static el_writer writer_stalled(void *ctx)
     return ring_pipe_as_writer(&state.pipe);
 }
 
-/* A ring pipe stalls when full; it cannot end after an exact byte count, so
- * writer_ending_after is absent and the suite skips that test. */
+/* A ring pipe stalls when full: it neither ends nor reports EL_ERR_NO_SPACE
+ * after an exact byte count, so writer_ending_after and writer_full_after
+ * are absent and the suite skips those tests. */
 const el_io_contract_fixture ring_pipe_fixture = {
     .name = "ring_pipe (example backend)",
     .ctx = NULL,
@@ -99,4 +100,5 @@ const el_io_contract_fixture ring_pipe_fixture = {
     .reader_stalled = reader_stalled,
     .writer_stalled = writer_stalled,
     .writer_ending_after = NULL,
+    .writer_full_after = NULL,
 };

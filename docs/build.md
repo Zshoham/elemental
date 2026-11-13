@@ -147,7 +147,7 @@ build/gcc/modules/io/tests/test_io_helpers --gtest_filter='IoReadExact.*'
 
 Tests are C++17. Fixtures and helpers that describe a C implementation stay
 in C and are linked into the same executable
-([modules/io/tests/fixture_mem.c](../modules/io/tests/fixture_mem.c)).
+([modules/io/tests/fixture_buf.c](../modules/io/tests/fixture_buf.c)).
 
 ### Compiler flags
 
@@ -198,7 +198,7 @@ can sit side by side.
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_BUILTIN` / `FMT_LIBC` | built-in | `FMT_LIBC` converts numbers with the C library's `snprintf`, for an image that links printf anyway. Output is identical ([modules/fmt](../modules/fmt/README.md#configuration)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
-| `IO_ALLOC` | on where `ALLOC` is on | `el_grow_writer`, part of `elemental::io`. Off, io builds and links no allocator. |
+| `IO_ALLOC` | on where `ALLOC` is on | `el_grow_buf`, buffer storage that grows, part of `elemental::io`. Off, io builds and links no allocator. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |

@@ -19,7 +19,7 @@ Version 0.1, first milestone. Everything is **experimental**.
 | Module | What | Freestanding |
 |---|---|---|
 | [`status`](modules/status/README.md) | Status codes and contract assertions | Yes |
-| [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; streams over caller-provided memory; a writer that grows through an allocator (`IO_ALLOC`, needs `alloc`); a contract test suite for backends | Yes, needs `memcpy` |
+| [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; a reader over caller-provided memory; `el_buf`, a memory buffer a stream can end in, with fixed storage or storage that grows through an allocator (`IO_ALLOC`, needs `alloc`); a contract test suite for backends | Yes, needs `memcpy` |
 | [`io_posix`](modules/io/backends/posix/PORT.md) | Reader and writer over a file descriptor | No |
 | [`alloc`](modules/alloc/README.md) | Allocator interface; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes |
 | [`alloc_libc`](modules/alloc/backends/libc/PORT.md) | Allocator over the C library heap | No |
@@ -55,15 +55,15 @@ presets: `cmake -B build && cmake --build build && ctest --test-dir build`.
 
 ```c
 #include <elemental/io.h>
-#include <elemental/io_mem.h>
+#include <elemental/io_buf.h>
 
 static uint8_t frame[32];                 /* storage is yours */
-el_mem_writer writer;
-el_mem_writer_init(&writer, frame, sizeof(frame));
+el_buf message;
+el_buf_init(&message, frame, sizeof(frame));
 
 size_t n;
-el_status status = el_write_all(el_mem_writer_as_writer(&writer), "hello", 5, &n);
-if (status == EL_ERR_END_OF_STREAM) {
+el_status status = el_write_all(el_buf_as_writer(&message), "hello", 5, &n);
+if (status == EL_ERR_NO_SPACE) {
     /* the buffer is full; n bytes fit */
 }
 ```

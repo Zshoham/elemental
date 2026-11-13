@@ -129,7 +129,7 @@ def case_subdirectory(work):
           "status, a dependency of io, was not built")
     check(not exists_under(build_dir, "io_contract.cpp.o"),
           "the io contract suite was compiled although nothing links it")
-    # io depends on alloc only through IO_ALLOC, the grow writer. With that
+    # io depends on alloc only through IO_ALLOC, el_grow_buf. With that
     # off, as in the application's defconfig, io builds no allocator
     # (roadmap M2).
     check(not exists_under(build_dir, "libelemental_alloc.a"),
@@ -168,7 +168,7 @@ def case_installed(work):
     """Install, then consume with find_package() and no Kconfig."""
     prefix = install_elemental(work, "default")
 
-    for name in ("status.h", "assert.h", "assert_handler.h", "io.h", "io_mem.h",
+    for name in ("status.h", "assert.h", "assert_handler.h", "io.h", "io_mem.h", "io_buf.h",
                  "io_posix.h", "io_contract.h", "io_contract.hpp",
                  "io_contract.cpp", "elemental_config.h",
                  "alloc.h", "alloc_arena.h", "alloc_libc.h", "io_alloc.h",
@@ -222,7 +222,7 @@ def case_installed(work):
 
     # The out-of-tree backend, against the installed contract suite.
     output = run([find_one(consumer, "ring_pipe_contract")])
-    check("[  PASSED  ] 10 tests." in output and "[  SKIPPED ] 1 test" in output,
+    check("[  PASSED  ] 10 tests." in output and "[  SKIPPED ] 2 tests" in output,
           "contract suite output:\n" + output)
 
     # A package configured without a module says so when asked for it.
@@ -275,6 +275,7 @@ def case_raw_source(work):
          modules / "status" / "src" / "status.c",
          modules / "io" / "src" / "io.c",
          modules / "io" / "src" / "io_mem.c",
+         modules / "io" / "src" / "io_buf.c",
          ARGS.source / "examples" / "consume_subdirectory" / "main.c",
          "-o", binary])
     output = run([binary])
