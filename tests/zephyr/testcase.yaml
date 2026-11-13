@@ -16,9 +16,16 @@ tests:
   # Twister). Its 144 KB of RAM cannot hold every test at once, so it runs
   # one image per test group (CMakeLists.txt, ELEMENTAL_TEST_GROUP). Each
   # image builds every library and runs the symbol check.
-  elemental.tests.status_alloc_io:
+  elemental.tests.status_alloc:
     harness: gtest
-    extra_args: ELEMENTAL_TEST_GROUP=status_alloc_io
+    extra_args: ELEMENTAL_TEST_GROUP=status_alloc
+    platform_allow:
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - nucleo_g0b1re_renode
+  elemental.tests.io:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_GROUP=io
     platform_allow:
       - nucleo_g0b1re_renode
     integration_platforms:

@@ -33,8 +33,9 @@ if(ELEMENTAL_ZEPHYR_TESTS)
   # elemental_add_test() prefix; a test in none stops the configure. A new
   # module joins the group that has room (docs/build.md, "Memory the test
   # image needs"); a group that outgrows the board is split in two.
-  set(ELEMENTAL_TEST_GROUPS status_alloc_io fmt_bytes_crc)
-  set(ELEMENTAL_TEST_GROUP_status_alloc_io status alloc io example.ring_pipe example.size_classes)
+  set(ELEMENTAL_TEST_GROUPS status_alloc io fmt_bytes_crc)
+  set(ELEMENTAL_TEST_GROUP_status_alloc status alloc example.size_classes)
+  set(ELEMENTAL_TEST_GROUP_io io example.ring_pipe)
   set(ELEMENTAL_TEST_GROUP_fmt_bytes_crc fmt bytes crc)
   set(ELEMENTAL_TEST_GROUP "all" CACHE STRING
       "The test group this image holds: all, or one of ${ELEMENTAL_TEST_GROUPS}")

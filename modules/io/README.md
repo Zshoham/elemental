@@ -80,10 +80,9 @@ outside project brings its own
 
 It needs C++17 and a hosted C++ library. On a microcontroller it runs
 through Zephyr: the Zephyr test application runs it against the memory
-streams, the buffered writer and the ring pipe on `native_sim` and an
-emulated Cortex-M3 ([build.md](../../docs/build.md#tests-on-zephyr)). Since
-M3a the test image no longer fits the Cortex-M0+ board's RAM
-([build.md](../../docs/build.md#what-is-verified)).
+streams, the buffered writer and the ring pipe on `native_sim`, an emulated
+Cortex-M3, and an emulated Cortex-M0+, where io's tests are one image of
+their own ([build.md](../../docs/build.md#tests-on-zephyr)).
 
 A fixture is a C struct with four required functions and four optional
 capabilities. An
