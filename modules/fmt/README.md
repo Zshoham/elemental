@@ -7,9 +7,9 @@ buffered writer. A number is whole or absent. No floating point.
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
 | Target | `elemental::fmt` |
-| Depends on | `status`, `io`. Runtime: `memcpy`. |
+| Depends on | `status`, `io`. Runtime: `memcpy`; `snprintf` with `FMT_PRINTF_LIBC`. |
 | Allocates | No; printf into grown storage grows it through its allocator |
-| Kconfig | `FMT` (selects `IO`) |
+| Kconfig | `FMT` (selects `IO`); `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` ([below](#configuration)) |
 
 ## What is here
 
@@ -72,9 +72,35 @@ code.
 
 ## Configuration
 
-None of its own beyond `FMT`. The earlier digit option, `FMT_BUILTIN` /
-`FMT_LIBC`, was removed in M3a; the platform's formatter comes back as an
-option on printf ([proposal](../../docs/proposals/io-buffers-fmt.md#the-platform-option-on-printf)).
+A private choice of what printf accepts, once per image
+([ADR 0016](../../docs/adr/0016-private-choices-that-widen.md)):
+
+| Choice | Accepts | Use it when |
+|---|---|---|
+| `FMT_PRINTF_BUILTIN` (default) | The portable subset (`d i u x X c s %`, the `0` flag, decimal widths, a precision on `%s`, `hh h l ll z`), in built-in code | Anything that does not need more |
+| `FMT_PRINTF_LIBC` | Also every other specification of `d i u x X o f F e E g G a A p` (flags, precision, `*`, `j t L`), one conversion at a time through the C library's `snprintf`, whole or absent; and `%s`, `%c` with `-` or a `*` width, in Elemental's text code | The image links the C library's printf anyway, or needs floats or `%p` through Elemental's truncation rule |
+
+**The portable subset never reaches `snprintf`, under either option**, so
+its output is identical by construction, and it stays interrupt-safe into a
+fixed buffer. `fmt.unit` runs in both configurations to show it. A format
+outside the subset is a contract violation under the default: code that
+must build against any configuration (`log`, say) uses the subset only.
+
+Under `FMT_PRINTF_LIBC` each extended conversion is formatted into a 32-byte
+stack scratch first; a result that fits is copied, and a longer one is
+formatted again in place after reserving its length plus one, for the
+terminator `snprintf` writes. So a conversion of 32 bytes or more needs one
+more free byte than its length. Floats and `%p` are whatever the C library
+writes; an extended conversion is exactly as safe in an interrupt or signal
+handler as that `snprintf` is.
+
+It depends on the probed `PLATFORM_SNPRINTF`: a hosted C library, or on
+Zephyr a picolibc whose printf level converts `long long`
+(`CONFIG_PICOLIBC_IO_LONG_LONG` or `CONFIG_PICOLIBC_IO_FLOAT`). Selecting it
+without the probe fails configuration. The option replaced M3's
+`FMT_BUILTIN` / `FMT_LIBC`, which handed only digit generation to
+`snprintf`; it was renamed so that an old defconfig naming `FMT_LIBC` gets
+the default and a Kconfig warning, not silently wider semantics.
 
 ## Tests
 
@@ -83,12 +109,18 @@ option on printf ([proposal](../../docs/proposals/io-buffers-fmt.md#the-platform
 | `fmt.unit.*` | The conversions at their boundaries; every part of the printf subset into a buffer against literal expectations; the item rule, per call; printf into a buffered writer: streaming, a stall stopping at an item, capacity 0, an ended stream; the proposal's Examples 1 and 2 (Example 2 against a scripted UART that stalls). | Host and Zephyr |
 | `fmt.unit.grown.*` | printf into grown storage: Examples 3 and 2b. Only with `IO_ALLOC`. | Host and Zephyr |
 | `fmt.oracle.*` | The subset against glibc's `snprintf`: into a buffer at every capacity, and through an 8-byte buffered writer in front of a stream that stalls after k bytes, for every k; decimal conversion against the compiler's division for two million values. | Host only |
-| `fmt.violations.*` | Each documented contract violation stops the program, including every conversion, flag, and modifier outside the subset. | Host only (death tests) |
+| `fmt.libc.*` | `FMT_PRINTF_LIBC` only: the extended conversions against the platform's `snprintf` (glibc on the host, picolibc on Zephyr) at every capacity by the item rule, the 32-byte edge, `*` values read in order, `-` and `*` on `%s` and `%c`, and an extended number through a stalling buffered writer. Float cases run where the C library formats floats. | Host and Zephyr (`variant`) |
+| `fmt.violations.*` | Each documented contract violation stops the program: under the default, every conversion, flag, and modifier outside the subset; under `FMT_PRINTF_LIBC`, `%n`, `%lc`, `%ls` and modifiers C gives no meaning. | Host only (death tests) |
 | `fmt.format_check.accepts`, `.rejects` | `EL_FMT_PRINTF_CHECK` lets correct calls compile with `-Werror=format` and rejects a mismatched argument with a format diagnostic. | Host only |
+
+All of them run with either option: `gcc` and `clang` build
+`FMT_PRINTF_BUILTIN`, `sanitize` and the Zephyr `variant` scenario build
+`FMT_PRINTF_LIBC` (`configs/variant_defconfig`).
 
 ## Known gaps
 
-No floating point, no `%p`, no left alignment or `+` flag, no `*` width.
+No floating point, `%p`, left alignment, `+` flag or `*` width in the
+default option.
 No way to learn the length an unlimited buffer would have needed, and no
 resuming inside a call
 ([ADR 0015](../../docs/adr/0015-formatting-into-io-buffers.md), "Revisit

@@ -149,8 +149,10 @@ TEST_F(FmtViolationsDeathTest, NullTargetFormatOrString)
     EXPECT_VIOLATION((void)UncheckedBuffered(&w, "%s", static_cast<const char *>(nullptr)));
 }
 
-/* Each of these is outside the portable subset. Under FMT_PRINTF_LIBC some
- * are accepted (fmt_libc_test.cpp); this file is built only for the default. */
+#if !FMT_TEST_PRINTF_LIBC
+
+/* FMT_PRINTF_BUILTIN: everything outside the portable subset. Under
+ * FMT_PRINTF_LIBC most of these are accepted (fmt_libc_test.cpp). */
 
 TEST_F(FmtViolationsDeathTest, ConversionsOutsideTheSubset)
 {
@@ -194,11 +196,44 @@ TEST_F(FmtViolationsDeathTest, ModifiersOnCharactersAndStrings)
     EXPECT_VIOLATION((void)Unchecked(&b, "%hhs", "s"));
 }
 
+#else
+
+/* FMT_PRINTF_LIBC: what neither option accepts. */
+
+TEST_F(FmtViolations, TheWiderSetDoesNotTripACheck)
+{
+    (void)Unchecked(&b, "%+d%-5d%#x%o%p%jd%td%*d%-*s%*c", 1, 2, 3u, 4u,
+                    static_cast<void *>(storage), intmax_t{5}, ptrdiff_t{6}, 3, 7, 4, "s", 2, 'c');
+}
+
+TEST_F(FmtViolationsDeathTest, WritesBackAndWideCharacters)
+{
+    int count = 0;
+    EXPECT_VIOLATION((void)Unchecked(&b, "%n", &count));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%ls", L"s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%lc", 'c'));
+}
+
+TEST_F(FmtViolationsDeathTest, ModifiersCGivesNoMeaning)
+{
+    EXPECT_VIOLATION((void)Unchecked(&b, "%Ld", 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%hf", 1.0));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%lp", static_cast<void *>(storage)));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%+s", "s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%05c", 'c'));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%.2c", 'c'));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%q", 1));
+}
+
+#endif
+
+/* In both options. */
 TEST_F(FmtViolationsDeathTest, MalformedPercent)
 {
     EXPECT_VIOLATION((void)Unchecked(&b, "%"));
     EXPECT_VIOLATION((void)Unchecked(&b, "%5%"));
     EXPECT_VIOLATION((void)Unchecked(&b, "%l"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%-%"));
 }
 
 } // namespace

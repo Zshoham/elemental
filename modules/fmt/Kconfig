@@ -8,3 +8,39 @@ config FMT
 	  a printf subset that formats into an io buffer (el_buf) or a
 	  buffered writer, keeping a number whole or absent. No floating
 	  point. Freestanding: needs only memcpy().
+
+choice FMT_PRINTF
+	prompt "fmt: what printf accepts"
+	default FMT_PRINTF_BUILTIN
+	depends on FMT
+	help
+	  The portable subset of printf (elemental/fmt_printf.h) is built-in
+	  code under either option, with identical output. The C library
+	  option also accepts the rest of C's numeric conversions, one at a
+	  time through snprintf(). A format correct under it is a contract
+	  violation under the built-in option
+	  (docs/adr/0016-private-choices-that-widen.md). Code that must build
+	  against any configuration uses the portable subset only.
+
+config FMT_PRINTF_BUILTIN
+	bool "Built-in: the portable subset"
+	help
+	  d i u x X c s % with the 0 flag, decimal widths, a precision on
+	  %s, and the length modifiers <inttypes.h> needs. No C library
+	  beyond memcpy(), and interrupt-safe into a fixed buffer. The
+	  right choice unless the image needs floats, %p or printf's other
+	  flags through Elemental's truncation rule.
+
+config FMT_PRINTF_LIBC
+	bool "The C library's snprintf() for everything else"
+	depends on PLATFORM_SNPRINTF
+	help
+	  Also accepts every other specification of d i u x X o f F e E g G
+	  a A p (flags, precision, '*', j t L), formatted one conversion at
+	  a time by snprintf() and entered whole or not at all, and %s and
+	  %c with '-' or a '*' width. Floats are whatever the C library
+	  writes. For an image that links the C library's printf anyway, or
+	  needs floats or %p. Formats in the portable subset still never
+	  reach snprintf(). Needs snprintf() from the C library.
+
+endchoice

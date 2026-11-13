@@ -97,7 +97,7 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_PRINTF_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
 | `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
 
 **Configurations.** `gcc` and `clang` run the defaults, `sanitize` one
@@ -111,7 +111,7 @@ choice: it enumerates the choices with Kconfiglib, and for each option this
 compiler can select configures a build with only that option set, builds
 the owning module's tests, and runs them. An option it cannot select must
 be hidden by a probed fact, which it names. With GCC 16 it tests the seven
-options of `ASSERT_HANDLER`, `CRC_IMPLEMENTATION`, and `FMT_DIGITS` this
+options of `ASSERT_HANDLER`, `CRC_IMPLEMENTATION`, and `FMT_PRINTF` this
 host has; with Clang, the same less `CRC_GCC_BUILTIN`. No host can select
 `CRC_ZEPHYR`, which the Zephyr scenario `elemental.tests.crc_zephyr`
 covers. Module
@@ -196,6 +196,7 @@ can sit side by side.
 |---|---|---|
 | `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
+| `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | built-in | What printf accepts. `FMT_PRINTF_LIBC` adds C's other numeric conversions (floats, `%p`, flags, precision, `*`) through the C library's `snprintf`, one at a time, whole or absent; the portable subset is built-in code under both ([modules/fmt](../modules/fmt/README.md#configuration), [ADR 0016](adr/0016-private-choices-that-widen.md)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `IO_ALLOC` | on where `ALLOC` is on | `el_grow_buf`, buffer storage that grows, part of `elemental::io`. Off, io builds and links no allocator. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
@@ -564,7 +565,7 @@ writer compacts its buffer with it, since M3a), and `el_assert_failed` in
 the configuration that asks the application to define it. A symbol that only
 one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
 which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
-[allowed-undefined.FMT_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_LIBC.txt),
+[allowed-undefined.FMT_PRINTF_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_PRINTF_LIBC.txt),
 and Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
 [allowed-undefined.CRC_ZEPHYR.txt](../tests/zephyr/allowed-undefined.CRC_ZEPHYR.txt),
 so the other configurations still fail on them.
@@ -578,7 +579,7 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; with `FMT_LIBC` (`variant`) also `snprintf` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
 | `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
 | `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
 
@@ -763,7 +764,7 @@ Additionally, each run once by hand and not part of the automated suite:
   first survived, because a null access crashes on the host anyway; the
   death tests of these modules now accept only a death by the check (a
   trap or an abort), not `SIGSEGV`.
-- Eight deliberately broken variants of `FMT_LIBC`, built with
+- Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in
   decimal, a number allowed to overrun by a byte, and a number copied in

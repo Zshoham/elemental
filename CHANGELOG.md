@@ -114,5 +114,12 @@ First milestone: the project's foundation.
   termination, and sticky truncation (truncation is per call). `fmt` now
   depends on `io` (Kconfig `select IO`). The private choice `FMT_BUILTIN` /
   `FMT_LIBC` is removed.
+- `fmt` (M3a): the private choice `FMT_PRINTF_BUILTIN` (default) /
+  `FMT_PRINTF_LIBC`, on what printf accepts. `FMT_PRINTF_LIBC` also accepts
+  C's other numeric conversions, through the C library's `snprintf` one at
+  a time, whole or absent, and `-` and `*` on `%s` and `%c`; the portable
+  subset is built-in code under both. A private choice may now widen what a
+  function accepts ([ADR 0016](docs/adr/0016-private-choices-that-widen.md)).
+  No public header depends on it.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

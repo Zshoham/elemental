@@ -1,8 +1,13 @@
 # fmt_printf.c and fmt_printf_buffered.c are their own objects, so a program
 # that never calls printf links neither, and one that prints only into
-# buffers links no buffered-writer code.
+# buffers links no buffered-writer code. fmt_printf_libc.c is the
+# FMT_PRINTF_LIBC option's bridge to snprintf(), built only with it.
+set(fmt_sources src/fmt.c src/fmt_printf.c src/fmt_printf_buffered.c)
+if(EL_CONFIG_FMT_PRINTF_LIBC)
+  list(APPEND fmt_sources src/fmt_printf_libc.c)
+endif()
 elemental_add_module(fmt
-  SOURCES src/fmt.c src/fmt_printf.c src/fmt_printf_buffered.c
+  SOURCES ${fmt_sources}
   DEPENDS status io)
 
 # No jump tables: for a dense switch, or an if chain it rebuilds into one,

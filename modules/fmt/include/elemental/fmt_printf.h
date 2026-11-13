@@ -46,7 +46,16 @@
  *                        flushing), EL_ERR_NO_SPACE, or the stream's
  *                        EL_ERR_END_OF_STREAM, EL_ERR_IO or EL_ERR_NO_SPACE.
  *
- * The portable subset. For every format in it, the output is exactly what
+ * What is accepted depends on the printf option, FMT_PRINTF_BUILTIN (the
+ * default) or FMT_PRINTF_LIBC, chosen once per image. Signatures are the
+ * same under both; the set of accepted formats is not
+ * (docs/adr/0016-private-choices-that-widen.md). Code that must build
+ * against any configuration, a library over fmt for example, uses only the
+ * portable subset.
+ *
+ * The portable subset, accepted under both options, decided by the whole
+ * specification. It is built-in code under both, never snprintf(), so its
+ * output is identical. For every format in it, the output is exactly what
  * C's snprintf() writes given enough space:
  *
  *   Conversions   d i u x X c s %
@@ -64,22 +73,41 @@
  *
  *     el_fmt_printf(&line, "%.*s", (int)len, text);
  *
- * Anything else, such as %f, %p, %n, the flags - + # and space, or a
- * precision on an integer, is a contract violation. With assertions compiled
- * out, formatting stops at that specification, reads no further arguments,
- * and the call returns EL_OK with what came before it.
+ * FMT_PRINTF_BUILTIN accepts only that. Anything else, such as %f, %p, %n,
+ * the flags - + # and space, a '*' width, or a precision on an integer, is a
+ * contract violation.
+ *
+ * FMT_PRINTF_LIBC also accepts:
+ *
+ *   - %s and %c with the '-' flag or a '*' width: Elemental's text code,
+ *     which never reaches the C library;
+ *   - every other specification of d i u x X o f F e E g G a A p that C
+ *     defines (flags - + # 0 and space, precision, '*', length j t L):
+ *     formatted one conversion at a time by the C library's snprintf(),
+ *     and entered whole or not at all. Floats and %p are whatever the C
+ *     library writes. A conversion of 32 bytes or more needs one free byte
+ *     more than its length, because snprintf() writes a terminator.
+ *
+ * %n, %lc, %ls, and anything C does not define are violations under both.
+ * With assertions compiled out, formatting stops at a violation, reads no
+ * further arguments, and the call returns EL_OK with what came before it.
  *
  * Checking: EL_FMT_PRINTF_CHECK asks GCC and Clang to check argument types
  * against the format (-Wformat). It checks types, not the subset: %f is
  * valid printf, so only the run-time check above catches it.
  *
  * Concurrency: as the target allows; nothing here adds state. Formatting
- * into a fixed el_buf is interrupt-safe (no lock, no allocation, nothing
- * blocks). Into a grown buffer it may allocate; into a buffered writer it
- * calls the inner writer.
+ * the portable subset into a fixed el_buf is interrupt-safe under both
+ * options (no lock, no allocation, nothing blocks). Into a grown buffer it
+ * may allocate; into a buffered writer it calls the inner writer. Under
+ * FMT_PRINTF_LIBC a conversion outside the portable subset is exactly as
+ * safe as the C library's snprintf(): glibc does not promise
+ * async-signal safety; picolibc's string snprintf() takes no lock and does
+ * not allocate.
  *
  * Contract violations, checked by assertions: a null target or format; a
- * null %s argument; a specification outside the subset; those of the target
+ * null %s argument; a specification outside what the option accepts; those
+ * of the target
  * (elemental/io_buf.h, elemental/io_buffered.h).
  */
 #ifndef ELEMENTAL_FMT_PRINTF_H

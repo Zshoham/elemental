@@ -1,0 +1,7 @@
+# Allowed in addition to allowed-undefined.txt, only when Elemental is
+# configured with EL_CONFIG_FMT_PRINTF_LIBC (tests/zephyr/CMakeLists.txt).
+
+snprintf  # fmt_printf_libc.c: FMT_PRINTF_LIBC hands each conversion outside
+          # the portable subset to the C library's snprintf(), by choice;
+          # PLATFORM_SNPRINTF is probed before it can be selected
+          # (modules/fmt/Kconfig).

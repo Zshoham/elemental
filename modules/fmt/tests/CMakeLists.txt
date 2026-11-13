@@ -27,6 +27,20 @@ if(EL_CONFIG_ASSERT AND ELEMENTAL_DEATH_TESTS)
   elemental_add_test(fmt.violations
     SOURCES fmt_violations_test.cpp
     LIBRARIES elemental::fmt)
+  # Which specifications are violations depends on the printf option.
+  if(EL_CONFIG_FMT_PRINTF_LIBC)
+    target_compile_definitions(test_fmt_violations PRIVATE FMT_TEST_PRINTF_LIBC=1)
+  else()
+    target_compile_definitions(test_fmt_violations PRIVATE FMT_TEST_PRINTF_LIBC=0)
+  endif()
+endif()
+
+# FMT_PRINTF_LIBC: the wider set against the platform's snprintf. Also in a
+# test image, where it runs against that C library (picolibc on Zephyr).
+if(EL_CONFIG_FMT_PRINTF_LIBC)
+  elemental_add_test(fmt.libc
+    SOURCES fmt_libc_test.cpp
+    LIBRARIES elemental::fmt)
 endif()
 
 # The format attribute: a correct call compiles with -Werror=format, and a
