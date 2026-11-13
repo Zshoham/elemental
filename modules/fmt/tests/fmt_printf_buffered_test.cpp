@@ -154,6 +154,7 @@ struct Console {
     el_buf buf;
     el_buffered_writer out;
     uint32_t dropped = 0;
+    uint32_t cut = 0;
 
     Console()
     {
@@ -161,22 +162,24 @@ struct Console {
         el_buffered_writer_init(&out, uart.writer(), &buf);
     }
 
-    /* The proposal's report(), unchanged but for the names. */
+    /* The proposal's report(), unchanged but for the names. A line that
+     * fails went past its reservation and streamed: nothing is taken back. */
     void Report(uint32_t uptime_s, const char *name, size_t name_len, int32_t temp_mc)
     {
         if (el_buffered_writer_reserve(&out, kLineMax) != EL_OK) {
             dropped++;
             return;
         }
-        const size_t mark = el_buf_len(&buf);
-        if (el_fmt_printf_buffered(&out, "%8" PRIu32 " %.*s %" PRId32 " mC\n", uptime_s,
-                                   static_cast<int>(name_len), name, temp_mc) != EL_OK) {
-            if (el_buf_len(&buf) - el_buffered_writer_pending(&out) <= mark) {
-                el_buf_truncate(&buf, mark);
-            }
-            dropped++;
+        if (Print(uptime_s, name, name_len, temp_mc) != EL_OK) {
+            cut++;
         }
         (void)el_buffered_writer_flush(&out);
+    }
+
+    el_status Print(uint32_t uptime_s, const char *name, size_t name_len, int32_t temp_mc)
+    {
+        return el_fmt_printf_buffered(&out, "%8" PRIu32 " %.*s %" PRId32 " mC\n", uptime_s,
+                                      static_cast<int>(name_len), name, temp_mc);
     }
 };
 
@@ -227,18 +230,53 @@ TEST(FmtExample2, AReportWithNoRoomForAWholeLineIsDroppedWhole)
     EXPECT_EQ(console.uart.sent, expected);
 }
 
-TEST(FmtExample2, AnOverlongLineIsTakenBackWhileNoneOfItWasPassedOn)
+TEST(FmtExample2, ALineThatFitsItsReservationCanBeTakenBack)
 {
+    /* An earlier partial flush leaves bytes passed on at the front, so a
+     * compaction would show: a line that fits its reservation causes none. */
     Console console;
-    console.Report(1, "board", 5, 0);
-    /* Longer than the room left: it stalls part way, before any of it was
-     * passed on, and nothing was compacted since the mark. */
-    const std::string name(240, 'n');
-    console.Report(2, name.data(), name.size(), 0);
-    EXPECT_EQ(console.dropped, 1u);
+    console.uart.room = 10;
+    console.Report(1, "board", 5, 0); /* 10 of its 20 bytes passed on */
+    ASSERT_EQ(el_buffered_writer_reserve(&console.out, kLineMax), EL_OK);
+    const size_t mark = el_buf_len(&console.buf);
+    ASSERT_EQ(console.Print(2, "board", 5, 0), EL_OK);
+    EXPECT_LE(el_buf_len(&console.buf) - el_buffered_writer_pending(&console.out), mark);
+    el_buf_truncate(&console.buf, mark);
+
     console.uart.room = 1000;
     EXPECT_EQ(el_buffered_writer_flush(&console.out), EL_OK);
     EXPECT_EQ(console.uart.sent, Line(1, "board", 0));
+}
+
+TEST(FmtExample2, AnOverlongLineIsLeftAsItStreamed)
+{
+    /* Longer than the buffer: the line streams, passing the earlier line on
+     * and compacting, then the UART stalls. The report takes nothing back,
+     * so no byte is lost or repeated: the UART gets the earlier line whole,
+     * then a prefix of the long one that ends on an item. */
+    Console console;
+    console.Report(1, "board", 5, 0); /* stalled: stays pending */
+    const std::string name(300, 'n');
+    console.uart.room = 30;
+    console.uart.per_call = 7;
+    console.Report(2, name.data(), name.size(), -5);
+    EXPECT_EQ(console.cut, 1u);
+    EXPECT_EQ(console.dropped, 0u);
+
+    console.uart.room = 1000;
+    EXPECT_EQ(el_buffered_writer_flush(&console.out), EL_OK);
+    const std::string first = Line(1, "board", 0);
+    const std::string second = Line(2, name.c_str(), -5);
+    ASSERT_GE(console.uart.sent.size(), first.size());
+    EXPECT_EQ(console.uart.sent.compare(0, first.size(), first), 0);
+    const std::string rest = console.uart.sent.substr(first.size());
+    /* Nothing accepted was thrown away: what was passed on during the call,
+     * and a full buffer of the line after it. */
+    EXPECT_GE(rest.size(), (30u - first.size()) + sizeof console.storage - 8);
+    EXPECT_LT(rest.size(), second.size()); /* and the stall cut it */
+    EXPECT_EQ(second.compare(0, rest.size(), rest), 0) << rest;
+    /* Cut inside the name, which is text; the number after it is absent. */
+    EXPECT_LE(rest.size(), 9u + name.size());
 }
 
 TEST(FmtExample2, LinesLeaveWholeWhenTheUartTakesSomeOfEachReport)
@@ -264,6 +302,7 @@ TEST(FmtExample2, LinesLeaveWholeWhenTheUartTakesSomeOfEachReport)
     EXPECT_EQ(at, console.uart.sent.size()) << console.uart.sent;
     EXPECT_GT(console.dropped, 0u);
     EXPECT_LT(console.dropped, 40u);
+    EXPECT_EQ(console.cut, 0u);
 }
 
 } // namespace

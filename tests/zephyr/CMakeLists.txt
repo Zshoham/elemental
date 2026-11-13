@@ -25,6 +25,22 @@ if(ELEMENTAL_ZEPHYR_TESTS)
   set(ELEMENTAL_BUILD_TESTS ON)
   set(ELEMENTAL_BUILD_EXAMPLES ON)
   set(ELEMENTAL_TEST_IMAGE app)
+
+  # Test groups, for a board whose RAM cannot hold every test at once: the
+  # GoogleTest registry and per-test records take heap for each test. The
+  # Cortex-M0+ board runs one image per group (testcase.yaml); every other
+  # board runs all of them. Each test is in exactly one group, named by its
+  # elemental_add_test() prefix; a test in none stops the configure. A new
+  # module joins the group that has room (docs/build.md, "Memory the test
+  # image needs"); a group that outgrows the board is split in two.
+  set(ELEMENTAL_TEST_GROUPS status_alloc_io fmt_bytes_crc)
+  set(ELEMENTAL_TEST_GROUP_status_alloc_io status alloc io example.ring_pipe example.size_classes)
+  set(ELEMENTAL_TEST_GROUP_fmt_bytes_crc fmt bytes crc)
+  set(ELEMENTAL_TEST_GROUP "all" CACHE STRING
+      "The test group this image holds: all, or one of ${ELEMENTAL_TEST_GROUPS}")
+  if(NOT ELEMENTAL_TEST_GROUP STREQUAL "all" AND NOT ELEMENTAL_TEST_GROUP IN_LIST ELEMENTAL_TEST_GROUPS)
+    message(FATAL_ERROR "ELEMENTAL_TEST_GROUP: '${ELEMENTAL_TEST_GROUP}' is not all or one of ${ELEMENTAL_TEST_GROUPS}")
+  endif()
 else()
   target_sources(app PRIVATE src/no_tests.c)
 endif()

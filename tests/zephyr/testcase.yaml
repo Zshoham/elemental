@@ -2,18 +2,33 @@
 common:
   tags: elemental
 tests:
-  # Every Elemental test, in one image. nucleo_g0b1re_renode is a
-  # Cortex-M0+ (ARMv6-M) under Renode, defined in boards/; pass
-  # --board-root <this directory>/boards to Twister.
+  # Every Elemental test, in one image.
   elemental.tests:
     harness: gtest
     platform_allow:
       - native_sim
       - mps2/an385
-      - nucleo_g0b1re_renode
     integration_platforms:
       - native_sim
       - mps2/an385
+  # The same tests on nucleo_g0b1re_renode, a Cortex-M0+ (ARMv6-M) under
+  # Renode, defined in boards/ (pass --board-root <this directory>/boards to
+  # Twister). Its 144 KB of RAM cannot hold every test at once, so it runs
+  # one image per test group (CMakeLists.txt, ELEMENTAL_TEST_GROUP). Each
+  # image builds every library and runs the symbol check.
+  elemental.tests.status_alloc_io:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_GROUP=status_alloc_io
+    platform_allow:
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - nucleo_g0b1re_renode
+  elemental.tests.fmt_bytes_crc:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_GROUP=fmt_bytes_crc
+    platform_allow:
+      - nucleo_g0b1re_renode
+    integration_platforms:
       - nucleo_g0b1re_renode
   # The host presets' other configurations, on one Arm board: one
   # non-default option of each Kconfig choice, and contract assertions

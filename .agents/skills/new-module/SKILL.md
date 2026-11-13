@@ -42,6 +42,7 @@ miss.
    | Where | What |
    |---|---|
    | Root `Kconfig` | `rsource "modules/<name>/Kconfig"` |
+   | `tests/zephyr/CMakeLists.txt` | `<name>` in one `ELEMENTAL_TEST_GROUP_<group>` list |
    | Root `CMakeLists.txt` | `<name>` in `ELEMENTAL_MODULE_DIRECTORIES`, after its dependencies |
    | `modules/<name>/Kconfig` | The enabling symbol is the directory name in upper case; dependencies as `select` or `depends on`, matching `DEPENDS` in `elemental_add_module()` |
    | `README.md` | A row in the module table |
@@ -50,7 +51,9 @@ miss.
 
    Public `*.h` headers are picked up by the header checks, and a
    module by the Zephyr symbol check, with nothing to register. Tests
-   registered with `elemental_add_test()` also run in the Zephyr test image.
+   registered with `elemental_add_test()` also run in the Zephyr test image,
+   once the module's name is in a test group in `tests/zephyr/CMakeLists.txt`
+   (`docs/build.md`, "Memory the test image needs").
 
 5. **Finish.** Done when every box in the implementation checklist is
    ticked or reported as unmet with its reason, and `preflight` passes.

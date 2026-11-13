@@ -189,8 +189,9 @@ capacity 0 makes a pass-through writer. The full rules are in
   `min` bytes then reaches the stream whole.
 - `el_buffered_writer_pending` is what was accepted and not passed on. The
   owner may roll back a record with `el_buf_truncate` to a mark at or after
-  `el_buf_len(buf) - pending`, but a mark is only good until the next
-  write, reserve or printf call, which may compact the buffer.
+  `el_buf_len(buf) - pending`. A mark taken before a call stays valid only
+  if the record fit the room reserved before it; a longer one may compact
+  the buffer, and is left as it streamed.
 
 Grown storage grows only where fixed storage would wait, and its allocator
 is the bound. Flush is a function of this type, not an operation of

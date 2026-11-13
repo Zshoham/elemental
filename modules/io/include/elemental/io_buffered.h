@@ -69,9 +69,13 @@
  *     Anything else (appending, committing, truncating past what was passed
  *     on, re-initializing the buffer, el_grow_buf_deinit) is a contract
  *     violation. The writer checks the cheap part, that the buffer still
- *     holds what was passed on, at its next call. A rollback mark is valid
- *     only until the next write, reserve or printf call, which may compact
- *     the buffer and so move the bytes behind the mark.
+ *     holds what was passed on, at its next call.
+ *   - A mark taken before a write or printf call into the writer is still
+ *     valid after it only if what the call wrote fit the room reserved
+ *     before it (el_buffered_writer_reserve): then nothing was passed on or
+ *     compacted. A call that needed more may compact the buffer, which moves
+ *     the bytes behind the mark; a record written that way is left as it
+ *     streamed, and a stall can leave it half-written.
  *   - The object may be moved while no handle made from it is in use.
  *
  * The struct layout is public so that callers can allocate it. The fields
