@@ -1,85 +1,72 @@
 /*
- * elemental/io_alloc.h - a writer that grows, over an allocator.
+ * elemental/io_alloc.h - buffer storage that grows, over an allocator.
  *
- * el_grow_writer collects whatever is written to it in memory it takes from
- * an allocator, growing as needed. It is an el_writer, so anything that
- * writes to a stream can write into memory without knowing the size first.
- * It is part of elemental::io only when the Kconfig symbol IO_ALLOC is on,
- * and then io links elemental::alloc. With it off, io needs no allocator.
+ * el_grow_buf holds an el_buf (elemental/io_buf.h) whose storage comes from
+ * an allocator and grows as needed. Everything that takes an el_buf * takes
+ * it: el_buf_append, the memory endpoint, a buffered writer, printf. It is
+ * part of elemental::io only when the Kconfig symbol IO_ALLOC is on, and
+ * then io links elemental::alloc. With it off, io needs no allocator.
  *
  * STATUS: experimental. See docs/process/api-stability.md.
  *
- * Writes (elemental/io.h for the rules every writer follows):
+ * Growth: when the buffer needs room it does not have, it grows to twice
+ * its capacity, or to what is needed if that is more, and to at least 16
+ * bytes. If the allocator refuses that, it asks once more for exactly what
+ * is needed. If that is refused too, the request fails with EL_ERR_NO_SPACE
+ * and the buffer is unchanged. The allocator decides how far the buffer
+ * grows; the buffer has no limit of its own.
  *
- *   EL_OK               At least one byte taken. When the buffer is full,
- *                       a write grows it first: to twice its capacity, or
- *                       to what the write needs if that is more, and at
- *                       least 16 bytes. If the allocator refuses that, the
- *                       writer asks once more for exactly what the write
- *                       needs. If that is refused too but some room is left,
- *                       the write takes what fits.
- *   EL_ERR_NO_SPACE     Nothing taken: the buffer is full and the allocator
- *                       refused to grow it. Not permanent: the same write
- *                       can succeed once the allocator has room again.
- *
- * It never returns EL_ERR_WOULD_BLOCK, EL_ERR_END_OF_STREAM, or EL_ERR_IO.
- *
- * Growing allocates the new buffer before freeing the old one. Over an
- * arena whose free gives nothing back, a writer that has grown to n bytes
- * has therefore used up to about 2n of the arena.
+ * Storage is allocated and freed with el_layout_make(cap, 1) (ADR 0013):
+ * freed with the capacity it was allocated with, never the length. Growing
+ * allocates the new storage before freeing the old, so over an arena whose
+ * free gives nothing back, a buffer that has grown to n bytes has used up
+ * to about 2n of the arena.
  *
  * Ownership and lifetime:
  *
- *   - The caller provides the el_grow_writer object. The writer owns its
- *     buffer and frees it in el_grow_writer_deinit(), which the caller must
- *     call. The allocator must outlive the writer.
- *   - el_grow_writer_data() points into the buffer, which moves when it
- *     grows. The pointer is valid until the next write or deinit.
- *   - The object may be moved while no handle made from it is in use.
+ *   - The caller provides the el_grow_buf object. It owns its storage until
+ *     el_grow_buf_deinit(), which the caller must call. The allocator must
+ *     outlive the buffer.
+ *   - The el_buf * that el_grow_buf_init() returns points into the object,
+ *     so the object must not move while that pointer is in use.
  *
  * The struct layout is public so that callers can allocate it. The fields
  * are not part of the API: use the functions.
  *
- * Concurrency: no internal synchronization. One writer may be used from one
- * context at a time, and only where its allocator may be used.
+ * Concurrency: no internal synchronization. One buffer, one context at a
+ * time, and only where its allocator may be used.
  *
- * Contract violations, checked by assertions: a null writer; an allocator
- * handle that was never made; using the writer after deinit.
+ * Contract violations, checked by assertions: a null object; an allocator
+ * handle that was never made; a second el_grow_buf_deinit() without an
+ * el_grow_buf_init() between them.
  */
 #ifndef ELEMENTAL_IO_ALLOC_H
 #define ELEMENTAL_IO_ALLOC_H
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include <elemental/alloc.h>
-#include <elemental/io.h>
+#include <elemental/io_buf.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct el_grow_writer {
+typedef struct el_grow_buf {
+    el_buf buf; /* first: the growth hook recovers the allocator from it */
     el_allocator allocator;
-    uint8_t *buf;
-    size_t len;
-    size_t cap;
-} el_grow_writer;
+} el_grow_buf;
 
-/* Start an empty writer that takes its memory from `allocator`. Allocates nothing yet. */
-void el_grow_writer_init(el_grow_writer *gw, el_allocator allocator);
+/*
+ * Start an empty buffer that grows from `allocator`, and return it: no
+ * storage yet (el_buf_data() is null, el_buf_len() and el_buf_room() are 0),
+ * and nothing allocated until something is appended or reserved.
+ */
+el_buf *el_grow_buf_init(el_grow_buf *g, el_allocator allocator);
 
-/* A writer handle for `gw`. */
-el_writer el_grow_writer_as_writer(el_grow_writer *gw);
-
-/* The bytes written so far: el_grow_writer_len() of them. Null while nothing has been. */
-const uint8_t *el_grow_writer_data(const el_grow_writer *gw);
-
-/* How many bytes have been written. */
-size_t el_grow_writer_len(const el_grow_writer *gw);
-
-/* Free the buffer. The writer must not be used again until it is re-initialized. */
-void el_grow_writer_deinit(el_grow_writer *gw);
+/*
+ * Free the storage. The el_buf is then a zero-capacity fixed buffer, always
+ * full (appends report EL_ERR_NO_SPACE), until el_grow_buf_init() again.
+ */
+void el_grow_buf_deinit(el_grow_buf *g);
 
 #ifdef __cplusplus
 }

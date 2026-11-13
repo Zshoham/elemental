@@ -124,11 +124,16 @@ layer under it.
 ```
 status          (no dependencies)
   ^
-  io            (status; memcpy)
-  ^        ^
-io_posix   io_contract
+  io            (status; memcpy, memmove; alloc with IO_ALLOC)
+  ^        ^          ^
+io_posix   io_contract  fmt   (status, io; since M3a)
 (POSIX)    (test support)
 ```
+
+`fmt` depends on `io` because its printf formats into an `io` buffer or a
+buffered writer ([ADR 0015](adr/0015-formatting-into-io-buffers.md)); `io`
+does not depend on `fmt`. `alloc`, `bytes` and `crc` depend on `status`
+only.
 
 `status` is the only module every other module may depend on. That privilege
 is why it must stay tiny; its admission rule is in
@@ -173,12 +178,12 @@ Use the weakest mechanism that does the job, in this order
 ([ADR 0002](adr/0002-interface-model.md)):
 
 **1. Plain functions on caller-owned objects. The default.** Most code needs
-no backend at all. A memory writer is a struct and four functions; there is
-nothing to select.
+no backend at all. A memory buffer is a struct and a few functions; there
+is nothing to select.
 
 ```c
-el_mem_writer writer;
-el_mem_writer_init(&writer, frame, sizeof(frame));
+el_buf message;
+el_buf_init(&message, frame, sizeof(frame));
 ```
 
 **2. A handle: context pointer plus a constant table of operations.** Use it
@@ -398,7 +403,7 @@ module that wraps a status, not for growing the status.
 ### 6.2 Allocation — proposed
 
 *Implemented in M2* as [modules/alloc](../modules/alloc/README.md) and
-the grow writer in [modules/io](../modules/io/README.md); the accepted design is the
+the grow writer in [modules/io](../modules/io/README.md) (since M3a, `el_grow_buf`); the accepted design is the
 [proposal](proposals/alloc.md), sized free is
 [ADR 0012](adr/0012-sized-free.md), and the size and alignment travel as
 one `el_layout` ([ADR 0013](adr/0013-allocation-layout.md)). The sketch
@@ -470,7 +475,7 @@ make stream interfaces go wrong:
 | Question | Answer |
 |---|---|
 | Partial progress | Normal, and success. One attempt moves between 1 and the requested count. Helpers that loop report the status and the progress so far, so they are resumable. |
-| End of stream | A status, never a zero count. A zero count would be ambiguous with a zero-length request, and "zero means end" is the classic mistake. It is permanent once reported. For a writer it means "no more can ever be accepted", which covers a full fixed buffer and a vanished peer alike. |
+| End of stream | A status, never a zero count. A zero count would be ambiguous with a zero-length request, and "zero means end" is the classic mistake. It is permanent once reported. For a writer it means "no more can ever be accepted": a vanished peer. A full memory buffer is not an end: it reports `EL_ERR_NO_SPACE`, which is not permanent (M3a). |
 | Would-block | A status with zero progress. Whether a stream can stall is a property of the stream, chosen by whoever created it. The interface does not have a blocking mode. |
 | Buffer lifetime | Borrowed for the call. An implementation copies what it takes and may not keep the pointer. The contract suite checks this by overwriting the buffer after the call. |
 
@@ -479,8 +484,15 @@ error and states that a zero count "does not indicate end of stream";
 Pigweed's stream returns `OUT_OF_RANGE` at the end of a reader or writer and
 `RESOURCE_EXHAUSTED` when nothing can be read now.
 
+Buffering arrived in M3a ([proposal](proposals/io-buffers-fmt.md)): one
+buffer type, `el_buf`, with fixed or grown storage, is the end of a memory
+stream (`el_buf_as_writer`) and the storage a buffered writer borrows
+(`el_buffered_writer`). Flush is a function of the buffered writer, not an
+operation of `el_writer` ([ADR 0014](adr/0014-flush-on-the-concrete-type.md),
+provisional until M4). The buffered reader and peek wait for `frame` (M6).
+
 Deliberately absent, to be added only with a consumer that needs them:
-flush, buffered reading and peek, vectored I/O, seek, and close. Deadlines
+vectored I/O, seek, and close. Deadlines
 are not coming to this interface at all: a deadline needs a clock, and the
 caller already has the means to stop calling.
 

@@ -2,11 +2,15 @@
 common:
   tags: elemental
 tests:
-  # Every Elemental test, in one image. nucleo_g0b1re_renode is a
-  # Cortex-M0+ (ARMv6-M) under Renode, defined in boards/; pass
-  # --board-root <this directory>/boards to Twister.
-  elemental.tests:
+  # One image per module: each module's tests (examples with the module they
+  # test), so that a failing module is its own scenario and every image
+  # fits the smallest board (CMakeLists.txt, ELEMENTAL_TEST_MODULE).
+  # nucleo_g0b1re_renode is a Cortex-M0+ (ARMv6-M) under Renode, defined in
+  # boards/; pass --board-root <this directory>/boards to Twister. Each Arm
+  # image builds every library and runs the symbol check.
+  elemental.tests.status:
     harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=status
     platform_allow:
       - native_sim
       - mps2/an385
@@ -15,14 +19,71 @@ tests:
       - native_sim
       - mps2/an385
       - nucleo_g0b1re_renode
-  # The host presets' other configurations, on one Arm board: one
-  # non-default option of each Kconfig choice, and contract assertions
-  # compiled out.
+  elemental.tests.alloc:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=alloc
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.io:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=io
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.fmt:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=fmt
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.bytes:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=bytes
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.crc:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=crc
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  # The host presets' other configurations, on one Arm board, each as one
+  # image with every test: one non-default option of each Kconfig choice,
+  # and contract assertions compiled out.
   elemental.tests.variant:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=variant
-    # FMT_LIBC needs a printf that converts long long (PLATFORM_SNPRINTF).
-    # Zephyr's default picolibc level does today; stated, not relied on.
+    # FMT_PRINTF_LIBC needs a printf that converts long long
+    # (PLATFORM_SNPRINTF). Zephyr's default picolibc level does today;
+    # stated, not relied on. Floats are not at this level: fmt.libc's float
+    # cases run only with CONFIG_PICOLIBC_IO_FLOAT.
     extra_configs:
       - CONFIG_PICOLIBC_IO_LONG_LONG=y
     platform_allow:

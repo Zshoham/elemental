@@ -47,7 +47,11 @@ one program. So test names must be unique across the repository, global C
 symbols in fixtures must not clash, and a test that needs the host (a
 file descriptor, a fork) is registered only where the host provides it.
 Keep large buffers off the stack or within the image's 4 KiB main stack
-(`tests/zephyr/prj.conf`).
+(`tests/zephyr/prj.conf`). On Zephyr each module's tests are their own
+image, chosen by test-name prefix (`ELEMENTAL_TEST_MODULE_<module>` in
+`tests/zephyr/CMakeLists.txt`); a test whose prefix is in no module's list
+stops the Zephyr configure. An example's tests go with the module they
+test.
 
 ## Rules
 

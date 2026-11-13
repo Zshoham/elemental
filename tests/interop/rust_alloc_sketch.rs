@@ -7,8 +7,8 @@
 //!   1. A C allocator used from Rust: `ElGlobal` implements `GlobalAlloc`
 //!      over an `el_stack_arena`.
 //!   2. A Rust allocator used from C: `RustAllocator` hands Rust's global
-//!      allocator to C as an `el_allocator`, and C's `el_grow_writer` grows
-//!      in it.
+//!      allocator to C as an `el_allocator`, and C's `el_grow_buf` grows in
+//!      it, written through the memory endpoint `el_buf_as_writer`.
 //!
 //! What lines up: null on failure; a power-of-two alignment on every
 //! request; the layout given back on free (`dealloc` takes the `Layout`,
@@ -87,12 +87,21 @@ pub struct ElemWriter {
     ops: *const c_void,
 }
 
+/// `el_buf`: four words. `grow` is set by `el_grow_buf_init`; Rust never
+/// calls it.
 #[repr(C)]
-pub struct ElemGrowWriter {
-    allocator: ElemAllocator,
-    buf: *mut u8,
+pub struct ElemBuf {
+    data: *mut u8,
     len: usize,
     cap: usize,
+    grow: Option<unsafe extern "C" fn(*mut ElemBuf, usize) -> ElemStatus>,
+}
+
+/// `el_grow_buf`: the buffer first, then its allocator.
+#[repr(C)]
+pub struct ElemGrowBuf {
+    buf: ElemBuf,
+    allocator: ElemAllocator,
 }
 
 extern "C" {
@@ -102,11 +111,11 @@ extern "C" {
     fn el_free(allocator: ElemAllocator, ptr: *mut c_void, layout: ElemLayout);
     fn el_stack_arena_init(arena: *mut ElemStackArena, storage: *mut c_void, cap: usize);
     fn el_stack_arena_as_allocator(arena: *mut ElemStackArena) -> ElemAllocator;
-    fn el_grow_writer_init(gw: *mut ElemGrowWriter, allocator: ElemAllocator);
-    fn el_grow_writer_as_writer(gw: *mut ElemGrowWriter) -> ElemWriter;
-    fn el_grow_writer_data(gw: *const ElemGrowWriter) -> *const u8;
-    fn el_grow_writer_len(gw: *const ElemGrowWriter) -> usize;
-    fn el_grow_writer_deinit(gw: *mut ElemGrowWriter);
+    fn el_grow_buf_init(g: *mut ElemGrowBuf, allocator: ElemAllocator) -> *mut ElemBuf;
+    fn el_grow_buf_deinit(g: *mut ElemGrowBuf);
+    fn el_buf_as_writer(b: *mut ElemBuf) -> ElemWriter;
+    fn el_buf_data(b: *const ElemBuf) -> *const u8;
+    fn el_buf_len(b: *const ElemBuf) -> usize;
     fn el_write_all(writer: ElemWriter, data: *const c_void, len: usize, n: *mut usize)
         -> ElemStatus;
 }
@@ -243,25 +252,30 @@ impl RustAllocator {
 fn rust_allocator_from_c() {
     let mut rust = RustAllocator::new();
     let handle = rust.handle();
-    let mut gw = ElemGrowWriter { allocator: handle, buf: null_mut(), len: 0, cap: 0 };
+    // Initialized by el_grow_buf_init; the zeros only give Rust a value.
+    let mut grown = ElemGrowBuf {
+        buf: ElemBuf { data: null_mut(), len: 0, cap: 0, grow: None },
+        allocator: handle,
+    };
     let text: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
 
     unsafe {
-        el_grow_writer_init(&mut gw, handle);
-        let writer = el_grow_writer_as_writer(&mut gw);
+        // `grown` stays put while `buf` is in use: it is not moved below.
+        let buf = el_grow_buf_init(&mut grown, handle);
+        let writer = el_buf_as_writer(buf);
         for chunk in text.chunks(97) {
             let status = el_write_all(writer, chunk.as_ptr().cast(), chunk.len(), null_mut());
             assert_eq!(status, EL_OK);
         }
-        let len = el_grow_writer_len(&gw);
-        let written = std::slice::from_raw_parts(el_grow_writer_data(&gw), len);
+        let len = el_buf_len(buf);
+        let written = std::slice::from_raw_parts(el_buf_data(buf), len);
         assert_eq!(written, &text[..]);
-        el_grow_writer_deinit(&mut gw);
+        el_grow_buf_deinit(&mut grown);
     }
     assert!(rust.live.borrow().is_empty(), "C left a block allocated");
-    assert!(rust.allocs > 1, "the writer grew more than once");
+    assert!(rust.allocs > 1, "the buffer grew more than once");
     println!(
-        "el_grow_writer over Rust's allocator: {} bytes, {} allocations, all freed with their layouts",
+        "el_grow_buf over Rust's allocator: {} bytes, {} allocations, all freed with their layouts",
         text.len(),
         rust.allocs
     );

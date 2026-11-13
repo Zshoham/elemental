@@ -40,7 +40,7 @@ if(ELEMENTAL_RUSTC AND EL_CONFIG_IO AND EL_CONFIG_FMT AND EL_CONFIG_CRC AND EL_C
             -L "native=$<TARGET_FILE_DIR:elemental_fmt>"
             -L "native=$<TARGET_FILE_DIR:elemental_crc>"
             -L "native=$<TARGET_FILE_DIR:elemental_bytes>"
-            -l static=elemental_io -l static=elemental_fmt -l static=elemental_crc
+            -l static=elemental_fmt -l static=elemental_io -l static=elemental_crc
             -l static=elemental_bytes -l static=elemental_status
     DEPENDS rust_sketch.rs elemental_io elemental_fmt elemental_crc elemental_bytes
             elemental_status

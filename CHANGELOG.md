@@ -83,5 +83,48 @@ First milestone: the project's foundation.
   microcontroller targets are Zephyr targets
   ([ADR 0010](docs/adr/0010-zephyr-targets.md)), and the tests and the
   symbol check run in the Zephyr test application (`tests/zephyr`).
+- `io` (M3a): `el_buf` (`elemental/io_buf.h`), a memory buffer with fixed
+  storage: `el_buf_init`, `el_buf_data`, `el_buf_data_mut`, `el_buf_len`,
+  `el_buf_room`, `el_buf_append` (whole or nothing), `el_buf_reserve`,
+  `el_buf_spare`, `el_buf_commit`, `el_buf_truncate`, and the memory
+  endpoint `el_buf_as_writer`, which reports `EL_ERR_NO_SPACE` when full.
+  `el_grow_buf` (`elemental/io_alloc.h`, `IO_ALLOC`): `el_grow_buf_init`,
+  which returns its `el_buf *`, and `el_grow_buf_deinit`. They replace
+  `el_mem_writer` (removed from `elemental/io_mem.h`) and `el_grow_writer`
+  (removed). A full memory writer now reports `EL_ERR_NO_SPACE`, not
+  `EL_ERR_END_OF_STREAM`; `EL_ERR_NO_SPACE` is no longer only from writers
+  that allocate.
+- `io_contract` (M3a): the optional fixture capability `writer_full_after`
+  and the test `WriterNoSpaceKeepsWhatFitAndRepeats`. A fixture written with
+  designated initializers before it existed leaves it null and skips it.
+- `io` (M3a): `el_buffered_writer` (`elemental/io_buffered.h`), a buffer in
+  front of another writer: `el_buffered_writer_init`, `_pending`, `_flush`,
+  `_reserve`, `_as_writer`. Flush is a function of the type, not an
+  operation of `el_writer` ([ADR 0014](docs/adr/0014-flush-on-the-concrete-type.md),
+  provisional). `io` now needs `memmove` as well as `memcpy`.
+- `fmt` (M3a): reworked on `io` ([ADR 0015](docs/adr/0015-formatting-into-io-buffers.md),
+  superseding ADR 0011). `elemental/fmt.h` is three pure conversions,
+  `el_fmt_dec_u64`, `el_fmt_dec_i64`, `el_fmt_hex_u64(out, cap, value[,
+  flags])`, returning the length, with `EL_FMT_INT_LEN_MAX` (20) and
+  `EL_FMT_UPPER` (now 1). `el_fmt_printf` and `el_fmt_vprintf` take an
+  `el_buf *`; `el_fmt_printf_buffered` and `el_fmt_vprintf_buffered` are
+  new, into an `el_buffered_writer`. Removed: `el_fmt`, `el_fmt_init`,
+  `el_fmt_len`, `el_fmt_str`, `el_fmt_cstr`, `el_fmt_hex_bytes`,
+  `EL_FMT_ZERO_PAD`, the width and flags of the conversions, NUL
+  termination, and sticky truncation (truncation is per call). `fmt` now
+  depends on `io` (Kconfig `select IO`). The private choice `FMT_BUILTIN` /
+  `FMT_LIBC` is removed.
+- `fmt` (M3a): the private choice `FMT_PRINTF_BUILTIN` (default) /
+  `FMT_PRINTF_LIBC`, on what printf accepts. `FMT_PRINTF_LIBC` also accepts
+  C's other numeric conversions, through the C library's `snprintf` one at
+  a time, whole or absent, and `-` and `*` on `%s` and `%c`; the portable
+  subset is built-in code under both. A private choice may now widen what a
+  function accepts ([ADR 0016](docs/adr/0016-private-choices-that-widen.md)).
+  No public header depends on it.
+- Zephyr tests (M3a): one test image per module, selected by the CMake
+  variable `ELEMENTAL_TEST_MODULE` of `tests/zephyr` (default `all`), and
+  one Twister scenario per module, `elemental.tests.<module>`, on every
+  board; the single `elemental.tests` scenario is gone. A test whose name
+  is in no module's list stops the configure.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

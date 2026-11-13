@@ -20,17 +20,17 @@
  *                           call can succeed later. Only from streams that
  *                           were set up as non-blocking.
  *   EL_ERR_END_OF_STREAM  *n == 0. Permanent: a reader is exhausted, a
- *                           writer can accept nothing more (its buffer is
- *                           full, its peer is gone). Every later call
+ *                           writer can accept nothing more (its peer is
+ *                           gone, its medium has ended). Every later call
  *                           returns the same.
  *   EL_ERR_IO             *n == 0. The environment failed. The object
  *                           behind the stream holds the detail.
  *   EL_ERR_NO_SPACE       *n == 0. Writers only: the writer could not get
  *                           storage for any of the bytes. Not permanent:
  *                           the same call can succeed once storage is
- *                           available again. Only from writers that
- *                           allocate, such as el_grow_writer
- *                           (elemental/io_alloc.h).
+ *                           available again. From writers that store what
+ *                           they take, such as a full memory buffer
+ *                           (el_buf_as_writer, elemental/io_buf.h).
  *
  * Blocking: the interface does not say whether a call may wait. That is a
  * property of the stream, fixed by whoever created it, and documented by

@@ -119,7 +119,8 @@ else()
   set(_elemental_platform_posix n)
 endif()
 
-# snprintf() that converts long long, for fmt's FMT_LIBC. A hosted C library
+# snprintf() that converts long long, for fmt's FMT_PRINTF_LIBC, which hands
+# the conversions outside printf's portable subset to it. A hosted C library
 # has it (C99 7.19.6). Zephyr's picolibc converts long long only at some
 # printf levels, which Zephyr's own Kconfig chooses, so there the answer is
 # that configuration.

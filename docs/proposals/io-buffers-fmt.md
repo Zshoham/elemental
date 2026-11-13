@@ -249,6 +249,7 @@ static uint8_t console_storage[256];
 static el_buf console_buf;
 static el_buffered_writer console;
 uint32_t reports_dropped; /* for the application to show */
+uint32_t reports_cut;     /* lines over LINE_MAX that a stall cut */
 
 void console_init(void)
 {
@@ -258,7 +259,8 @@ void console_init(void)
 
 /* From the main loop. Never blocks. A report that finds no room for a
  * LINE_MAX line is dropped whole; a longer one streams, and a stall in the
- * middle of it leaves the UART mid-line. */
+ * middle of it leaves the UART mid-line. (Bounding name_len so that every
+ * line fits LINE_MAX makes every line whole.) */
 void report(uint32_t uptime_s, const char *name, size_t name_len, int32_t temp_mc)
 {
     /* Room for a whole line first, passing earlier lines on if need be.
@@ -268,15 +270,14 @@ void report(uint32_t uptime_s, const char *name, size_t name_len, int32_t temp_m
         reports_dropped++;
         return;
     }
-    const size_t mark = el_buf_len(&console_buf);
     if (el_fmt_printf_buffered(&console, "%8" PRIu32 " %.*s %" PRId32 " mC\n", uptime_s,
                                (int)name_len, name, temp_mc) != EL_OK) {
-        /* Only possible for a line over LINE_MAX. If nothing was passed on
-         * since the mark, take the partial line back. */
-        if (el_buf_len(&console_buf) - el_buffered_writer_pending(&console) <= mark) {
-            el_buf_truncate(&console_buf, mark);
-        }
-        reports_dropped++;
+        /* Only possible for a line over LINE_MAX. It went past the room
+         * reserved for it, so it streamed: bytes may have been passed on
+         * and the buffer compacted during the call, and a mark taken before
+         * it no longer names the line's start. Nothing is taken back; the
+         * UART may get the start of the line without its end. */
+        reports_cut++;
     }
     (void)el_buffered_writer_flush(&console); /* what the FIFO takes now */
 }
@@ -301,8 +302,13 @@ This example settles the resumability problem
 - If the UART stalls mid-call, printf stops at an item boundary and returns
   `EL_ERR_WOULD_BLOCK`. Everything it accepted stays buffered.
 - Reserve-first makes each line of at most `LINE_MAX` bytes all-or-nothing.
-- `el_buf_truncate` back to the mark is the rollback, allowed while those
-  bytes have not been passed on ([Borrowing](#what-the-owner-may-do-while-an-adapter-borrows-the-buffer)).
+- A line that fits the room reserved for it can be taken back:
+  `const size_t mark = el_buf_len(&console_buf)` before the printf call, then
+  `el_buf_truncate(&console_buf, mark)`, before the next call on the writer.
+  Nothing of such a line was passed on or moved
+  ([Borrowing](#what-the-owner-may-do-while-an-adapter-borrows-the-buffer)).
+  A line that did not fit is never taken back: its failed call is the sign
+  that it outgrew the reservation and streamed.
 
 ### Example 2b: grown storage that absorbs a burst instead of waiting
 
@@ -793,7 +799,11 @@ its owner may only:
 - for a buffered writer, call `el_buf_truncate(buf, mark)`, but only back
   to a `mark` whose bytes have not been passed on. That is, `mark` must be
   at least `el_buf_len(buf) - el_buffered_writer_pending(&w)`. This is the
-  rollback for the reserve-first pattern (Example 2).
+  rollback for the reserve-first pattern (Example 2). A mark taken before a
+  write or printf call into the writer is valid after it only if what the
+  call wrote fit the room reserved before it: then nothing was passed on or
+  compacted during the call. A longer write or line may compact the buffer,
+  which moves the bytes behind the mark (implementation note 5).
 
 Anything else is a contract violation: appending, committing, truncating
 past the passed-on point, re-initializing, or `el_grow_buf_deinit`.
@@ -983,10 +993,10 @@ all shown:
 
 - **Reserve first** (Example 2). A line of at most the reserved length
   then never reaches the stream mid-line.
-- **Roll back** (Example 2). `el_buf_truncate(buf, mark)` takes back a
-  partial line while none of it has been passed on. That is exactly when
-  reserve-first made the line fit. Once bytes have been passed on, they
-  cannot be taken back.
+- **Roll back** (Example 2). `el_buf_truncate(buf, mark)` takes back a line
+  that fit the room reserved before it, until the next call on the writer.
+  A longer line streams and cannot be taken back: a stall can leave it
+  half-written.
 - **Format into an `el_buf` first, then write** (Example 1).
 
 ## Where the truncation rule lives
@@ -1521,7 +1531,7 @@ The baseline in [api-stability.md](../process/api-stability.md), and:
 | Friction found | Fixed by |
 |---|---|
 | Printing to a UART was a stack buffer and `el_write_all`, cut at the buffer's size | `el_fmt_printf_buffered` streams (Example 2) |
-| A stalled line leaves half a line on the stream | Reserve first, and roll back with `el_buf_truncate` while nothing was passed on (Example 2) |
+| A stalled line leaves half a line on the stream | Reserve first; a line that fits its reservation can be rolled back with `el_buf_truncate` (Example 2) |
 | A burst into a non-blocking stream is dropped | Grown storage absorbs it up to the allocator's limit (Example 2b) |
 | Without sticky truncation, a later call can follow a dropped number | Chain on the status (Example 1) |
 | A growing buffer and a fixed one needed different code | Both are an `el_buf *` (Example 3) |
@@ -1613,6 +1623,95 @@ Names: `el_buf_*`, `el_grow_buf_*`, `el_buffered_writer_*`,
     caller already handles it for any non-blocking stream.
     `EL_ERR_NO_SPACE` is kept for requests no draining can satisfy:
     `reserve(min)` beyond the capacity or the allocator.
+
+## Implementation notes
+
+**2026-11-13, M3a.** Where the implementation had to decide something this
+proposal leaves open, the smallest decision consistent with it, recorded
+here. None changes a signature, a layout, or a status the owner accepted.
+
+1. **A write that finds no room, when the stream was never asked.** Decision
+   18 makes it `EL_ERR_WOULD_BLOCK` "because the stream refused". One case
+   has no refusal: grown storage with nothing pending whose allocator
+   refuses (a cap-0 grown buffer skips the write-through). There the write
+   returns `EL_ERR_NO_SPACE`, which `io.h` defines for a writer that could
+   not get storage. A caller waiting for the stream to drain would wait
+   forever.
+2. **`el_buffered_writer_pending` after `END_OF_STREAM`** is 0. The
+   sentinel `pos == SIZE_MAX` (decision 17) no longer holds where the
+   passed-on bytes ended, and nothing pending will ever be passed on. The
+   bytes stay in the buffer for the owner to read.
+3. **`reserve` with `min` above the capacity** passes nothing on. Fixed
+   storage returns `EL_ERR_NO_SPACE` at once; grown storage compacts and
+   grows. Passing bytes on cannot help, and would be I/O the call cannot use.
+4. **`flush` with nothing pending** resets `pos` and `len` to 0, as a flush
+   that empties the buffer does, which covers an owner who rolled back to
+   exactly the passed-on point.
+5. **A rollback mark is valid only for a line that fit its reservation**
+   (decided by the owner, 2026-11-13: the narrow rule, no API change).
+   Compaction moves the bytes behind a mark, and printf compacts only when
+   an item needs room the buffer lacks. So a mark taken before a printf call
+   into a buffered writer is valid after it only if the line fit the room
+   reserved before the call (reserve-first): then nothing was passed on or
+   compacted. The first draft of Example 2 took the mark back after a
+   *failed* call when `len - pending <= mark`, which could truncate the
+   wrong bytes (25 bytes pending at the mark, the stream takes 10 during the
+   call, the buffer compacts by 10, and `truncate(mark)` keeps 10 bytes of
+   the line). A failed call means the line outgrew its reservation, so
+   Example 2 now takes nothing back on failure: the line is left as it
+   streamed, as the proposal says a stall can leave it. The borrowing rule
+   and `io_buffered.h` state the narrow rule; the tests are
+   `FmtExample2.ALineThatFitsItsReservationCanBeTakenBack` and
+   `FmtExample2.AnOverlongLineIsLeftAsItStreamed`.
+6. **printf into a buffered writer first checks that the stream has not
+   ended** (a `reserve` of 0), so that an item that would fit is not
+   accepted into a writer whose bytes can never leave.
+7. **Text into a buffered writer** asks for room for the whole remaining
+   run, then for one byte when there is none. Grown storage therefore grows
+   to hold a long `%s` (reserve's "min exceeds what draining can free"
+   rule) instead of streaming it; fixed storage streams. Open question 2 is
+   unchanged.
+8. **`fmt_printf_buffered.c` reads the writer's `buf` field**, `io`'s
+   layout, to write into the buffer the writer borrows. It is Elemental's
+   own code on both sides; no accessor was added to the accepted header.
+9. **`FMT_PRINTF_LIBC` needs only `snprintf`.** The prototype listed
+   `strchr` and `strlen`; this implementation calls neither, so
+   `allowed-undefined.FMT_PRINTF_LIBC.txt` lists `snprintf` alone, and the
+   symbol check would catch either.
+10. **What the libc option accepts, at the edges.** `%zd` reads a
+    `ptrdiff_t` (as the built-in subset does) and `%tu` a `ptrdiff_t`;
+    unsigned arguments are read as their unsigned types. A width or precision
+    written in the format above `INT_MAX` is a contract violation (one
+    `snprintf` cannot take it). Violations under both options besides `%n`,
+    `%lc`, `%ls`: a length C gives no meaning for the conversion (`%Ld`,
+    `%hf`, `%lp`), flags other than `-` on `%s` and `%c`, a precision on
+    `%c`, and any flag, width or precision on `%%`.
+11. **The contract suite's new test** is
+    `WriterNoSpaceKeepsWhatFitAndRepeats`, and `writer_full_after` is the
+    last member of the fixture struct, so a fixture written with designated
+    initializers before it existed leaves it null. The memory fixtures are
+    `io.contract.buf` and `io.contract.grow_buf`; the buffered writer's,
+    `io.contract.buffered` (fixed 16 bytes, and capacity 0 in front of a
+    sink that can end) and `io.contract.buffered_grown`.
+12. **Example 2 on a Zephyr target** runs as `fmt.unit`'s `FmtExample2.*`
+    against a scripted FIFO in the test image that takes a set number of
+    bytes per call and would-blocks when full.
+13. **`el_buf_drop_front_`**, the only user of `memmove`, arrived with the
+    buffered writer in step 2, so that step 1 needs `memcpy` alone.
+14. **One Zephyr test image per module** (decided by the owner,
+    2026-11-13). With M3a's tests the single image needs 122 336 bytes of
+    peak heap on `mps2/an385` (76 576 before M3a), more than
+    `nucleo_g0b1re_renode` leaves; it aborted at start. Each module's tests
+    are now their own image (`ELEMENTAL_TEST_MODULE`), run as
+    `elemental.tests.<module>` on all three boards; the configuration
+    scenarios keep one image on `mps2/an385`. Before that decision, two and
+    then three module groups were tried; the `io`-carrying group of the
+    first split still ran out (the abort seen in
+    `IoGrowBuf/...WriterNoSpaceKeepsWhatFitAndRepeats`, a skipped test, was
+    GoogleTest allocating near the heap's end, not the fixture, whose
+    allocator is a stack arena over 1 KB). `io`'s image now peaks at 74 688
+    bytes of heap on the Cortex-M0+. The board model was not enlarged
+    ([build.md](../build.md#memory-the-test-image-needs)).
 
 ## Open questions
 

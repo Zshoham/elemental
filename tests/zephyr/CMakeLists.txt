@@ -25,6 +25,27 @@ if(ELEMENTAL_ZEPHYR_TESTS)
   set(ELEMENTAL_BUILD_TESTS ON)
   set(ELEMENTAL_BUILD_EXAMPLES ON)
   set(ELEMENTAL_TEST_IMAGE app)
+
+  # One image per module. GoogleTest's registry and per-test records take
+  # heap for each test, so one module's tests per image keeps each image
+  # within the smallest board's RAM as modules grow. testcase.yaml has one
+  # scenario per module (elemental.tests.<module>); "all" builds every test
+  # into one image, which the configuration scenarios use. Each module lists
+  # its tests' elemental_add_test() name prefixes, an example with the
+  # module it tests; a test in no module stops the configure. A new module
+  # adds itself here and its scenario in testcase.yaml.
+  set(ELEMENTAL_TEST_MODULES status alloc io fmt bytes crc)
+  set(ELEMENTAL_TEST_MODULE_status status)
+  set(ELEMENTAL_TEST_MODULE_alloc alloc example.size_classes)
+  set(ELEMENTAL_TEST_MODULE_io io example.ring_pipe)
+  set(ELEMENTAL_TEST_MODULE_fmt fmt)
+  set(ELEMENTAL_TEST_MODULE_bytes bytes)
+  set(ELEMENTAL_TEST_MODULE_crc crc)
+  set(ELEMENTAL_TEST_MODULE "all" CACHE STRING
+      "The module whose tests this image holds: all, or one of ${ELEMENTAL_TEST_MODULES}")
+  if(NOT ELEMENTAL_TEST_MODULE STREQUAL "all" AND NOT ELEMENTAL_TEST_MODULE IN_LIST ELEMENTAL_TEST_MODULES)
+    message(FATAL_ERROR "ELEMENTAL_TEST_MODULE: '${ELEMENTAL_TEST_MODULE}' is not all or one of ${ELEMENTAL_TEST_MODULES}")
+  endif()
 else()
   target_sources(app PRIVATE src/no_tests.c)
 endif()

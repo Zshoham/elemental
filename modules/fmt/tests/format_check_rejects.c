@@ -4,9 +4,9 @@
 
 #include <elemental/fmt_printf.h>
 
-el_status format_check(el_fmt *f, uint64_t u64);
+el_status format_check(el_buf *b, uint64_t u64);
 
-el_status format_check(el_fmt *f, uint64_t u64)
+el_status format_check(el_buf *b, uint64_t u64)
 {
-    return el_fmt_printf(f, "%d", u64);
+    return el_fmt_printf(b, "%d", u64);
 }

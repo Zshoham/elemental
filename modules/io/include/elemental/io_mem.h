@@ -1,23 +1,25 @@
 /*
- * elemental/io_mem.h - readers and writers over caller-provided memory.
+ * elemental/io_mem.h - a reader over caller-provided memory.
  *
- * The portable implementation of the io interfaces: no allocation, no
- * operating system, no blocking. Useful on its own for building and parsing
- * messages in fixed buffers, and as the stand-in for a device in tests.
+ * The portable implementation of el_reader: no allocation, no operating
+ * system, no blocking. Useful on its own for parsing messages in memory, and
+ * as the stand-in for a device in tests. Its bytes are const, so it reads
+ * flash tables and received frames without a cast. The writing side, a
+ * stream that ends in memory, is el_buf_as_writer() (elemental/io_buf.h).
  *
  * STATUS: experimental. See docs/process/api-stability.md.
  *
  * Storage and ownership:
  *
- *   - The caller provides the object (el_mem_reader, el_mem_writer) and
- *     the bytes it works over, and keeps both alive while the object or any
- *     handle made from it is in use. Static, stack, or heap storage all work.
+ *   - The caller provides the object (el_mem_reader) and the bytes it
+ *     reads, and keeps both alive while the object or any handle made
+ *     from it is in use. Static, stack, or heap storage all work.
  *   - The object borrows the bytes; it never frees them.
- *   - These objects hold no resources, so there is nothing to destroy.
+ *   - The reader holds no resources, so there is nothing to destroy.
  *   - An object may be copied or moved when no handle made from it is in
  *     use; handles made earlier refer to the old address.
  *
- * The struct layouts are public so that callers can allocate them. The
+ * The struct layout is public so that callers can allocate it. The
  * fields are not part of the API: use the functions.
  *
  * Concurrency: no internal synchronization. One object may be used from one
@@ -57,30 +59,6 @@ el_reader el_mem_reader_as_reader(el_mem_reader *mr);
 
 /* Bytes not yet read. */
 size_t el_mem_reader_remaining(const el_mem_reader *mr);
-
-typedef struct el_mem_writer {
-    uint8_t *buf;
-    size_t cap;
-    size_t len;
-} el_mem_writer;
-
-/*
- * Start writing into the `cap` bytes at `buf`. `buf` may be null only if
- * `cap` is 0, which makes a writer that is already full.
- */
-void el_mem_writer_init(el_mem_writer *mw, void *buf, size_t cap);
-
-/*
- * A writer handle for `mw`. Never returns EL_ERR_WOULD_BLOCK or
- * EL_ERR_IO: each write accepts min(len, free space) bytes, then
- * EL_ERR_END_OF_STREAM once the buffer is full. A write larger than the
- * free space is therefore truncated, and el_write_all() reports that as
- * EL_ERR_END_OF_STREAM with the count that fit.
- */
-el_writer el_mem_writer_as_writer(el_mem_writer *mw);
-
-/* Bytes written so far: buf[0..len) is valid. */
-size_t el_mem_writer_len(const el_mem_writer *mw);
 
 #ifdef __cplusplus
 }

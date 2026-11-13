@@ -98,6 +98,13 @@ Verification:
       application passes under Twister. Tests registered with
       `elemental_add_test()` inside `if(COMMAND elemental_add_test)` run in
       both.
+- [ ] The module has its own Zephyr test image: its name in
+      `ELEMENTAL_TEST_MODULES` and its test-name prefixes in
+      `ELEMENTAL_TEST_MODULE_<module>` in `tests/zephyr/CMakeLists.txt`
+      (configuring the Zephyr application fails until they are), and a
+      scenario `elemental.tests.<module>` for all three boards in
+      `tests/zephyr/testcase.yaml`. Its image fits the Cortex-M0+ board
+      ([build.md](../build.md#memory-the-test-image-needs)).
 - [ ] The Zephyr symbol check passes. It covers every module the build
       enables, so a module is checked automatically; any new external
       symbol goes in `tests/zephyr/allowed-undefined.txt` with a reason.

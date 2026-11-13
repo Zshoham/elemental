@@ -1,125 +1,127 @@
 # fmt
 
-Text formatting into caller memory: integers in decimal and hex, strings, and
-hex dumps, through typed calls or a printf subset. No floating point.
+Integers to text, and a printf subset that formats into an `io` buffer or a
+buffered writer. A number is whole or absent. No floating point.
 
 | | |
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
 | Target | `elemental::fmt` |
-| Depends on | `status`. Runtime: `memcpy`; `snprintf` with `FMT_LIBC`. |
-| Allocates | No |
-| Kconfig | `FMT`; `FMT_BUILTIN` / `FMT_LIBC` ([below](#configuration)) |
+| Depends on | `status`, `io`. Runtime: `memcpy`; `snprintf` with `FMT_PRINTF_LIBC`. |
+| Allocates | No; printf into grown storage grows it through its allocator |
+| Kconfig | `FMT` (selects `IO`); `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` ([below](#configuration)) |
 
 ## What is here
 
 | Piece | Header |
 |---|---|
-| `el_fmt`, the cursor over a buffer, and the typed calls: `el_fmt_str`, `el_fmt_cstr`, `el_fmt_dec_u64`, `el_fmt_dec_i64`, `el_fmt_hex_u64`, `el_fmt_hex_bytes` | [`elemental/fmt.h`](include/elemental/fmt.h) |
-| `el_fmt_printf`, `el_fmt_vprintf`, `EL_FMT_PRINTF_CHECK`: the printf subset, for C and C++ callers | [`elemental/fmt_printf.h`](include/elemental/fmt_printf.h) |
+| `el_fmt_dec_u64`, `el_fmt_dec_i64`, `el_fmt_hex_u64`, `EL_FMT_INT_LEN_MAX`, `EL_FMT_UPPER`: pure conversions into a caller's scratch array | [`elemental/fmt.h`](include/elemental/fmt.h) |
+| `el_fmt_printf`, `el_fmt_vprintf` into an `el_buf`; `el_fmt_printf_buffered`, `el_fmt_vprintf_buffered` into an `el_buffered_writer`; `EL_FMT_PRINTF_CHECK`: for C and C++ callers | [`elemental/fmt_printf.h`](include/elemental/fmt_printf.h) |
 
-The design and its review are in the
-[proposal](../../docs/proposals/fmt.md). What a buffer that is too small
-holds is [ADR 0011](../../docs/adr/0011-formatting-truncation.md): numbers
-whole or absent, text cut at the last byte, truncation sticky, and always a
-terminator.
+The design is the [io buffers and fmt proposal](../../docs/proposals/io-buffers-fmt.md),
+which revised the [first one](../../docs/proposals/fmt.md) in milestone M3a.
+What a target that is too small holds is
+[ADR 0015](../../docs/adr/0015-formatting-into-io-buffers.md): numbers whole
+or absent, text cut at the last byte, nothing after the first item that did
+not fit within a call, no terminator.
 
 ## Using it
 
+A line formatted once into a fixed buffer, then sent:
+
 ```c
-char line[64];
-el_fmt f;
-el_fmt_init(&f, line, sizeof line);
-el_fmt_printf(&f, "%" PRIu32 " frames, last ", count);
-el_fmt_hex_bytes(&f, frame, frame_len);
-if (el_fmt_cstr(&f, "\n") == EL_ERR_NO_SPACE) {
-    /* line holds a prefix that ends on a whole item */
+uint8_t storage[96];
+el_buf line;
+el_buf_init(&line, storage, sizeof storage);
+el_status st = el_fmt_printf(&line, "%10" PRIu64 " %s: ", ticks, level);
+if (st == EL_OK) {
+    st = el_fmt_printf(&line, "%.*s", (int)len, message); /* chain: not sticky */
 }
-el_write_all(out, line, el_fmt_len(&f), NULL);
+el_write_all(out, el_buf_data(&line), el_buf_len(&line), NULL);
 ```
 
-Only the last call's status needs checking. To keep a newline at the end of
-a cut line, give `el_fmt_init` one byte less than the buffer and add the
-`'\n'` afterwards. Bindings to other languages call the typed core; the
+Straight to a non-blocking stream, through a buffered writer
+(`elemental/io_buffered.h`): printf streams, passing buffered bytes on when
+the buffer cannot take the next item, and stops at an item if the stream
+stalls. Reserving a line first makes it all-or-nothing:
+
+```c
+if (el_buffered_writer_reserve(&console, LINE_MAX) == EL_OK) {
+    (void)el_fmt_printf_buffered(&console, "%8" PRIu32 " %" PRId32 " mC\n", up, temp);
+}
+(void)el_buffered_writer_flush(&console);
+```
+
+Bindings to other languages call the conversions and `el_buf_append`; the
 printf header is a C convenience (`tests/interop/rust_sketch.rs` does this).
 
-**No division helper.** With `FMT_BUILTIN`, decimal output divides by 10 with shifts and adds,
+**No division helper.** Decimal output divides by 10 with shifts and adds,
 because `/` on a `uint64_t` needs `__aeabi_uldivmod` on 32-bit Arm, and even
-a 32-bit `/` needs `__aeabi_uidiv` on ARMv6-M. The library is compiled
-with `-fno-jump-tables`, because GCC for ARMv6-M at `-Os` turns the printf
+a 32-bit `/` needs `__aeabi_uidiv` on ARMv6-M. The library is compiled with
+`-fno-jump-tables`, because GCC for ARMv6-M at `-Os` turns the printf
 parser's dispatch into a jump table that calls libgcc's
-`__gnu_thumb1_case_uqi`. The Zephyr
-symbol check (ARMv7-M and ARMv6-M) shows `memcpy` as the only symbol needed
+`__gnu_thumb1_case_uqi`, and the parser's specification record is filled in
+field by field, because `= {0}` on it becomes a `memset` call there. The
+Zephyr symbol check (ARMv7-M and ARMv6-M) shows `memcpy` and `memmove`
 ([build.md](../../docs/build.md#the-symbol-check)).
+
+**What links.** `fmt_printf.c` and `fmt_printf_buffered.c` are separate
+objects, and growth is reached through the buffer's hook: a program that
+prints only into fixed buffers links no allocator and no buffered-writer
+code.
 
 ## Configuration
 
-A private choice of what turns a number into digits. Output, statuses, and
-truncation are identical either way ([ADR 0004](../../docs/adr/0004-private-configuration.md)),
-and the whole test suite runs against both.
+A private choice of what printf accepts, once per image
+([ADR 0016](../../docs/adr/0016-private-choices-that-widen.md)):
 
-| Choice | What converts | Use it when |
+| Choice | Accepts | Use it when |
 |---|---|---|
-| `FMT_BUILTIN` (default) | Shifts and adds in `src/fmt_digits_builtin.c`: no division helper, no C library beyond `memcpy` | Anything that does not already link printf |
-| `FMT_LIBC` | The C library's `snprintf` (`%llu`, `%llx`, `%llX`) into a 21-byte scratch buffer, in `src/fmt_digits_libc.c` | The image links printf anyway, for logging say, and the built-in conversion would be a second copy |
+| `FMT_PRINTF_BUILTIN` (default) | The portable subset (`d i u x X c s %`, the `0` flag, decimal widths, a precision on `%s`, `hh h l ll z`), in built-in code | Anything that does not need more |
+| `FMT_PRINTF_LIBC` | Also every other specification of `d i u x X o f F e E g G a A p` (flags, precision, `*`, `j t L`), one conversion at a time through the C library's `snprintf`, whole or absent; and `%s`, `%c` with `-` or a `*` width, in Elemental's text code | The image links the C library's printf anyway, or needs floats or `%p` through Elemental's truncation rule |
 
-Only the digits come from `snprintf`. The sign, the width and its padding,
-and the check that the whole number fits stay in `src/fmt.c`, shared by both
-choices, so the item rules cannot differ. (`snprintf` takes its width as an
-`int` and its output would have to fit the scratch buffer; an `el_fmt` width
-is a `size_t`.) Text items, `%s`, and `%c` never go through the C library,
-and `el_fmt_printf` still parses and checks every format itself.
+**The portable subset never reaches `snprintf`, under either option**, so
+its output is identical by construction, and it stays interrupt-safe into a
+fixed buffer. `fmt.unit` runs in both configurations to show it. A format
+outside the subset is a contract violation under the default: code that
+must build against any configuration (`log`, say) uses the subset only.
 
-`FMT_LIBC` depends on the probed `PLATFORM_SNPRINTF`: a hosted C library
-(CMake finds `snprintf` in `<stdio.h>`), or on Zephyr a picolibc whose
-printf level converts `long long` (`CONFIG_PICOLIBC_IO_LONG_LONG` or
-`CONFIG_PICOLIBC_IO_FLOAT`; the first is Zephyr v4.5's default, because
-`CBPRINTF_FULL_INTEGRAL` is). Selecting it without the probe fails
-configuration.
+Under `FMT_PRINTF_LIBC` each extended conversion is formatted into a 32-byte
+stack scratch first; a result that fits is copied, and a longer one is
+formatted again in place after reserving its length plus one, for the
+terminator `snprintf` writes. So a conversion of 32 bytes or more needs one
+more free byte than its length. Floats and `%p` are whatever the C library
+writes; an extended conversion is exactly as safe in an interrupt or signal
+handler as that `snprintf` is.
 
-What it costs, built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's GCC
-14.3.0 at `-Os`, assertions trapping:
-
-| | `FMT_BUILTIN` | `FMT_LIBC` |
-|---|---|---|
-| `libelemental_fmt.a` text | 1 705 bytes | 1 502 bytes |
-| of which the digit conversion | 290 | 87 |
-| Image that already links picolibc's printf (Zephyr defaults; `printk` uses it) | 13 604 | 13 500 (−104) |
-| Image with nothing else that formats (`PRINTK`, `CONSOLE`, `LOG` off) | 9 960 | 11 228 (+1 268) |
-
-The images are a `main()` that calls `el_fmt_dec_i64` and `el_fmt_hex_u64`
-(text bytes of `zephyr.elf`), with `CONFIG_PICOLIBC_IO_LONG_LONG`. Most of
-what the second image gains is picolibc's `__l_vfprintf` (1 156 bytes) and
-`snprintf` (84). So `FMT_LIBC` pays off only where printf is already linked.
-
-Not part of the choice: `FMT_LIBC` inherits the C library's guarantees for
-`snprintf`. glibc does not document `snprintf` as async-signal-safe, so the
-"fine from an interrupt handler" note in `fmt.h` rests on that C library.
-picolibc's `snprintf` into a string takes no lock and does not allocate.
+It depends on the probed `PLATFORM_SNPRINTF`: a hosted C library, or on
+Zephyr a picolibc whose printf level converts `long long`
+(`CONFIG_PICOLIBC_IO_LONG_LONG` or `CONFIG_PICOLIBC_IO_FLOAT`). Selecting it
+without the probe fails configuration. The option replaced M3's
+`FMT_BUILTIN` / `FMT_LIBC`, which handed only digit generation to
+`snprintf`; it was renamed so that an old defconfig naming `FMT_LIBC` gets
+the default and a Kconfig warning, not silently wider semantics.
 
 ## Tests
 
 | Test | What it checks | Where |
 |---|---|---|
-| `fmt.unit.*` | Every core call and every part of the printf subset against literal expectations: boundaries of capacity, width, and value, whole-or-absent numbers, whole-byte dumps, sticky truncation, termination. | Host and Zephyr |
-| `fmt.oracle.*` | The printf subset against glibc's `snprintf`, at every capacity from 0 up, by the prefix rule; decimal conversion against the compiler's division for two million values. | Host only |
-| `fmt.violations.*` | Each documented contract violation stops the program, including every conversion, flag, and modifier outside the subset. | Host only (death tests) |
+| `fmt.unit.*` | The conversions at their boundaries; every part of the printf subset into a buffer against literal expectations; the item rule, per call; printf into a buffered writer: streaming, a stall stopping at an item, capacity 0, an ended stream; the proposal's Examples 1 and 2 (Example 2 against a scripted UART that stalls). | Host and Zephyr |
+| `fmt.unit.grown.*` | printf into grown storage: Examples 3 and 2b. Only with `IO_ALLOC`. | Host and Zephyr |
+| `fmt.oracle.*` | The subset against glibc's `snprintf`: into a buffer at every capacity, and through an 8-byte buffered writer in front of a stream that stalls after k bytes, for every k; decimal conversion against the compiler's division for two million values. | Host only |
+| `fmt.libc.*` | `FMT_PRINTF_LIBC` only: the extended conversions against the platform's `snprintf` (glibc on the host, picolibc on Zephyr) at every capacity by the item rule, the 32-byte edge, `*` values read in order, `-` and `*` on `%s` and `%c`, and an extended number through a stalling buffered writer. Float cases run where the C library formats floats. | Host and Zephyr (`variant`) |
+| `fmt.violations.*` | Each documented contract violation stops the program: under the default, every conversion, flag, and modifier outside the subset; under `FMT_PRINTF_LIBC`, `%n`, `%lc`, `%ls` and modifiers C gives no meaning. | Host only (death tests) |
 | `fmt.format_check.accepts`, `.rejects` | `EL_FMT_PRINTF_CHECK` lets correct calls compile with `-Werror=format` and rejects a mismatched argument with a format diagnostic. | Host only |
 
-All of them run with either choice: `gcc` and `clang` build `FMT_BUILTIN`,
-`sanitize` and the Zephyr `variant` scenario build `FMT_LIBC`
-(`configs/variant_defconfig`).
-
-Seen red: deliberately broken copies of the divide, the sticky flag, the
-whole-or-absent check, the terminator, and the printf parser were each
-caught; so were a `FMT_LIBC` with swapped hex cases, a cut scratch buffer, a
-dropped digit, and a whole-or-absent check that lets a number overrun or
-copies part of it (see [docs/build.md](../../docs/build.md#what-is-verified)).
+All of them run with either option: `gcc` and `clang` build
+`FMT_PRINTF_BUILTIN`, `sanitize` and the Zephyr `variant` scenario build
+`FMT_PRINTF_LIBC` (`configs/variant_defconfig`).
 
 ## Known gaps
 
-No floating point, no `%p`, no left alignment or `+` flag, no `*` width:
-each waits for a consumer. No way to learn the length an unlimited buffer
-would have needed, and no resuming after truncation
-([ADR 0011](../../docs/adr/0011-formatting-truncation.md), "Revisit when").
-The cycle cost of decimal output on ARMv6-M has not been measured.
+No floating point, `%p`, left alignment, `+` flag or `*` width in the
+default option.
+No way to learn the length an unlimited buffer would have needed, and no
+resuming inside a call
+([ADR 0015](../../docs/adr/0015-formatting-into-io-buffers.md), "Revisit
+when"). The cycle cost of decimal output on ARMv6-M has not been measured.

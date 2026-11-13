@@ -7,5 +7,5 @@
 EL_CONFIG_ASSERT_HANDLER_APPLICATION=y
 # 256-entry CRC tables instead of 16-entry ones.
 EL_CONFIG_CRC_TABLE_8BIT=y
-# Numbers converted by the C library's snprintf() instead of built-in code.
-EL_CONFIG_FMT_LIBC=y
+# printf accepts the C library's conversions beyond the portable subset.
+EL_CONFIG_FMT_PRINTF_LIBC=y

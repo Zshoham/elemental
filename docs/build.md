@@ -97,7 +97,7 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 |---|---|
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
-| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_PRINTF_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
 | `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
 
 **Configurations.** `gcc` and `clang` run the defaults, `sanitize` one
@@ -111,7 +111,7 @@ choice: it enumerates the choices with Kconfiglib, and for each option this
 compiler can select configures a build with only that option set, builds
 the owning module's tests, and runs them. An option it cannot select must
 be hidden by a probed fact, which it names. With GCC 16 it tests the seven
-options of `ASSERT_HANDLER`, `CRC_IMPLEMENTATION`, and `FMT_DIGITS` this
+options of `ASSERT_HANDLER`, `CRC_IMPLEMENTATION`, and `FMT_PRINTF` this
 host has; with Clang, the same less `CRC_GCC_BUILTIN`. No host can select
 `CRC_ZEPHYR`, which the Zephyr scenario `elemental.tests.crc_zephyr`
 covers. Module
@@ -147,7 +147,7 @@ build/gcc/modules/io/tests/test_io_helpers --gtest_filter='IoReadExact.*'
 
 Tests are C++17. Fixtures and helpers that describe a C implementation stay
 in C and are linked into the same executable
-([modules/io/tests/fixture_mem.c](../modules/io/tests/fixture_mem.c)).
+([modules/io/tests/fixture_buf.c](../modules/io/tests/fixture_buf.c)).
 
 ### Compiler flags
 
@@ -196,9 +196,9 @@ can sit side by side.
 |---|---|---|
 | `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
-| `FMT_BUILTIN` / `FMT_LIBC` | built-in | `FMT_LIBC` converts numbers with the C library's `snprintf`, for an image that links printf anyway. Output is identical ([modules/fmt](../modules/fmt/README.md#configuration)). |
+| `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | built-in | What printf accepts. `FMT_PRINTF_LIBC` adds C's other numeric conversions (floats, `%p`, flags, precision, `*`) through the C library's `snprintf`, one at a time, whole or absent; the portable subset is built-in code under both ([modules/fmt](../modules/fmt/README.md#configuration), [ADR 0016](adr/0016-private-choices-that-widen.md)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
-| `IO_ALLOC` | on where `ALLOC` is on | `el_grow_writer`, part of `elemental::io`. Off, io builds and links no allocator. |
+| `IO_ALLOC` | on where `ALLOC` is on | `el_grow_buf`, buffer storage that grows, part of `elemental::io`. Off, io builds and links no allocator. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
@@ -457,10 +457,10 @@ Twister builds that board's image and does not run it.
 
 | Scenario | Board | What it does |
 |---|---|---|
-| `elemental.tests` | `native_sim` | Every test, in a 32-bit Linux process. |
-| `elemental.tests` | `mps2/an385` | Every test, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
-| `elemental.tests` | `nucleo_g0b1re_renode` | Every test, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
-| `elemental.tests.variant` | `mps2/an385` | Every test with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
+| `elemental.tests.<module>`: `status`, `alloc`, `io`, `fmt`, `bytes`, `crc` | `native_sim` | One module's tests, in a 32-bit Linux process. |
+| `elemental.tests.<module>` | `mps2/an385` | One module's tests, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
+| `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
+| `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
 | `elemental.tests.crc_zephyr` | `mps2/an385` | The same with [configs/crc_zephyr_defconfig](../configs/crc_zephyr_defconfig) and `CONFIG_CRC=y`: `crc` through Zephyr's functions, the one choice option no host can select. |
 | `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
@@ -518,6 +518,55 @@ presets only.
 
 ### Memory the test image needs
 
+**One image per module.** GoogleTest's registry and per-test records take
+heap for each test, so a board's RAM bounds how many tests one image can
+hold. Since M3a each module's tests are their own image
+(`ELEMENTAL_TEST_MODULE` in [tests/zephyr/CMakeLists.txt](../tests/zephyr/CMakeLists.txt)),
+run as the scenario `elemental.tests.<module>` on every board, so a failing
+module is its own line in Twister's report. An example's tests are in the
+image of the module they test (the ring pipe with `io`, the size classes
+with `alloc`). The configuration scenarios (`variant`, `assert_off`,
+`crc_zephyr`) build all the tests into one image (`ELEMENTAL_TEST_MODULE`
+`all`, the default) on `mps2/an385`, which has the RAM for it. A test whose
+name is in no module's list stops the configure, so **a new module adds its
+name to `ELEMENTAL_TEST_MODULES` there and its scenario to
+[testcase.yaml](../tests/zephyr/testcase.yaml).** A module whose image
+outgrows the Cortex-M0+ board (peak heap near what static RAM leaves of its
+147 456 bytes, less the margin below) splits its tests across two images
+the same way.
+
+M3a first ran the Cortex-M0+ board as a single image (it aborted at start,
+out of heap: the whole image needs 122 336 bytes of peak heap on
+`mps2/an385`), then as two and three module groups; the per-module images
+replaced those on the owner's decision.
+
+**M3a, 2026-11-13, measured in an M3a worktree (a different checkout path
+from the M3 figures further below).** Flash, static RAM and peak heap in
+bytes; main stack used of 4 096. Tests are GoogleTest's count, skipped
+included:
+
+| Image | Tests | `mps2/an385`: flash, RAM, heap, stack | `nucleo_g0b1re_renode`: flash (of 524 288), RAM, heap, stack |
+|---|---|---|---|
+| `status` | 5 | 224 984, 15 576, 3 024, 1 324 | 236 084, 13 536, 3 164, 1 364 |
+| `alloc` | 58 | 268 256, 41 904, 32 488, 1 836 | 279 844, 39 912, 34 216, 1 948 |
+| `io` | 143 | 348 092, 18 024, 70 416, 2 636 | 360 144, 15 984, 74 688, 2 732 |
+| `fmt` | 32 | 268 504, 19 656, 15 056, 1 772 | 279 372, 17 616, 15 728, 1 892 |
+| `bytes` | 38 | 283 296, 15 552, 14 408, 1 324 | 293 700, 13 512, 15 184, 1 364 |
+| `crc` | 8 | 230 768, 15 552, 3 936, 1 324 | 241 908, 13 512, 4 128, 1 364 |
+| All, `variant` | 291 | 508 472, 48 432, 125 232, 2 636 | not built |
+
+`io` is the largest: about 75 KB of heap of the about 131 KB its static RAM
+leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
+
+**Twister's run time** (`--integration -j 8`, this machine, fresh output
+directory each time): 170.6 s for M3a's first run with one image per
+board (7 configurations, the Cortex-M0+ image failing at start), 175.4 s
+for the per-module layout (22 configurations, all passing). The extra
+builds cost little because each module image compiles only its own tests;
+both runs had Zephyr's build cache available, so read them as "about".
+
+The figures below are M3's, for the single image that fitted every board then.
+
 Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 203 tests.
 The flash and heap figures are approximate: they change with the path of
 the checkout, which reaches the image through GoogleTest's file names and
@@ -560,11 +609,12 @@ Every build of the application for an ARM board runs
 libraries: the symbols they leave undefined, after removing those they
 define for each other, must be in
 [allowed-undefined.txt](../tests/zephyr/allowed-undefined.txt), or the build
-fails. The list has two entries: `memcpy`, and `el_assert_failed` in the
-configuration that asks the application to define it. A symbol that only
+fails. The list has three entries: `memcpy`, `memmove` (the buffered
+writer compacts its buffer with it, since M3a), and `el_assert_failed` in
+the configuration that asks the application to define it. A symbol that only
 one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
 which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
-[allowed-undefined.FMT_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_LIBC.txt),
+[allowed-undefined.FMT_PRINTF_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_PRINTF_LIBC.txt),
 and Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
 [allowed-undefined.CRC_ZEPHYR.txt](../tests/zephyr/allowed-undefined.CRC_ZEPHYR.txt),
 so the other configurations still fail on them.
@@ -578,9 +628,9 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`; with `FMT_LIBC` (`variant`) also `snprintf` |
-| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
-| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
+| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
+| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
@@ -609,21 +659,24 @@ evidence about Zephyr integration, not about a target CPU.
 
 `libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
 GCC 14.3.0 at Zephyr's default size optimization, text bytes, without and
-with the grow writer (`IO_ALLOC`, on by default):
+with grown buffer storage (`el_grow_buf`, `IO_ALLOC`, on by default).
+Measured 2026-11-13 on M3a's branch; `io` now includes `el_buf` and the
+buffered writer (before M3a, with the memory and grow writers: 578 and 956
+bytes, trap):
 
-| Configuration | `IO_ALLOC` off | `IO_ALLOC` on | The grow writer |
+| Configuration | `IO_ALLOC` off | `IO_ALLOC` on | `el_grow_buf` |
 |---|---|---|---|
-| Assertions off | 394 | 710 | 316 |
-| Trap in place (default) | 578 | 956 | 378 |
-| Application handler | 782 | 1 255 | 473 |
+| Assertions off | 1 134 | 1 396 | 262 |
+| Trap in place (default) | 1 640 | 1 926 | 286 |
+| Application handler | 2 101 | 2 436 | 335 |
 
 The other libraries in the same build:
 
 | Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|
-| Assertions off | 376 | 93 | 1 627 | 1 084 | 212 |
-| Trap in place (default) | 568 | 93 | 1 705 | 1 318 | 224 |
-| Application handler | 794 | 93 | 1 896 | 1 642 | 255 |
+| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 |
+| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 |
+| Application handler | 798 | 93 | 1 921 | 1 642 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -631,13 +684,12 @@ Zephyr's own code and table. `CRC_GCC_BUILTIN` cannot be built by this
 GCC 14.3.0; on x86-64, GCC 16.2.1 at `-Os` makes it 1 925 bytes against
 312 for the 16-entry tables. `bytes` grew by 370 bytes with byte swap and
 bit counting, portable code on this core except CLZ, and by 722 more with
-rotate, bit reversal, bit fields, and alignment (1 318 bytes in all, trap). Of `fmt`'s 1 705, 1 013 are the typed core (290
-of them the built-in digit conversion) and 692 the printf front end, which
-a program that never calls `el_fmt_printf` does not link. With `FMT_LIBC`
-`fmt` is 1 502 bytes (trap), the conversion 87 of them; what that costs or
-saves in an image depends on whether printf is already linked: −104 bytes
-where it is (Zephyr's defaults), +1 268 where nothing else formats
-([modules/fmt](../modules/fmt/README.md#configuration)). Text includes read-only data such as the CRC tables.
+rotate, bit reversal, bit fields, and alignment (1 318 bytes in all, trap). `fmt` is measured with `FMT_PRINTF_BUILTIN`: the three
+conversions, the printf parser, and the buffered-writer entry points, each
+its own object, so a program links only what it calls (M3's `fmt`, with
+`el_fmt` and the hex dump, was 1 705, trap). `FMT_PRINTF_LIBC` was not
+measured in a Zephyr build here; the proposal's prototype measurements are
+in [its Code size section](proposals/io-buffers-fmt.md#code-size). Text includes read-only data such as the CRC tables.
 
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
@@ -653,62 +705,71 @@ and exited successfully.
 | Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
-| Unit and helper tests | passed | passed | passed | passed | passed | passed | not run |
+| Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
-| io contract suite: memory streams | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | passed (per module) | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed | not run |
-| io contract suite: grow writer (`IO_ALLOC`) | passed | passed | passed | passed | passed | passed | not run |
-| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
-| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | libc heap platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
 | C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
-| fmt: typed calls and printf subset, literal expectations | passed | passed | passed | passed | passed | passed | not run |
-| fmt: printf subset against glibc `snprintf`, every capacity; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | passed (per module) | not run |
+| fmt: printf subset against glibc `snprintf`, every capacity and through a buffered writer stalling after every k; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
-| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed | not run |
-| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
+| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed (per module) | not run |
+| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
-| fmt: every fmt test with `FMT_LIBC` (`variant_defconfig`), against glibc's and picolibc's `snprintf` | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
-| crc: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin | passed: 4-bit, 8-bit | passed: 4-bit, 8-bit | n/a | n/a | n/a | n/a |
+| fmt: every fmt test with `FMT_PRINTF_LIBC` (`variant_defconfig`), `fmt.libc` against glibc's and picolibc's `snprintf` (floats skipped at picolibc's integer level) | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
+| crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
-| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (portable) | not run |
+| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per module) | not run |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
 
-The hosted presets run 330 GoogleTest tests, of which 18 are reported as
+The hosted presets run 416 GoogleTest tests, of which 31 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 344 CTest tests in
-all, 342 under sanitizers. `assert-off` runs 296: the same less the 48
-tests of the `*.violations` binaries, which are not built without
-assertions. The two Rust
-sketches are skipped under sanitizers because a plain `rustc` link has no
-sanitizer runtime.
+integration, and two format-attribute compile checks: 430 CTest tests in
+all. `sanitize` runs 435: its `variant_defconfig` adds `fmt.libc` and the
+libc option's violations, and the two Rust sketches are skipped under
+sanitizers because a plain `rustc` link has no sanitizer runtime.
+`assert-off` runs 379: 430 less the 51 tests of the `*.violations`
+binaries, which are not built without assertions.
 
-The Zephyr test image runs 203 of those GoogleTest tests: all but the POSIX
-and C library backends', the death tests, and the host-only `fmt.oracle`
-and `bytes.portable`.
-9 are skipped, the same 9 as on the host for those fixtures. Twister reports
-the six test configurations passed (the three `elemental.tests` boards and
-the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 194 passed and 9
-skipped on each, by GoogleTest's count; Twister adds one case for the image
-itself) and
-`elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
+The Zephyr tests are 284 of those GoogleTest tests: all but the POSIX and
+C library backends', the death tests, and the host-only `fmt.oracle` and
+`bytes.portable`; 291 in the `variant` scenario, with `fmt.libc`. Twister
+(2026-11-13, M3a) reports 21 test configurations passed and
+`elemental.symbols.armv6m` built, with no warnings:
+
+- `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
+  `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
+  same on each board: `status` 5 and 0, `alloc` 55 and 3, `io` 126 and 17,
+  `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (284 together);
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 264 passed
+  and 20 skipped, `variant` 271 and 21 (`fmt.libc`'s float test skipped at
+  picolibc's integer level).
+
+Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.
 
 `fmt`'s literal-expectation tests (`fmt.unit`) pass unchanged on
-`mps2/an385` and `nucleo_g0b1re_renode`, so its output is byte-identical
-on the host, on an emulated ARMv7-M, and on an emulated ARMv6-M. The
-ARMv6-M evidence is an emulator run on a modified model, not hardware.
+`mps2/an385` and `nucleo_g0b1re_renode`, so the portable subset's output is
+byte-identical on the host, an emulated ARMv7-M and an emulated ARMv6-M
+with `FMT_PRINTF_BUILTIN`, and on the host and the ARMv7-M with
+`FMT_PRINTF_LIBC` (`sanitize`, `variant`). No scenario runs
+`FMT_PRINTF_LIBC` on the Cortex-M0+. The ARMv6-M evidence is an emulator
+run on a modified model, not hardware.
 
 Additionally, each run once by hand and not part of the automated suite:
 
@@ -763,7 +824,7 @@ Additionally, each run once by hand and not part of the automated suite:
   first survived, because a null access crashes on the host anyway; the
   death tests of these modules now accept only a death by the check (a
   trap or an abort), not `SIGSEGV`.
-- Eight deliberately broken variants of `FMT_LIBC`, built with
+- Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in
   decimal, a number allowed to overrun by a byte, and a number copied in

@@ -1,16 +1,17 @@
 /*
- * Contract fixture for the grow writer, over a stack arena wrapped in the
- * checking allocator, so every buffer it frees is checked against the size
- * it was allocated with, and none is left behind.
+ * Contract fixture for an el_grow_buf as a writer, over a stack arena
+ * wrapped in the checking allocator, so every block it frees is checked
+ * against the size it was allocated with, and none is left behind.
  *
  * io_alloc has no reader. The fixture's reader is a memory reader, which
- * the suite requires; it adds nothing that io.contract.mem does not test.
+ * the suite requires; it adds nothing that io.contract.buf does not test.
  *
- * The grow writer cannot stall, and it does not end: when it cannot grow it
- * reports EL_ERR_NO_SPACE, which is not permanent. So the stalled and
- * ending capabilities are absent.
+ * A grown buffer cannot stall and does not end. It reports EL_ERR_NO_SPACE
+ * when its allocator refuses, but where that happens depends on how growth
+ * meets the arena, not on an exact byte count. So the stalled, ending and
+ * full capabilities are absent.
  */
-#include "fixture_grow.h"
+#include "fixture_grow_buf.h"
 
 #include <elemental/alloc_arena.h>
 #include <elemental/alloc_contract.h>
@@ -25,8 +26,8 @@ static struct {
     el_stack_arena arena;
     el_alloc_check_record records[4];
     el_alloc_checker checker;
-    el_grow_writer writer;
-    int writer_open;
+    el_grow_buf grown;
+    el_buf *buf;
     el_mem_reader reader;
     size_t taken;
 } state;
@@ -34,11 +35,11 @@ static struct {
 static void reset(void *ctx)
 {
     (void)ctx;
-    if (state.writer_open) {
-        el_grow_writer_deinit(&state.writer);
-        state.writer_open = 0;
+    if (state.buf != NULL) {
+        el_grow_buf_deinit(&state.grown);
+        state.buf = NULL;
         if (el_alloc_checker_live(&state.checker) != 0) {
-            abort(); /* The writer left a buffer behind. */
+            abort(); /* The buffer left a block behind. */
         }
     }
     el_mem_reader_init(&state.reader, NULL, 0);
@@ -59,17 +60,16 @@ static el_writer writer_with_room(void *ctx, size_t room)
     el_stack_arena_init(&state.arena, state.storage, sizeof(state.storage));
     el_alloc_checker_init(&state.checker, el_stack_arena_as_allocator(&state.arena), state.records,
                           sizeof(state.records) / sizeof(state.records[0]));
-    el_grow_writer_init(&state.writer, el_alloc_checker_as_allocator(&state.checker));
-    state.writer_open = 1;
+    state.buf = el_grow_buf_init(&state.grown, el_alloc_checker_as_allocator(&state.checker));
     state.taken = 0;
-    return el_grow_writer_as_writer(&state.writer);
+    return el_buf_as_writer(state.buf);
 }
 
 static size_t writer_take(void *ctx, uint8_t *out, size_t cap)
 {
     (void)ctx;
-    const uint8_t *const data = el_grow_writer_data(&state.writer);
-    const size_t available = el_grow_writer_len(&state.writer) - state.taken;
+    const uint8_t *const data = el_buf_data(state.buf);
+    const size_t available = el_buf_len(state.buf) - state.taken;
     const size_t count = available < cap ? available : cap;
     for (size_t i = 0; i < count; i++) {
         out[i] = data[state.taken + i];
@@ -78,8 +78,8 @@ static size_t writer_take(void *ctx, uint8_t *out, size_t cap)
     return count;
 }
 
-const el_io_contract_fixture io_alloc_fixture_grow = {
-    .name = "grow_writer",
+const el_io_contract_fixture io_alloc_fixture_grow_buf = {
+    .name = "el_grow_buf",
     .ctx = NULL,
     .reset = reset,
     .reader_with_content = reader_with_content,
@@ -88,4 +88,5 @@ const el_io_contract_fixture io_alloc_fixture_grow = {
     .reader_stalled = NULL,
     .writer_stalled = NULL,
     .writer_ending_after = NULL,
+    .writer_full_after = NULL,
 };

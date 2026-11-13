@@ -8,8 +8,9 @@
 //!   1. A C stream used from Rust (`MemReader` implements `std::io::Read`).
 //!   2. A Rust object used from C (`WriterAdapter` hands any `std::io::Write`
 //!      to C as an `el_writer`).
-//!   3. The non-variadic core of `fmt`, and `crc` and `bytes`, called on Rust
-//!      memory: the formatted text is a slice of the Rust buffer.
+//!   3. The non-variadic core of `fmt` (the conversions) with an `io` buffer,
+//!      and `crc` and `bytes`, called on Rust memory: the formatted text is a
+//!      slice of the Rust buffer.
 //!
 //! The declarations are written by hand, as a real binding's generated ones
 //! would look.
@@ -78,36 +79,46 @@ extern "C" {
 
 pub const EL_ERR_NO_SPACE: ElemStatus = 4;
 
-/// `el_fmt`: public layout, so Rust provides the storage.
+/// The longest conversion, from `elemental/fmt.h`.
+pub const EL_FMT_INT_LEN_MAX: usize = 20;
+
+/// `el_buf`: public layout, so Rust provides the storage. `grow` is null for
+/// fixed storage; Rust never calls it.
 #[repr(C)]
-pub struct ElemFmt {
-    buf: *mut c_char,
-    cap: usize,
+pub struct ElemBuf {
+    data: *mut u8,
     len: usize,
-    status: ElemStatus,
+    cap: usize,
+    grow: Option<unsafe extern "C" fn(*mut ElemBuf, usize) -> ElemStatus>,
 }
 
 extern "C" {
-    fn el_fmt_init(f: *mut ElemFmt, buf: *mut c_char, cap: usize);
-    fn el_fmt_len(f: *const ElemFmt) -> usize;
-    fn el_fmt_str(f: *mut ElemFmt, s: *const c_char, len: usize) -> ElemStatus;
-    fn el_fmt_dec_u64(f: *mut ElemFmt, value: u64, width: usize, flags: u32) -> ElemStatus;
-    fn el_fmt_dec_i64(f: *mut ElemFmt, value: i64, width: usize, flags: u32) -> ElemStatus;
+    fn el_buf_init(b: *mut ElemBuf, storage: *mut c_void, cap: usize);
+    fn el_buf_len(b: *const ElemBuf) -> usize;
+    fn el_buf_append(b: *mut ElemBuf, data: *const c_void, len: usize) -> ElemStatus;
+    fn el_fmt_dec_u64(out: *mut c_char, cap: usize, value: u64) -> usize;
+    fn el_fmt_dec_i64(out: *mut c_char, cap: usize, value: i64) -> usize;
     fn el_crc32_update(crc: u32, data: *const c_void, len: usize) -> u32;
     fn el_bytes_store_be64(dst: *mut c_void, value: u64);
     fn el_bytes_load_be64(src: *const c_void) -> u64;
 }
 
 /// Formats `value` after `label` into `buf`, and returns the status and the
-/// text written: a borrow of `buf`, so no copy and no allocation.
+/// text written: a borrow of `buf`, so no copy and no allocation. The number
+/// is converted into a scratch array, then appended whole or not at all.
 fn format_into<'a>(buf: &'a mut [u8], label: &str, value: i64) -> (ElemStatus, &'a [u8]) {
-    let mut f = std::mem::MaybeUninit::<ElemFmt>::uninit();
-    // SAFETY: el_fmt_init initializes the whole struct; the buffer outlives `f`.
+    let mut digits = [0u8; EL_FMT_INT_LEN_MAX];
+    let mut b = std::mem::MaybeUninit::<ElemBuf>::uninit();
+    // SAFETY: el_buf_init initializes the whole struct; the storage outlives
+    // `b`; the digits are a live array of the size passed.
     let (status, len) = unsafe {
-        el_fmt_init(f.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len());
-        el_fmt_str(f.as_mut_ptr(), label.as_ptr().cast(), label.len());
-        let status = el_fmt_dec_i64(f.as_mut_ptr(), value, 0, 0);
-        (status, el_fmt_len(f.as_ptr()))
+        let n = el_fmt_dec_i64(digits.as_mut_ptr().cast(), digits.len(), value);
+        el_buf_init(b.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len());
+        let mut status = el_buf_append(b.as_mut_ptr(), label.as_ptr().cast(), label.len());
+        if status == EL_OK {
+            status = el_buf_append(b.as_mut_ptr(), digits.as_ptr().cast(), n);
+        }
+        (status, el_buf_len(b.as_ptr()))
     };
     (status, &buf[..len])
 }
@@ -317,15 +328,10 @@ fn main() {
     let (status, text) = format_into(&mut buf, "min=", i64::MIN);
     assert_eq!(status, EL_OK);
     assert_eq!(text, b"min=-9223372036854775808");
-    let mut f = std::mem::MaybeUninit::<ElemFmt>::uninit();
-    // SAFETY: as in format_into.
-    let n = unsafe {
-        el_fmt_init(f.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len());
-        assert_eq!(el_fmt_dec_u64(f.as_mut_ptr(), u64::MAX, 0, 0), EL_OK);
-        el_fmt_len(f.as_ptr())
-    };
-    assert_eq!(&buf[..n], b"18446744073709551615");
-    assert_eq!(buf[n], 0, "NUL-terminated");
+    let mut digits = [0u8; EL_FMT_INT_LEN_MAX];
+    // SAFETY: a live array of the size passed.
+    let n = unsafe { el_fmt_dec_u64(digits.as_mut_ptr().cast(), digits.len(), u64::MAX) };
+    assert_eq!(&digits[..n], b"18446744073709551615");
 
     // 3b. Too small: the number is left out whole, and the status says so.
     let mut small = [0u8; 8];

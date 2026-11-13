@@ -91,8 +91,8 @@ alignment padding separated the allocations; otherwise the padding, and
 anything below it, waits for the reset
 ([alloc_arena.h](include/elemental/alloc_arena.h)).
 
-The growable writer that uses an allocator is
-[`el_grow_writer`](../io/README.md#the-grow-writer-io_alloc), in `io`.
+The growable buffer that uses an allocator is
+[`el_grow_buf`](../io/README.md#buffers-io_buf-io_alloc), in `io`.
 
 ## Implementing an allocator
 

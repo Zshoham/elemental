@@ -164,8 +164,9 @@ static el_writer writer_stalled(void *ctx)
 static pipe_state blocking = {.nonblocking = false, .read_fd = -1, .write_fd = -1};
 static pipe_state nonblocking = {.nonblocking = true, .read_fd = -1, .write_fd = -1};
 
-/* A pipe cannot be made to end after an exact byte count, so
- * writer_ending_after is absent; io_posix_test.cpp covers EPIPE. */
+/* A pipe cannot be made to end, or to be full without stalling, after an
+ * exact byte count, so writer_ending_after and writer_full_after are absent;
+ * io_posix_test.cpp covers EPIPE. */
 
 const el_io_contract_fixture io_posix_fixture_blocking_pipe = {
     .name = "io_posix (blocking pipe)",

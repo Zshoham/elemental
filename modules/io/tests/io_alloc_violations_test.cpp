@@ -1,6 +1,6 @@
 /*
- * The grow writer's contract violations stop the program. Death tests, as
- * in io_violations_test.cpp.
+ * el_grow_buf's contract violations stop the program. Death tests, as in
+ * io_violations_test.cpp.
  */
 #include <gtest/gtest.h>
 
@@ -46,41 +46,34 @@ class IoAllocViolations : public testing::Test
     alignas(16) uint8_t storage[64];
     el_bump_arena arena;
     el_allocator a;
-    el_grow_writer gw;
-    size_t n = 0;
+    el_grow_buf g;
 };
 
 using IoAllocViolationsDeathTest = IoAllocViolations;
 
 TEST_F(IoAllocViolations, CorrectUseDoesNotTripACheck)
 {
-    el_grow_writer_init(&gw, a);
-    const uint8_t byte = 1;
-    EXPECT_EQ(el_write(el_grow_writer_as_writer(&gw), &byte, 1, &n), EL_OK);
-    EXPECT_EQ(el_grow_writer_len(&gw), 1u);
-    el_grow_writer_deinit(&gw);
+    el_buf *const b = el_grow_buf_init(&g, a);
+    EXPECT_EQ(el_buf_append(b, "x", 1), EL_OK);
+    el_grow_buf_deinit(&g);
+    /* After deinit the buffer is a valid, always full fixed buffer. */
+    EXPECT_EQ(el_buf_append(b, "x", 1), EL_ERR_NO_SPACE);
+    (void)el_grow_buf_init(&g, a);
+    el_grow_buf_deinit(&g);
 }
 
-TEST_F(IoAllocViolationsDeathTest, CallerBreaksAGrowWriterPrecondition)
+TEST_F(IoAllocViolationsDeathTest, CallerBreaksAGrowBufPrecondition)
 {
-    EXPECT_VIOLATION(el_grow_writer_init(nullptr, a));
-    EXPECT_VIOLATION(el_grow_writer_init(&gw, el_allocator{nullptr, nullptr}));
-    EXPECT_VIOLATION((void)el_grow_writer_as_writer(nullptr));
-    EXPECT_VIOLATION((void)el_grow_writer_data(nullptr));
-    EXPECT_VIOLATION((void)el_grow_writer_len(nullptr));
-    EXPECT_VIOLATION(el_grow_writer_deinit(nullptr));
+    EXPECT_VIOLATION((void)el_grow_buf_init(nullptr, a));
+    EXPECT_VIOLATION((void)el_grow_buf_init(&g, el_allocator{nullptr, nullptr}));
+    EXPECT_VIOLATION(el_grow_buf_deinit(nullptr));
 }
 
-TEST_F(IoAllocViolationsDeathTest, CallerUsesAWriterAfterDeinit)
+TEST_F(IoAllocViolationsDeathTest, CallerDeinitializesTwice)
 {
-    el_grow_writer_init(&gw, a);
-    const el_writer w = el_grow_writer_as_writer(&gw);
-    el_grow_writer_deinit(&gw);
-    const uint8_t byte = 1;
-    EXPECT_VIOLATION(el_write(w, &byte, 1, &n));
-    EXPECT_VIOLATION((void)el_grow_writer_as_writer(&gw));
-    EXPECT_VIOLATION((void)el_grow_writer_len(&gw));
-    EXPECT_VIOLATION(el_grow_writer_deinit(&gw));
+    (void)el_grow_buf_init(&g, a);
+    el_grow_buf_deinit(&g);
+    EXPECT_VIOLATION(el_grow_buf_deinit(&g));
 }
 
 } // namespace

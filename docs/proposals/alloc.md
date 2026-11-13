@@ -6,6 +6,10 @@ Status: Accepted (2026-11-12), with the owner's decisions recorded in
 [Amendment](#amendment-2026-11-13).
 Author, date: design pass for M2, 2026-11-11; accepted 2026-11-12
 
+> **Revised in M3a.** `el_grow_writer` is replaced by `el_grow_buf`, buffer
+> storage that grows, in `io` ([io buffers and fmt proposal](io-buffers-fmt.md)).
+> The allocator contract here is unchanged.
+
 ## As accepted and implemented
 
 The proposal below is kept as written for review, with names brought up to
