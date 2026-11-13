@@ -79,8 +79,8 @@ of a bare handle must flush. In that case a null operation means "nothing
 to flush" and returns `EL_OK`, so no `EL_ERR_UNSUPPORTED` is needed.
 *Risk:* freezing buffer ownership before async discovery has looked at it.
 *Under review:* the [io buffers and fmt proposal](proposals/io-buffers-fmt.md)
-designs the buffer, the buffered writer and the buffered reader, and would
-build the first two before M4.
+designs the buffer and the buffered writer, to be built before M4; the
+buffered reader is sketched there and is to be proposed again with `frame`.
 
 **`alloc`: allocation.** As in
 [architecture.md](architecture.md#62-allocation--proposed): a handle, an

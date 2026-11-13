@@ -1,25 +1,29 @@
 # Proposal: buffers in io, and fmt reworked on them
 
-Status: Draft, for the owner's review
-Author, date: design pass, 2026-11-13
+Status: Draft, revised after an independent review (2026-11-13)
+Author, date: design pass, 2026-11-13; revised the same day
 
-This changes two existing modules rather than adding one. **`io`** gets one
-memory buffer type, `el_buf`, and two buffered adapters built on it. That
-buffer replaces `el_mem_writer` and `el_grow_writer`. **`fmt`** shrinks to
-pure number conversions. Its printf front end formats into an `el_buf` or a
-buffered writer, so `fmt` now depends on `io`. The platform-formatter
-option moves from digit generation to printf.
+This changes two existing modules rather than adding one.
 
-The direction is the owner's ([Problem](#problem)). This document develops
-it, measures it, and challenges two points:
+- **`io`** gets one memory buffer type, `el_buf`, a grown variant,
+  `el_grow_buf`, and a buffered writer built on them. Together they replace
+  `el_mem_writer` and `el_grow_writer`. A buffered reader is sketched, and
+  is to be proposed again with `frame`.
+- **`fmt`** shrinks to pure number conversions. Its printf front end
+  formats into an `el_buf` or a buffered writer, so `fmt` now depends on
+  `io`. The platform-formatter option moves from digit generation to
+  printf.
 
-- the buffered reader should be built with `frame`, not now (decision 14);
-- truncation should not be sticky across calls (decision 7).
+The direction is the owner's ([Problem](#problem)). The owner has since
+decided the points the review raised ([Review and
+revisions](#review-and-revisions)). What is still open is listed in
+[Decisions for the owner](#decisions-for-the-owner).
 
 Labels are as in [architecture.md](../architecture.md):
 
 - **Source fact**: something read in a cited source ([Sources](#sources)).
-- **Measured**: a number produced in this pass. The method is stated with it.
+- **Measured**: a number produced in this pass. The method is stated with
+  it.
 - Everything else is a recommendation.
 
 Milestones are the [roadmap's](../roadmap.md). The decisions this would
@@ -28,7 +32,56 @@ reverse or replace:
 - [fmt proposal decision 3](fmt.md#decisions) ("its own cursor");
 - module-plan's ["Where stream glue lives"](../module-plan.md#3-decisions-that-must-come-first);
 - [ADR 0011](../adr/0011-formatting-truncation.md);
-- the [fmt amendment](fmt.md#amendment-2026-11-12) (`FMT_BUILTIN` / `FMT_LIBC`).
+- the [fmt amendment](fmt.md#amendment-2026-11-12) (`FMT_BUILTIN` /
+  `FMT_LIBC`).
+
+## Review and revisions
+
+An independent review of the first draft took place on 2026-11-13. The
+owner decided its open findings the same day.
+
+**A. Buffered writer failures, with no latched error.** In the draft,
+`write` broke `io.h` in three ways:
+
+- a write-through that met `EL_ERR_END_OF_STREAM` left the buffer empty,
+  so a later small write succeeded, which breaks permanence;
+- the pass-on attempt swallowed `EL_ERR_IO` and still returned `EL_OK`;
+- grown storage was left undefined.
+
+Now the pass-on is one attempt. Any status other than
+`EL_ERR_WOULD_BLOCK` is returned with nothing taken. A would-block leads to
+buffering (or to growth, under B).
+
+**B. Grown storage in a buffered writer grows instead of waiting, and the
+allocator sets the bound.** When the stream would block, a grown buffer
+asks its allocator for more room. No limit lives in the buffer.
+
+**C. `el_buf` is four words, and grown storage is its own type.**
+`el_buf` is `{data, len, cap, grow}`. `el_grow_buf` (in `io_alloc.h`) holds
+an `el_buf` and the allocator. A fixed buffer has no `deinit`. This fixes
+two review findings:
+
+- `el_buf_deinit` in `io_buf.h` referenced `el_free`, which defeated the
+  link-time claim;
+- use after `deinit` could not be detected for fixed storage.
+
+The owner also accepted these:
+
+1. A rule for what the owner may do with an `el_buf` an adapter borrows.
+2. `el_buf_data_mut` for back-patching.
+3. `el_buf_append` is whole-or-nothing, and the partial form is private.
+4. A `pos` in the buffered writer, so a partial flush does not move bytes.
+5. New measurements on current `main`, including the libc option, and the
+   contract suite run against the prototype.
+6. The buffered reader and Example 4 are provisional.
+7. A list of smaller corrections: the portable subset is decided by the
+   whole specification; overflow is a status; and a rename to
+   `EL_FMT_INT_LEN_MAX`.
+
+Each is applied below. Two places where this revision had to interpret the
+owner's decisions are stated with them, in
+[Buffered writer failures](#buffered-writer-failures-decision-a) and
+[decision 17](#decisions-for-the-owner).
 
 ## Problem
 
@@ -57,40 +110,37 @@ That separation costs more than a struct:
   conversions themselves were hard. They need a divide by 10 without a
   helper on ARMv6-M ([fmt proposal](fmt.md#dependencies-and-cost)).
 - **The platform option sits at the wrong layer.** `FMT_LIBC` hands only
-  digit generation to `snprintf`, behind a private split
-  (`fmt_digits_builtin.c` / `fmt_digits_libc.c`). It saves 104 bytes in an
-  image that links printf anyway ([modules/fmt](../../modules/fmt/README.md#configuration)).
+  digit generation to `snprintf`. It saves 104 bytes in an image that links
+  printf anyway ([modules/fmt](../../modules/fmt/README.md#configuration)).
   It does not give what the owner wanted: the platform's own formatting
   (floats, `%p`, flags) through Elemental's interface.
 
 The owner approved this direction:
 
-1. `io` owns buffers. One type has fixed or allocator-grown storage, with
-   two append rules. A memory endpoint and a buffered adapter are different
-   things that share it.
+1. `io` owns buffers, with fixed or allocator-grown storage and two append
+   rules. A memory endpoint and a buffered adapter are different things
+   that share the buffer.
 2. The `fmt` core becomes pure conversions into a caller's scratch array.
 3. printf formats into an io buffer or a buffered writer. It keeps "a
    number is whole or absent", and `fmt` may depend on `io`.
 4. The platform option moves to printf: built-in subset (the default), or
-   libc, which hands each conversion to `snprintf`.
+   libc, which hands each conversion outside that subset to `snprintf`.
 
 ## The model in one table
 
-Three things share one buffer. They must not be confused:
-
 | | What it is | Where the bytes end up | Type |
 |---|---|---|---|
-| **Buffer** | Storage plus a length and two append rules. Not a stream. | In the buffer, for the owner to read | `el_buf` |
-| **Memory endpoint** | A stream that ends in memory: an `el_writer` whose sink is a buffer | In the buffer | `el_buf_as_writer(&buf)` |
-| **Buffered adapter** | A buffer in front of another stream. It passes bytes on (flush) or reads ahead (peek). | In the other stream | `el_buffered_writer`, `el_buffered_reader` |
+| **Buffer** | Storage plus a length. Not a stream. | In the buffer, for its owner to read | `el_buf` (fixed); `el_grow_buf` (holds an `el_buf` that grows) |
+| **Memory endpoint** | A stream that ends in memory | In the buffer | `el_buf_as_writer(buf)` |
+| **Buffered adapter** | A buffer in front of another stream | In the other stream | `el_buffered_writer`; `el_buffered_reader` (provisional) |
 
-Storage is orthogonal to all three:
+Storage is orthogonal to all three. Everything takes an `el_buf *`:
 
-- `el_buf_init(&b, storage, cap)`: fixed caller memory.
-- `el_buf_init_alloc(&b, allocator)`: grown from an allocator.
+- **Fixed:** `el_buf_init(&b, storage, cap)`.
+- **Grown:** `el_buf *b = el_grow_buf_init(&g, allocator)`.
 
-An adapter borrows an `el_buf`, so it gets both storage kinds without an
-init function for each.
+An adapter borrows an `el_buf`, so it works with either storage, with one
+init function.
 
 printf targets the two things that know their free space: a buffer, and a
 buffered writer. A bare `el_writer` does not know its free space, so printf
@@ -98,7 +148,7 @@ cannot keep "whole or absent" on it.
 
 `el_mem_reader` stays as it is, a cursor over **const** bytes. A buffer's
 storage is mutable, so folding the reader into `el_buf` would cast away
-`const` on flash tables and received frames (decision 1).
+`const` on flash tables and received frames.
 
 ## Usage examples
 
@@ -106,15 +156,10 @@ Each example compiled on 2026-11-13 with Clang 23.1.4
 (`-std=c11 -Wall -Wextra -Wpedantic -Wformat=2 -Werror -fsyntax-only`)
 against the header sketches below.
 
-Examples 3 and 4 also ran on the host, linked against a throwaway prototype
-of these headers, under AddressSanitizer and UndefinedBehaviorSanitizer:
-
-- Example 4 parsed three frames fed one byte per call, with a would-block
-  after each byte.
-- Example 3 built a 28-byte message from 3 readings, and returned
-  `EL_ERR_NO_SPACE` for 300 readings over its 2 KiB arena.
-
-The prototype stays out of the tree, as the
+Examples 1, 2, 2b, 3 and 4 also ran on the host, linked against a
+throwaway prototype of these headers. They ran under GCC 16.2.1 with
+AddressSanitizer and UndefinedBehaviorSanitizer, with their outputs as the
+text of each example states. The prototype stays out of the tree, as the
 [process](../process/new-module.md#the-path) asks.
 
 ### Example 1: a log line formatted into a fixed buffer, sent to two sinks
@@ -158,11 +203,10 @@ el_status log_line(log_out *out, uint64_t ticks, const char *level,
     if (st != EL_OK) {
         out->truncated++; /* still sent: a cut line beats no line */
     }
-    /* End the line even when it is full, over its last byte. */
-    if (el_buf_room(&line) == 0) {
-        el_buf_truncate(&line, el_buf_len(&line) - 1);
+    /* End the line; a full one gets its last byte replaced. */
+    if (el_buf_append(&line, "\n", 1) != EL_OK) {
+        el_buf_data_mut(&line)[el_buf_len(&line) - 1] = '\n';
     }
-    (void)el_buf_append_whole(&line, "\n", 1);
 
     const el_status a = el_write_all(out->console, el_buf_data(&line), el_buf_len(&line), NULL);
     const el_status b = el_write_all(out->file, el_buf_data(&line), el_buf_len(&line), NULL);
@@ -170,15 +214,18 @@ el_status log_line(log_out *out, uint64_t ticks, const char *level,
 }
 ```
 
+When run with a message longer than the line, the result was 96 bytes:
+the header, the message cut at its last fitting byte with that byte
+replaced, and `'\n'`. `truncated` was 1.
+
 What changed from [fmt Example 1](fmt.md#example-1-a-log-line-into-a-stack-buffer-the-common-case):
 
-- **The two calls are chained** (`if (st == EL_OK)`). Truncation is sticky
-  within one printf call, not across calls (decision 7). The chain is what
-  keeps `"count= ok"` from appearing after a dropped count.
-- **No byte is held back** for a terminator, and none for the newline.
-  `el_buf_truncate` overwrites the last byte instead.
-- **Formatted once, sent twice.** The buffer does not care how many sinks
-  read it.
+- **The two calls are chained** (`if (st == EL_OK)`). Truncation stops
+  within one printf call and does not carry over to the next (decision 7).
+  The chain is what keeps `"count= ok"` from appearing after a dropped
+  count.
+- **No byte is held back** for a terminator or for the newline.
+- **Formatted once, sent twice.**
 
 ### Example 2: printf straight to a non-blocking UART through a buffered writer
 
@@ -208,18 +255,28 @@ void console_init(void)
     el_buffered_writer_init(&console, uart_writer(), &console_buf);
 }
 
-/* From the main loop. Never blocks: a report that finds no room is dropped
- * whole, and one that is longer than LINE_MAX is cut at an item. */
+/* From the main loop. Never blocks. A report that finds no room for a
+ * LINE_MAX line is dropped whole; a longer one streams, and a stall in the
+ * middle of it leaves the UART mid-line. */
 void report(uint32_t uptime_s, const char *name, size_t name_len, int32_t temp_mc)
 {
     /* Room for a whole line first, passing earlier lines on if need be.
-     * After this, the printf below cannot reach the UART mid-line. */
+     * After this, a line of at most LINE_MAX bytes cannot reach the UART
+     * before it is complete. */
     if (el_buffered_writer_reserve(&console, LINE_MAX) != EL_OK) {
         reports_dropped++;
         return;
     }
-    (void)el_fmt_printf_buffered(&console, "%8" PRIu32 " %.*s %" PRId32 " mC\n", uptime_s,
-                                 (int)name_len, name, temp_mc);
+    const size_t mark = el_buf_len(&console_buf);
+    if (el_fmt_printf_buffered(&console, "%8" PRIu32 " %.*s %" PRId32 " mC\n", uptime_s,
+                               (int)name_len, name, temp_mc) != EL_OK) {
+        /* Only possible for a line over LINE_MAX. If nothing was passed on
+         * since the mark, take the partial line back. */
+        if (el_buf_len(&console_buf) - el_buffered_writer_pending(&console) <= mark) {
+            el_buf_truncate(&console_buf, mark);
+        }
+        reports_dropped++;
+    }
     (void)el_buffered_writer_flush(&console); /* what the FIFO takes now */
 }
 
@@ -230,16 +287,81 @@ void console_poll(void)
 }
 ```
 
-This example is where the resumability problem gets settled
-([below](#printf-into-a-buffered-writer-the-resumability-problem)). printf
-into a buffered writer streams. When the buffer cannot take the next item,
-printf passes buffered bytes on to make room. A line longer than the whole
-buffer still goes out.
+When run with the UART stalled, six reports were buffered and none were
+dropped. After `console_poll` with the FIFO draining, all 150 bytes went
+out, each line whole.
 
-If the UART stalls mid-call, printf stops at an item boundary and returns
-`EL_ERR_WOULD_BLOCK`. Everything it accepted stays buffered for the next
-flush. The reserve-first pattern above makes each line all-or-nothing
-whenever the line fits in `LINE_MAX`. It needs no new function.
+This example settles the resumability problem
+([below](#printf-into-a-buffered-writer-the-resumability-problem)):
+
+- printf into a buffered writer streams. When the buffer cannot take the
+  next item, printf passes buffered bytes on to make room, so a line
+  longer than the whole buffer still goes out.
+- If the UART stalls mid-call, printf stops at an item boundary and returns
+  `EL_ERR_WOULD_BLOCK`. Everything it accepted stays buffered.
+- Reserve-first makes each line of at most `LINE_MAX` bytes all-or-nothing.
+- `el_buf_truncate` back to the mark is the rollback, allowed while those
+  bytes have not been passed on ([Borrowing](#what-the-owner-may-do-while-an-adapter-borrows-the-buffer)).
+
+### Example 2b: grown storage that absorbs a burst instead of waiting
+
+```c
+#include <stddef.h>
+#include <stdint.h>
+
+#include <elemental/alloc_arena.h>
+#include <elemental/fmt_printf.h>
+#include <elemental/io_alloc.h>
+#include <elemental/io_buffered.h>
+
+/* A trace stream on Linux: a non-blocking pipe to a slower reader. Bursts
+ * should be absorbed in memory rather than dropped, but never more than
+ * 16 KiB of it: the arena is the bound, not the buffer. */
+static uint8_t trace_arena_storage[16384];
+static el_bump_arena trace_arena;
+static el_grow_buf trace_storage;
+static el_writer trace_pipe;
+static el_buffered_writer trace;
+
+void trace_init(el_writer nonblocking_pipe)
+{
+    trace_pipe = nonblocking_pipe;
+    el_bump_arena_init(&trace_arena, trace_arena_storage, sizeof trace_arena_storage);
+    el_buf *const buf = el_grow_buf_init(&trace_storage, el_bump_arena_as_allocator(&trace_arena));
+    el_buffered_writer_init(&trace, trace_pipe, buf);
+}
+
+/* EL_ERR_WOULD_BLOCK: the pipe is full and the arena is spent; the event
+ * was cut at an item, or dropped if nothing of it fitted. */
+el_status trace_event(uint32_t id, const char *what)
+{
+    const el_status st = el_fmt_printf_buffered(&trace, "%u %s\n", (unsigned)id, what);
+    (void)el_buffered_writer_flush(&trace); /* pass on what the pipe takes */
+    return st;
+}
+
+/* When the pipe has drained (and the buffer with it), start the arena over:
+ * a bump arena gets nothing back from the frees growth makes. */
+void trace_idle(void)
+{
+    if (el_buffered_writer_flush(&trace) == EL_OK) {
+        el_grow_buf_deinit(&trace_storage);
+        el_bump_arena_reset(&trace_arena);
+        el_buffered_writer_init(&trace, trace_pipe,
+                                el_grow_buf_init(&trace_storage,
+                                                 el_bump_arena_as_allocator(&trace_arena)));
+    }
+}
+```
+
+When run with the pipe full throughout, 830 events (8 190 bytes) were
+absorbed before the arena refused. The next event returned
+`EL_ERR_WOULD_BLOCK`, and when the pipe drained, all 8 190 bytes reached
+it.
+
+The arena held about twice what the buffer held. That is growth over an
+allocator that does not reclaim, the same cost as today's grow writer
+([io README](../../modules/io/README.md)).
 
 ### Example 3: a message of unknown size in an allocator-grown buffer
 
@@ -265,21 +387,21 @@ el_status publish(const uint8_t *msg, size_t len);
 /* {"r":[[1,-40],[2,1250],...]} for any number of readings. */
 el_status publish_readings(const reading *r, size_t count, el_allocator scratch)
 {
-    el_buf msg;
-    el_buf_init_alloc(&msg, scratch); /* allocates nothing yet */
+    el_grow_buf storage;
+    el_buf *const msg = el_grow_buf_init(&storage, scratch); /* allocates nothing yet */
 
-    el_status st = el_buf_append_whole(&msg, "{\"r\":[", 6);
+    el_status st = el_buf_append(msg, "{\"r\":[", 6);
     for (size_t i = 0; i < count && st == EL_OK; i++) {
-        st = el_fmt_printf(&msg, "%s[%" PRIu16 ",%" PRId32 "]", i == 0 ? "" : ",",
+        st = el_fmt_printf(msg, "%s[%" PRIu16 ",%" PRId32 "]", i == 0 ? "" : ",",
                            r[i].sensor, r[i].value);
     }
     if (st == EL_OK) {
-        st = el_buf_append_whole(&msg, "]}", 2);
+        st = el_buf_append(msg, "]}", 2);
     }
     if (st == EL_OK) { /* EL_ERR_NO_SPACE: the allocator ran out */
-        st = publish(el_buf_data(&msg), el_buf_len(&msg));
+        st = publish(el_buf_data(msg), el_buf_len(msg));
     }
-    el_buf_deinit(&msg); /* frees with the capacity it allocated */
+    el_grow_buf_deinit(&storage); /* frees with the capacity it allocated */
     return st;
 }
 
@@ -294,16 +416,17 @@ el_status publish_from_arena(const reading *r, size_t count)
 }
 ```
 
-The same printf call works on fixed and grown storage. A grown buffer
-returns `EL_ERR_NO_SPACE` only when the allocator refuses.
+When run, 3 readings gave a 28-byte message. 300 readings returned
+`EL_ERR_NO_SPACE` over the 2 KiB arena.
 
-[ADR 0012](../adr/0012-sized-free.md)'s hazard is to free with the length
-instead of the capacity. That hazard stays inside `el_buf_deinit`, as it did
-inside `el_grow_writer_deinit`.
+The same printf call works on fixed and grown storage, because both are an
+`el_buf *`. [ADR 0012](../adr/0012-sized-free.md)'s hazard is to free with
+the length instead of the capacity. That hazard stays inside
+`el_grow_buf_deinit`, which frees with `el_layout_make(cap, 1)`
+([ADR 0013](../adr/0013-allocation-layout.md)).
 
-The [alloc proposal](alloc.md#example-2-a-growable-buffer) has
-`read_to_end`. With this API it reads straight into the buffer's spare room,
-with no 64-byte bounce chunk:
+The [alloc proposal's](alloc.md#example-2-a-growable-buffer) `read_to_end`
+reads straight into the buffer's spare room:
 
 ```c
 for (;;) {
@@ -317,7 +440,15 @@ for (;;) {
 }
 ```
 
-### Example 4: a frame parser reading through a buffered reader with peek
+### Example 4 (provisional): a frame parser reading through a buffered reader
+
+**Provisional.** The buffered reader is to be proposed again with `frame`
+(M6), whose COBS decoder may want a different primitive than `peek(min)`
+([open question 1](#open-questions)). This proposal accepts only one thing
+about readers: that `el_buf`'s spare/commit, plus a front removal private
+to `io`, are enough to build one. Example 4 is that evidence. It ran on the
+host and parsed three frames fed one byte per call, with a would-block
+after each byte.
 
 ```c
 #include <stddef.h>
@@ -376,18 +507,6 @@ el_status frame_rx_poll(frame_rx *rx, frame_handler handle, void *ctx)
 }
 ```
 
-A half-received frame lives in the reader, not in the caller. That is what
-makes `EL_ERR_WOULD_BLOCK` cheap to handle here, and what "keeps the
-would-block handling in one place", as the
-[`frame` plan entry](../module-plan.md#named-by-the-owner) asks.
-
-`EL_ERR_INVALID_DATA` does not exist yet (M6), so the example borrows
-`EL_ERR_NO_SPACE` for an oversized length. That is honest only in the sense
-that the frame does not fit the buffer.
-
-This example is length-prefix framing. COBS, which scans for a delimiter,
-fits `peek(min)` less well: see [open questions](#open-questions).
-
 ### From another language: the core, without printf
 
 ABI rule 5 keeps variadics out of contracts, so a binding calls the
@@ -396,50 +515,47 @@ conversions and the buffer directly:
 ```c
 el_status put_id(el_buf *out, uint32_t id)
 {
-    char digits[EL_FMT_INT_MAX];
+    char digits[EL_FMT_INT_LEN_MAX];
     const size_t n = el_fmt_dec_u64(digits, sizeof digits, id);
-    el_status st = el_buf_append_whole(out, "id=", 3);
+    el_status st = el_buf_append(out, "id=", 3);
     if (st == EL_OK) {
-        st = el_buf_append_whole(out, digits, n);
+        st = el_buf_append(out, digits, n);
     }
     return st;
 }
 ```
 
 ```rust
-let mut digits = [0u8; EL_FMT_INT_MAX];
+let mut digits = [0u8; EL_FMT_INT_LEN_MAX];
 let n = unsafe { el_fmt_dec_u64(digits.as_mut_ptr().cast(), digits.len(), u64::MAX) };
 assert_eq!(&digits[..n], b"18446744073709551615");
 ```
 
-A conversion has no object and no state, and it cannot fail. That is the
-whole binding story for `fmt`.
-
 ## Backend example
 
-There is no new interface, so there is no new backend. The adapters are
-implementations of `el_writer` and `el_reader` that wrap another
-implementation, and they run the io contract suite like any backend
-([Verification](#verification)). What a platform writes for them is the
-inner stream, such as Example 2's UART writer. That is an ordinary `io`
-backend ([modules/io](../../modules/io/README.md#implementing-a-backend)).
+There is no new interface, so there is no new backend. The buffered writer
+implements `el_writer` by wrapping another implementation. It runs the io
+contract suite like any backend
+([Verification](#verification); results measured against the prototype).
+What a platform writes for it is the inner stream, such as Example 2's UART
+writer. That is an ordinary `io` backend.
 
 ## Why not something that exists
 
 | Candidate | What it does | What is insufficient, or what was taken |
 |---|---|---|
 | Keep today's three types | — | The duplication in [Problem](#problem). printf cannot reach a stream. |
-| Rust `BufWriter`, `BufRead` (1.90.0) | *Source fact:* a write that does not fit flushes first; a write at least the capacity goes straight to the inner writer; drop flushes and ignores errors. `fill_buf` and `consume` are required methods of the `BufRead` trait. `flush` is a required method of `Write`. | **Taken:** flush-then-buffer, write-through for large writes, and peek and consume. **Not taken:** flush on drop (C has no destructor, and ignoring errors is what Rust has to do there). **Not taken:** flush and peek in the interface. Rust can make flush a required method because every writer is written in one language with default methods. Here every wrapper would have to forward it ([decision 5](#flush-and-el_writer_ops)). |
-| Rust `core::fmt::Write` (1.90.0) | *Source fact:* `write_str` returns `fmt::Error`, a unit struct with no information. `io::Write::write_fmt` keeps the real `io::Error` in an `Adapter` beside the formatter. | Same shape as this proposal. printf returns the stream's real status, which C can do directly, so no adapter is needed. |
-| Go `bufio.Writer`, `bufio.Reader`, `bytes.Buffer` (go1.23.0) | *Source fact:* after a write error, `bufio.Writer` accepts nothing more, and `Flush` returns the error, forever. `Flush` is a method of the concrete type, not of `io.Writer`. `Peek` returns `ErrBufferFull` when n exceeds the buffer. `bytes.Buffer` grows to at least twice its capacity. It is a queue with a read offset, and it panics with `ErrTooLarge`. | **Taken:** flush on the concrete type, peek failing past capacity (here `EL_ERR_NO_SPACE`), and doubling growth. **Not taken:** the sticky error, because io's statuses already carry permanence (`EL_ERR_END_OF_STREAM` stays). **Not taken:** the read offset (decision 2). |
-| Pigweed `pw_stream`, `pw_string` (`1b610f4`) | *Source fact:* `Writer` has no `Flush`. `Write` is all or nothing (`RESOURCE_EXHAUSTED`: "No data was written"). `StringBuilder` is always NUL-terminated, has a sticky status cleared by `clear_status()`, cuts strings, and never truncates numbers. There is no buffered stream in `pw_stream`. | Confirms whole-or-absent numbers and flush outside the interface. Its NUL and sticky status are what this proposal drops (decisions 7, 9). Write all-or-nothing contradicts io's partial progress, which is settled. |
-| Zephyr `cbprintf` (v4.5.0) | *Source fact:* formats through a per-character callback `int (*)(int c, void *ctx)`. A negative return aborts formatting and is returned from `cbprintf()` (`include/zephyr/sys/cbprintf.h` 262–278; `lib/os/cbprintf_complete.c` 1387–1395). | It can print to a stream, but a stall leaves an arbitrary prefix: a number can be cut mid-digit. Zephyr only, and variadic. |
-| C++ `std::format_to_n` | *Source fact (cppreference oldid 189663):* writes at most n characters and returns the untruncated size. | Cuts at any character. The untruncated size is the `snprintf` return value that [ADR 0011](../adr/0011-formatting-truncation.md) found no consumer for. Still none. |
-| `snprintf` for everything | — | As in [the fmt proposal](fmt.md#why-not-something-that-exists): cuts numbers, returns count-or-negative, is not on every target, and is variadic. It survives here as one conversion at a time behind the libc option. |
+| Rust `BufWriter`, `BufRead` (1.90.0) | *Source fact:* a write that does not fit flushes first; a write at least the capacity goes straight to the inner writer; drop flushes and ignores errors. `fill_buf`/`consume` are required methods of `BufRead`; `flush` is a required method of `Write`. | **Taken:** write-through for large writes, and peek and consume. **Not taken:** flush-first. Here a write that does not fit makes *one* pass-on attempt (decision A), because the inner may be non-blocking. **Not taken:** flush on drop (C has no destructor). **Not taken:** flush and peek in the interface ([decision 5](#flush-and-el_writer_ops)). |
+| Rust `core::fmt::Write` (1.90.0) | *Source fact:* `write_str` returns `fmt::Error`, a unit struct with no information. `io::Write::write_fmt` keeps the real `io::Error` in an `Adapter` beside the formatter. | Same shape as this proposal. printf returns the stream's real status, which C can do directly. |
+| Go `bufio.Writer`, `bufio.Reader`, `bytes.Buffer` (go1.23.0) | *Source fact:* after a write error, `bufio.Writer` accepts nothing more and `Flush` returns the error, forever. `Flush` is on the concrete type, not `io.Writer`. `Peek` returns `ErrBufferFull` past the buffer. `bytes.Buffer` grows to at least twice its capacity, keeps a read offset, and panics with `ErrTooLarge`. | **Taken:** flush on the concrete type, peek failing past capacity, and doubling growth. **Not taken:** Go's sticky error for every error. Here only `EL_ERR_END_OF_STREAM`, which io.h already makes permanent, is remembered (decision 17). **Not taken:** a read offset in the buffer type (decision 2). |
+| Pigweed `pw_stream`, `pw_string` (`1b610f4`) | *Source fact:* `Writer` has no `Flush`. `Write` is all or nothing (`RESOURCE_EXHAUSTED`: "No data was written"). `StringBuilder` is always NUL-terminated, has a sticky status cleared by `clear_status()`, cuts strings, and never truncates numbers. No buffered stream in `pw_stream`. | Confirms whole-or-absent numbers, a whole-or-nothing append (`el_buf_append`), and flush outside the interface. Its NUL and sticky status are what this proposal drops (decisions 7, 9). |
+| Zephyr `cbprintf` (v4.5.0) | *Source fact:* formats through a per-character callback `int (*)(int c, void *ctx)`; a negative return aborts formatting and is returned from `cbprintf()`. | It can print to a stream, but a stall leaves an arbitrary prefix: a number can be cut mid-digit. Zephyr only, and variadic. |
+| C++ `std::format_to_n` | *Source fact (cppreference oldid 189663):* writes at most n characters and returns the untruncated size. | Cuts at any character. The untruncated size still has no consumer (ADR 0011). |
+| `snprintf` for everything | — | As in [the fmt proposal](fmt.md#why-not-something-that-exists). It survives here as one conversion at a time behind the libc option. |
 
 ## Interface
 
-Header sketches. Each is a design, not final text. They follow
+Header sketches: a design, not final text. They follow
 [conventions.md](../conventions.md):
 
 - caller-provided storage;
@@ -456,162 +572,256 @@ Header sketches. Each is a design, not final text. They follow
 
 #include <elemental/io.h>
 
-struct el_allocator_ops; /* from <elemental/alloc.h>, which this header does not need */
-
 typedef struct el_buf {
     uint8_t *data;
     size_t len;
     size_t cap;
-    void *alloc_ctx;                          /* grown storage: the allocator */
-    const struct el_allocator_ops *alloc_ops; /* null for fixed storage */
-    void (*grow)(struct el_buf *b, size_t min); /* set only by el_buf_init_alloc */
+    /* Null for fixed storage. Set by el_grow_buf_init; make room >= min. */
+    el_status (*grow)(struct el_buf *b, size_t min);
 } el_buf;
 
 /* Fixed storage: the `cap` bytes at `storage`, borrowed until the buffer is
- * no longer used. `storage` may be null only if `cap` is 0 (always full). */
+ * no longer used. `storage` may be null only if `cap` is 0. There is no
+ * deinit: a fixed buffer owns nothing. An el_buf of all zeros, or one
+ * initialized with (NULL, 0), is valid and always full. */
 void el_buf_init(el_buf *b, void *storage, size_t cap);
 
-/* Release grown storage; nothing for fixed. The buffer must not be used
- * again until it is initialized again. Always safe to call. */
-void el_buf_deinit(el_buf *b);
-
-const uint8_t *el_buf_data(const el_buf *b); /* bytes [0, len); moves when grown */
+/* The contents, bytes [0, len). data is null while a grown buffer has not
+ * allocated (len is then 0, which every Elemental function accepts with a
+ * null pointer). Valid until the next call that can append, grow, compact
+ * or remove bytes. data_mut is the same pointer, for patching bytes
+ * already written: a length prefix, a COBS code byte, a line ending. */
+const uint8_t *el_buf_data(const el_buf *b);
+uint8_t *el_buf_data_mut(el_buf *b);
 size_t el_buf_len(const el_buf *b);
-size_t el_buf_room(const el_buf *b);         /* free bytes now, without growing */
+size_t el_buf_room(const el_buf *b);   /* free bytes now, without growing */
 
-/* Append what fits: grows first if it can, then takes min(len, room) bytes.
- * EL_OK: all `len` appended. EL_ERR_NO_SPACE: *n < len were appended.
- * `n` is optional, as for el_write_all. */
-el_status el_buf_append(el_buf *b, const void *data, size_t len, size_t *n);
+/* Append whole or nothing. EL_OK, or EL_ERR_NO_SPACE with nothing appended:
+ * fixed storage is too small, the allocator refused, or len_now + len
+ * overflows. `data` must not point into this buffer's storage (asserted). */
+el_status el_buf_append(el_buf *b, const void *data, size_t len);
 
-/* Append whole or nothing. EL_OK, or EL_ERR_NO_SPACE with nothing appended. */
-el_status el_buf_append_whole(el_buf *b, const void *data, size_t len);
-
-/* Writing in place. reserve: make room >= min, growing if it can; EL_OK or
- * EL_ERR_NO_SPACE (nothing changed). spare: the first free byte; room()
- * bytes may be written there. commit: those n bytes are now part of the
- * contents (n <= room, asserted). */
+/* Writing in place. reserve: make room >= min, growing if it can; EL_OK, or
+ * EL_ERR_NO_SPACE with nothing changed (also when len + min overflows).
+ * spare: the first free byte (null while a grown buffer has not allocated);
+ * room() bytes may be written there. commit: those n bytes are now part of
+ * the contents (n <= room, asserted). */
 el_status el_buf_reserve(el_buf *b, size_t min);
 uint8_t *el_buf_spare(el_buf *b);
 void el_buf_commit(el_buf *b, size_t n);
 
-/* Keep the first `len` bytes (len <= el_buf_len, asserted). truncate(b, 0)
- * empties it; storage is kept. Undoes a partly formatted record. */
+/* Keep the first `len` bytes (len <= el_buf_len, asserted). Storage is
+ * kept. Undoes a partly formatted record. */
 void el_buf_truncate(el_buf *b, size_t len);
 
 /* The memory endpoint: an el_writer whose bytes end up in `b`. One attempt
- * appends what fits; EL_OK with 1 <= *n, or EL_ERR_NO_SPACE with *n == 0
- * when the buffer is full and cannot grow. Never would-block, never ends. */
+ * takes what fits, growing first if it can: EL_OK with 1 <= *n, or
+ * EL_ERR_NO_SPACE with *n == 0. Never would-block, never ends. */
 el_writer el_buf_as_writer(el_buf *b);
 ```
 
-`<elemental/io_alloc.h>` (only with `IO_ALLOC`):
+### `<elemental/io_alloc.h>`: grown storage (only with `IO_ALLOC`)
 
 ```c
 #include <elemental/alloc.h>
 #include <elemental/io_buf.h>
 
-/* Grown storage: starts empty and allocates nothing until the first append.
- * Grows to twice the capacity, or to what is needed if more, at least 16
- * bytes; asks once more for exactly what is needed if that is refused.
- * Allocates with (el_layout){.size = cap, .align = 1} and frees with the
- * same (ADR 0013). The allocator must outlive the buffer. */
-void el_buf_init_alloc(el_buf *b, el_allocator allocator);
+typedef struct el_grow_buf {
+    el_buf buf;             /* first: the grow hook recovers the allocator */
+    el_allocator allocator;
+} el_grow_buf;
+
+/*
+ * Start an empty buffer that grows from `allocator`, and return it: data
+ * null, len 0, cap 0, no allocation yet. Growth is to twice the capacity,
+ * or to what is needed if more, at least 16 bytes; if that is refused, it
+ * asks once more for exactly what is needed. Allocations are made and
+ * freed with el_layout_make(cap, 1) (ADR 0013). The allocator decides how
+ * far it grows; the buffer has no limit of its own.
+ */
+el_buf *el_grow_buf_init(el_grow_buf *g, el_allocator allocator);
+
+/* Free the storage. The el_buf is then a zero-capacity fixed buffer, always
+ * full, until el_grow_buf_init again. A second deinit is asserted. */
+void el_grow_buf_deinit(el_grow_buf *g);
 ```
 
 Notes on the buffer:
 
-- **Allocation with the layout API.** These calls are written against the
-  layout API being introduced in parallel (ADR 0013):
-  - `el_alloc(a, layout)`;
-  - `el_free(a, ptr, layout)`;
-  - `(el_layout){cap, 1}`.
+- **Four words** (16 bytes on a 32-bit target, 24 for `el_grow_buf`).
+  `io_buf.h` names no allocator type, and a fixed buffer has nothing to
+  release. So `io_buf.c` references neither `el_alloc` nor `el_free`, and a
+  program that never calls `el_grow_buf_init` links no allocator code
+  ([Cost](#dependencies-and-cost)).
+- **The hook.** `el_buf_reserve` calls `grow` when it is not null.
+  `el_grow_buf_init` sets it to a function in `io_alloc.c`. That function
+  converts the `el_buf *` back to its `el_grow_buf *`, which is valid
+  because `buf` is the first member (C11 6.7.2.1p15).
+- **What fails and how.**
+  - A null object, null storage with `cap > 0`, or null data with
+    `len > 0` is a contract violation.
+  - A `data` pointer into the buffer's own storage is a contract violation:
+    growth or compaction would move it before the copy. It is asserted by
+    an address range check.
+  - `len + min` that overflows is `EL_ERR_NO_SPACE`, because sizes may
+    come from input.
+- **The "append what fits" form is private to `io`**
+  (`el_buf_append_some_`). The memory endpoint's `write` uses it. printf's
+  text path does not need it: it reserves, writes what fits into
+  `el_buf_spare`, and commits.
+- **Removing bytes from the front is private to `io` too**
+  (`el_buf_drop_front_`, one `memmove`). The buffered writer uses it when
+  it compacts, and the provisional reader uses it before a peek.
+- **No read offset.** The contents are always `[0, len)` (decision 2).
+- **No terminator, no sticky state** (decisions 7, 9).
 
-  Growth reuses today's grow-writer policy unchanged.
-- **The allocator type is forward-declared.** The layout is the same in
-  every configuration (ADR 0004). `io_buf.h` therefore needs no `alloc`
-  header, and `io` still builds without `alloc` when `IO_ALLOC` is off.
-- **`grow` is a field, not a direct call.** Growth is reached through a
-  pointer that only `el_buf_init_alloc` sets. A program that never creates a
-  grown buffer therefore links none of the allocator path, even with
-  `IO_ALLOC` on. Measured on Cortex-M0, together with the same measure for
-  printf's target: 392 bytes saved ([Cost](#dependencies-and-cost)).
-  The cost is one word per buffer (24 bytes on a 32-bit target, against 12
-  for `el_mem_writer`).
-- **Read position.** There is none. The contents are always `[0, len)`
-  (decision 2). Removing bytes from the front is private to `io`: the
-  buffered writer uses it after a partial flush, and the reader uses it to
-  compact before a peek. It costs a `memmove` (decision 11).
-- **No terminator, no sticky state** (decisions 7, 9). A C string is
-  `el_buf_append_whole(b, "", 1)`, and the terminator then counts in `len`.
-
-### `<elemental/io_buffered.h>`: the buffered adapters
+### `<elemental/io_buffered.h>`: the buffered writer
 
 ```c
 #include <elemental/io.h>
 #include <elemental/io_buf.h>
 
 typedef struct el_buffered_writer {
-    el_buf *buf;     /* borrowed: bytes accepted and not yet passed on */
+    el_buf *buf;     /* borrowed: [pos, len) accepted and not yet passed on */
+    size_t pos;      /* bytes at the front already passed on */
     el_writer inner;
 } el_buffered_writer;
 
 /* `buf` is borrowed until the writer is no longer used; whatever it already
- * holds is passed on first. Fixed or grown storage both work. */
+ * holds is passed on first. Fixed or grown storage. */
 void el_buffered_writer_init(el_buffered_writer *w, el_writer inner, el_buf *buf);
 
-/* Pass every buffered byte on: el_write_all to `inner`. EL_OK: the buffer
- * is empty. Otherwise `inner`'s status (EL_ERR_WOULD_BLOCK, _END_OF_STREAM,
- * _IO, _NO_SPACE); bytes passed on before it are gone from the buffer and
- * the rest wait. Resumable: call again. Never waits on its own. */
+/* Bytes accepted and not yet passed on. */
+size_t el_buffered_writer_pending(const el_buffered_writer *w);
+
+/* Pass every pending byte on: el_write_all to `inner`. EL_OK: none pending.
+ * Otherwise inner's status (WOULD_BLOCK, END_OF_STREAM, IO, NO_SPACE); bytes
+ * passed on before it are no longer pending. Resumable. Never grows, never
+ * moves bytes (it advances pos, and both reset to 0 once none are pending).
+ * Never waits on its own. */
 el_status el_buffered_writer_flush(el_buffered_writer *w);
 
-/* Make room >= min, passing on only as many bytes as that needs. If `min`
- * exceeds the capacity, the buffer grows (grown storage) or this returns
- * EL_ERR_NO_SPACE (fixed). Otherwise as flush. */
+/* Make room >= min at the tail: pass bytes on, one attempt at a time, only
+ * until there is room; then compact; then grow (grown storage).
+ *   EL_OK                 room >= min.
+ *   EL_ERR_WOULD_BLOCK    the stream stalled and the allocator refused (or
+ *                           storage is fixed); room returns as the stream
+ *                           drains.
+ *   EL_ERR_NO_SPACE       min exceeds what the buffer can hold even
+ *                           drained: fixed with min > cap, or grown and the
+ *                           allocator refused.
+ *   inner's END_OF_STREAM, IO, NO_SPACE: returned as they are. */
 el_status el_buffered_writer_reserve(el_buffered_writer *w, size_t min);
 
-/* The adapter as a writer. A write that fits is buffered. One that does not
- * makes one attempt to pass buffered bytes on, then buffers what fits; with
- * an empty buffer, a write of at least the capacity goes straight to
- * `inner`. Progress or status: EL_OK with *n >= 1, or `inner`'s status
- * with *n == 0 when the buffer is full and `inner` took nothing. */
+/* The adapter as a writer. See "Buffered writer failures" below. */
 el_writer el_buffered_writer_as_writer(el_buffered_writer *w);
+```
 
+### Buffered writer failures (decision A)
+
+A `write` of `len` bytes through `el_buffered_writer_as_writer`:
+
+1. **It fits** in the free room at the tail. It is buffered, `EL_OK`, and
+   the inner writer is not called.
+2. **It does not fit, and bytes are pending.** The writer makes **one**
+   attempt to pass pending bytes on. That attempt either moves at least one
+   byte, or moves nothing and returns a status (io.h's rule).
+   - A status other than `EL_ERR_WOULD_BLOCK` (`EL_ERR_IO`,
+     `EL_ERR_END_OF_STREAM`, `EL_ERR_NO_SPACE`) is returned, with
+     `*n == 0` and nothing taken.
+   - Otherwise go to step 4.
+3. **It does not fit, nothing is pending, and `len >= cap`.** The write
+   goes straight to the inner writer, one attempt.
+   - Success, or any status other than `EL_ERR_WOULD_BLOCK`, is returned
+     as it is.
+   - On `EL_ERR_WOULD_BLOCK` the write falls back to step 4.
+   - A grown buffer that has not allocated yet (cap 0) skips this step and
+     grows instead. Its starting state is therefore never a permanent
+     write-through.
+   - A *fixed* buffer of capacity 0 is a pass-through writer by this rule.
+     The suite was run against one.
+4. **Make room.**
+   1. If bytes were passed on, compact them out of the front (one
+      `memmove`).
+   2. If the write still does not fit and the storage is grown, ask the
+      allocator for room for all of it (decision B).
+   3. Buffer what fits.
+   4. If nothing fits, return `EL_ERR_WOULD_BLOCK` with `*n == 0`. Nothing
+      fits only when the stream refused, so space returns when it drains.
+      That is io.h's definition of would-block. `EL_ERR_NO_SPACE` would
+      tell the caller to supply storage, which would not help a fixed
+      buffer.
+
+**`EL_ERR_END_OF_STREAM` stays permanent.** Once the inner writer has
+reported it, every later `write`, `flush` and `reserve` returns it without
+asking again, including a write that would fit.
+
+That needs remembered state: a write that fits never calls the inner
+writer. This revision keeps it without a field. `pos` is set to `SIZE_MAX`,
+a value it cannot otherwise hold. It is a latch for exactly the one status
+`io.h` requires to be permanent. `EL_ERR_IO`, `EL_ERR_WOULD_BLOCK` and
+`EL_ERR_NO_SPACE` are not remembered, and a writer recovers from them as
+its inner writer does (tested).
+
+The owner decided "no latched error". This is the narrowest reading
+compatible with permanence, and it is decision 17.
+
+**Grown storage (decision B):**
+
+- A grown buffer grows only where a fixed one would have to wait:
+  - after a pass-on that would-blocked or left too little room (step 4);
+  - in `reserve` when `min` exceeds what draining can free.
+- `flush` never grows.
+- Growth stops where the allocator refuses (Example 2b). An arena is the
+  natural bound.
+
+**Compaction (accepted item 4).**
+
+- `flush` and a successful pass-on advance `pos`. When nothing is pending,
+  `pos` and `len` reset to 0.
+- Bytes move only when `write` or `reserve` needs tail room that is held
+  by already-passed bytes. They move after passing on whatever the inner
+  takes, so the move is as small as it can be.
+
+### What the owner may do while an adapter borrows the buffer
+
+While a buffered writer (or the provisional reader) borrows an `el_buf`,
+its owner may only:
+
+- call `el_buf_data`, `el_buf_len` and `el_buf_room`, which read;
+- for a buffered writer, call `el_buf_truncate(buf, mark)`, but only back
+  to a `mark` whose bytes have not been passed on. That is, `mark` must be
+  at least `el_buf_len(buf) - el_buffered_writer_pending(&w)`. This is the
+  rollback for the reserve-first pattern (Example 2).
+
+Anything else is a contract violation: appending, committing, truncating
+past the passed-on point, re-initializing, or `el_grow_buf_deinit`.
+
+The writer checks the cheap part on every call (`pos <= len`). A truncation
+below what was passed on is therefore asserted at the next call. The rest
+is the owner's to keep.
+
+### `<elemental/io_buffered.h>`, provisional: the buffered reader
+
+To be proposed again with `frame` (M6). The sketch below is the prototype
+that Example 4 and the contract suite ran against:
+
+```c
 typedef struct el_buffered_reader {
     el_buf *buf;     /* borrowed: [pos, len) read ahead and not consumed */
     size_t pos;
     el_reader inner;
 } el_buffered_reader;
 
-/* `buf` is borrowed; bytes it already holds are read first. */
 void el_buffered_reader_init(el_buffered_reader *r, el_reader inner, el_buf *buf);
-
-/* Make at least `min` unconsumed bytes available, reading from `inner` as
- * many times as needed; *data and *len are always written with what is
- * available (valid until the next call on `r` or its buffer).
- *   EL_OK                 *len >= min.
- *   EL_ERR_NO_SPACE       min exceeds what the buffer can hold (fixed
- *                           storage, or the allocator refused).
- *   inner's status        WOULD_BLOCK, END_OF_STREAM, IO: *len < min, and
- *                           what was read stays buffered. Resumable.
- * min == 0 returns what is buffered without reading. */
+/* At least `min` unconsumed bytes, reading as needed; *data/*len always
+ * written. EL_OK; EL_ERR_NO_SPACE (min exceeds what the buffer can hold);
+ * or inner's status with what is available. min == 0 does not read. */
 el_status el_buffered_reader_peek(el_buffered_reader *r, size_t min,
                                   const uint8_t **data, size_t *len);
-
-/* Drop `n` peeked bytes (n <= available, asserted). */
 void el_buffered_reader_consume(el_buffered_reader *r, size_t n);
-
-/* The adapter as a reader: copies buffered bytes; when empty, refills with
- * one attempt, or reads straight into the caller's buffer if it is at
- * least the capacity. Never EL_ERR_NO_SPACE. */
 el_reader el_buffered_reader_as_reader(el_buffered_reader *r);
 ```
-
-There is no `deinit` on either adapter: neither owns anything. Flushing
-before the writer is dropped is the caller's job. C has no destructor, so
-Rust's flush-on-drop is impossible here, and so is its silent error
-dropping.
 
 ### `<elemental/fmt.h>`: pure conversions
 
@@ -621,29 +831,25 @@ dropping.
 
 /* Bytes the longest conversion writes: "-9223372036854775808" and
  * "18446744073709551615" are 20. */
-enum { EL_FMT_INT_MAX = 20 };
+enum { EL_FMT_INT_LEN_MAX = 20 };
 
 enum { EL_FMT_UPPER = 1 }; /* hex digits A-F */
 
 /*
  * Write `value` at out[0..n) and return n (1 to 20). No sign but '-', no
- * padding, no prefix, no terminator. `cap` must be at least EL_FMT_INT_MAX
- * (asserted), so these cannot fail. The output equals C's printf for
- * PRIu64, PRId64, PRIx64 / PRIX64.
+ * padding, no prefix, no terminator. `cap` must be at least
+ * EL_FMT_INT_LEN_MAX (asserted), so these cannot fail. The output equals
+ * C's printf for PRIu64, PRId64, PRIx64 / PRIX64.
  */
 size_t el_fmt_dec_u64(char *out, size_t cap, uint64_t value);
 size_t el_fmt_dec_i64(char *out, size_t cap, int64_t value);
 size_t el_fmt_hex_u64(char *out, size_t cap, uint64_t value, uint32_t flags);
 ```
 
-These are interrupt-safe and reentrant without conditions. They have no
-object, take no lock, do not allocate, and have no configuration. They
-always use the shift-and-add conversion: the libc option no longer reaches
-them (decision 10).
-
-`cap` is redundant in C, where the caller writes `char d[EL_FMT_INT_MAX]`.
-It is there so that a binding, or a caller who got the size wrong, hits an
-assertion rather than an overrun.
+These conversions are interrupt-safe and reentrant without conditions. They
+have no object, take no lock, do not allocate, and have no configuration.
+`cap` is there so that a binding, or a caller who got the size wrong, hits
+an assertion rather than an overrun.
 
 ### `<elemental/fmt_printf.h>`: printf into a buffer or a buffered writer
 
@@ -661,454 +867,496 @@ el_status el_fmt_printf(el_buf *out, const char *format, ...) EL_FMT_PRINTF_CHEC
 el_status el_fmt_vprintf(el_buf *out, const char *format, va_list args)
     EL_FMT_PRINTF_CHECK(2, 0);
 
-/* Into a buffered writer: streams, passing bytes on when the buffer cannot
- * take the next item. EL_OK (all of it accepted; some may still be
- * buffered), EL_ERR_NO_SPACE (an item larger than the buffer can hold), or
- * the inner writer's status while making room. */
+/* Into a buffered writer: streams, making room as el_buffered_writer_reserve
+ * does. EL_OK (all accepted; some may still be pending), or reserve's
+ * status for the item that did not fit. */
 el_status el_fmt_printf_buffered(el_buffered_writer *out, const char *format, ...)
     EL_FMT_PRINTF_CHECK(2, 3);
 el_status el_fmt_vprintf_buffered(el_buffered_writer *out, const char *format, va_list args)
     EL_FMT_PRINTF_CHECK(2, 0);
 ```
 
+The two pairs share one parser. Each entry point passes the parser a
+`reserve` function for its target. `el_fmt_printf_buffered` lives in its
+own object file. A program that prints only into buffers therefore links
+no buffered-writer code, and that takes no word in any struct
+([Cost](#dependencies-and-cost)).
+
 **The item rule** applies to both targets. The output is a prefix of what
 unlimited room would hold:
 
 - An **item** is one conversion, or one run of literal text.
-- **A number is whole or absent.** That covers its sign, padding, digits,
+- **A number is whole or absent.** That covers its sign, padding, digits
   and, with the libc option, any prefix, decimal point and exponent. For a
-  buffered writer, "absent" means the number never entered the buffer. Once
-  it has, flushing may split it across writes, but the stream receives it
-  whole unless the stream itself fails.
+  buffered writer, "absent" means the number never entered the buffer.
+  Once it has, passing on may split it across writes, but the stream
+  receives it whole unless the stream itself fails.
 - **Text is cut at the last byte that fits.** This covers literal text and
   `%s` and `%c` with their padding.
 - **Within one call, nothing follows the first item that did not fit.**
-  Nothing is sticky across calls (decision 7).
-- No terminator is written.
+  Nothing carries over to the next call (decision 7).
+- **No terminator.**
+- **A fixed buffered writer of capacity 0** accepts no item: printf needs a
+  buffer.
 
-**The accepted formats** depend on the configuration (decision 10):
+**The accepted formats depend on the configuration** (decision 10). The
+portable subset is decided by the **whole specification**, not by the
+conversion letter:
 
-| | `FMT_PRINTF_BUILTIN` (default) | `FMT_PRINTF_LIBC` |
+| Specification | `FMT_PRINTF_BUILTIN` (default) | `FMT_PRINTF_LIBC` |
 |---|---|---|
-| Accepted | Today's portable subset: `d i u x X c s %`, flag `0` on integers, decimal width, `.N` / `.*` on `%s`, length `hh h l ll z` | The portable subset, plus every other C11 conversion (`o f F e E g G a A p`), flags `- + # space`, `*` width, precision on numbers, length `j t L` |
-| Not accepted (contract violation, asserted) | Everything else | `%n`, `%lc`, `%ls` |
-| Output | For every accepted format, exactly what `snprintf` writes given room | Portable subset: identical to built-in, by construction (the same code). The rest: what this C library's `snprintf` writes for that one conversion. |
-| Who converts | `el_fmt_dec_*`, `el_fmt_hex_u64` | The portable subset: the same built-in code. Every conversion outside it: `snprintf`, one at a time. Text (`%s`, `%c`, `%%`, and the `-` flag and width on them) stays Elemental's, so the cut-at-a-byte rule is exact. |
+| In the portable subset: conversion `d i u x X` with only the `0` flag, a decimal width, length `hh h l ll z` or none, and no precision. `c` with a decimal width. `s` with a decimal width and `.N` or `.*`. `%%`. Examples: `%05d`, `%8s`, `%.*s`. | Built-in code | **The same built-in code.** It never reaches `snprintf`. |
+| `s` or `c` with the `-` flag or a `*` width (`%-8s`, `%*c`) | Contract violation | Elemental's text code, reachable only in this option |
+| Any other specification of `d i u x X o f F e E g G a A p`, such as `%+d`, `%-5d`, `%.3d`, `% d`, `%#x`, `%jd`, `%.2f`, `%p` | Contract violation | `snprintf`, one conversion at a time, whole or absent |
+| `%n`, `%lc`, `%ls`, anything else | Contract violation | Contract violation |
+
+**A format within the portable subset never reaches `snprintf`, in either
+option.** It is therefore interrupt-safe into a fixed buffer under both.
+`log` (M4) and an interrupt-context sink (M5) can rely on that, whatever
+the image's configuration.
 
 ## Flush and `el_writer_ops`
 
 The roadmap requires this decision to be recorded "with the log example
 that decided it" ([M7](../roadmap.md#m7--io-second-iteration)). The log
-module does not exist yet. The example is therefore M4's writer sink as
-[module-plan](../module-plan.md#named-by-the-owner) plans it, and as
-[Example 1](#example-1-a-log-line-formatted-into-a-fixed-buffer-sent-to-two-sinks)
-writes it.
+module does not exist yet. The decision is therefore **provisional until
+M4's writer sink exists**, and so is its ADR (to be written).
 
 **The test, from module-plan:** flush becomes an operation only if a
 holder of a bare `el_writer` handle must flush.
 
-**The log example does not need it.** The writer sink is handed an
-`el_writer` (a UART, a descriptor). It formats each record into its own
-`el_buf` and writes it with one `el_write_all`. So "one write per record"
-holds without any buffered writer between the sink and the device, and
-there is nothing to flush.
+**The planned log example does not need it.**
 
-Where a buffered writer is used, as in Example 2, the code that created it
-owns it and calls `el_buffered_writer_flush` on the concrete type. A sink
-that wants batching owns its own buffered writer, made over the raw
-`el_writer` it was given. Again, the flush is on a concrete type it holds.
+- The writer sink is handed an `el_writer`. It formats each record into
+  its own `el_buf` and writes it with one `el_write_all` (Example 1). There
+  is nothing to flush.
+- Where a buffered writer is used, as in Examples 2 and 2b, the code that
+  created it owns it, and calls `el_buffered_writer_flush` on the concrete
+  type.
 
 **The case that would need it** is a writer that wraps another and is
 itself handed out as a bare handle. An example is a future `frame` encoder
-writer over a buffered UART, whose user must push a finished frame out. If
-`frame` (M6) needs that, flush becomes an optional operation at the end of
-`el_writer_ops`:
+writer over a buffered UART. If `frame` (M6) needs that, flush becomes an
+optional operation at the end of `el_writer_ops`. A null operation means
+"nothing to flush" and returns `EL_OK`, as module-plan says.
 
-- a null operation means "nothing to flush" and returns `EL_OK`, as
-  module-plan already says;
-- `el_flush(el_writer)` is the front function;
-- each wrapper forwards it.
+**Why not add it now?**
 
-This is decision 5. It needs an ADR (to be written): "Flush is a function
-of the buffered writer, not an operation of `el_writer`". The
-"revisit when" is the frame case above.
-
-**Why not add it now anyway?** Rust made `flush` a required method of
-`Write` (source fact). Every in-memory and wrapping writer then has to
-implement it, and every adapter has to forward it.
-
-Here, adding it would mean:
-
-- a new optional operation;
-- a front function;
-- a contract-suite capability;
-- forwarding in every wrapper;
-- a non-blocking flush contract ("progress or status" for flush) that
-  nothing in the tree exercises.
-
-Go keeps `Flush` off `io.Writer`. So does Pigweed's `Writer` (source facts).
+- Rust made `flush` a required method of `Write` (source fact), so every
+  writer implements or forwards it.
+- Go keeps `Flush` off `io.Writer`, and Pigweed's `Writer` has none
+  (source facts).
+- Adding it would mean an optional operation, a front function, a suite
+  capability, forwarding in every wrapper, and a non-blocking flush
+  contract that nothing in the tree exercises.
 
 ## printf into a buffered writer: the resumability problem
 
-[`fmt.h`](../../modules/fmt/include/elemental/fmt.h) explains why it never
-writes to a stream: "a stream can stall halfway through a number, and a
-formatter cannot resume there". That stays true. A printf call holds a
-`va_list` and a position in the format string. Neither can survive the
-return to the caller, so a printf call cannot be resumed.
+[`fmt.h`](../../modules/fmt/include/elemental/fmt.h) says a formatter
+cannot resume inside a number. That stays true. A printf call holds a
+`va_list` and a position in the format, and neither survives the return to
+the caller.
 
-What changes is that the formatter no longer writes to the stream. It
-writes into a buffer that knows its free space, and only whole items enter
-it.
+What changes is that the formatter writes into a buffer that knows its
+free space, and only whole items enter it:
 
-1. Before each item, printf asks for room: all of a number, or at least
-   one byte of text.
-2. If the buffered writer lacks room, it passes buffered bytes on with
-   single attempts, only until there is room
-   (`el_buffered_writer_reserve`).
-3. If the inner writer stalls (`EL_ERR_WOULD_BLOCK`) or fails, printf
-   stops before the item. A text item keeps the part that fit. The call
-   returns that status.
-4. Everything accepted is in the buffer or already passed on. It is a
-   prefix of the full output that ends on an item. **Resuming is resuming
-   the flush**, which `el_buffered_writer_flush` already supports. The rest
-   of the format is dropped, as truncation drops it in a fixed buffer.
+1. Before each item, printf asks for room through
+   `el_buffered_writer_reserve`: all of a number, or at least one byte of
+   text.
+2. If the stream stalls and the storage cannot grow, printf stops before
+   the item. A text item keeps the part that fit. The call returns the
+   status.
+3. Everything accepted is pending or already passed on. It is a prefix that
+   ends on an item. **Resuming means resuming the flush.**
 
-The prototype showed it. `"t=%u h=%u p=%u\n"` went into an 8-byte buffer in
-front of a writer that takes 3 bytes per call and stalls after 10. The
-stream received `"t=1234567 "`, the buffer kept `"h=89 p="`, and the call
-returned `EL_ERR_WOULD_BLOCK`. The third number was absent, not cut.
+**Measured on the prototype:**
 
-The case left: **a line that stalls mid-way leaves the stream mid-line**,
-and the next line would join it. Two remedies, both shown in the examples:
+- `"t=%u h=%u p=%u\n"` went into an 8-byte buffer in front of a writer that
+  takes 3 bytes per call and stalls after 10.
+- The stream received `"t=1234567 "`, `"h=89 p="` stayed pending, and the
+  call returned `EL_ERR_WOULD_BLOCK`.
+- The third number was absent, not cut.
 
-- **Reserve first.** `el_buffered_writer_reserve(&w, LINE_MAX)` before the
-  printf (Example 2). Then a line of at most `LINE_MAX` bytes never reaches
-  the stream mid-line. A stall drops it whole.
-- **Format into an `el_buf` first, then write** (Example 1). The record is
-  then the unit, and `el_write_all` is resumable at any byte.
+**A line that stalls mid-way leaves the stream mid-line.** Three remedies,
+all shown:
 
-A rollback ("undo this printf") is impossible once bytes have been passed
-on. For a plain buffer it is `el_buf_truncate(b, mark)`.
+- **Reserve first** (Example 2). A line of at most the reserved length
+  then never reaches the stream mid-line.
+- **Roll back** (Example 2). `el_buf_truncate(buf, mark)` takes back a
+  partial line while none of it has been passed on. That is exactly when
+  reserve-first made the line fit. Once bytes have been passed on, they
+  cannot be taken back.
+- **Format into an `el_buf` first, then write** (Example 1).
 
 ## Where the truncation rule lives
 
-The item rule (numbers whole or absent, text cut at a byte) belongs to
-printf, in `fmt_printf.h`. It applies to whichever of the two targets is
-given.
+The item rule belongs to printf, in `fmt_printf.h`. The buffer offers the
+primitives it is built from:
 
-The buffer offers the two primitive rules the item rule is built from:
+- `el_buf_append` and `el_buf_reserve` for whole-or-nothing;
+- `el_buf_spare` and `el_buf_commit` for text cut at a byte.
 
-- "append what fits" (`el_buf_append`), for text;
-- "append whole or nothing" (`el_buf_append_whole`, or `el_buf_reserve`
-  then commit), for numbers.
+The buffer has no notion of an item.
 
-The buffer has no notion of an item, so the rule cannot drift into `io`.
-
-ADR 0011 cannot simply be amended. It records that formatting "does not
-depend on `io`", sticky truncation across calls, and NUL termination, and
-this proposal reverses all three. **An ADR to be written supersedes it**,
-with this draft:
+**An ADR to be written supersedes ADR 0011**, with this draft:
 
 > **Formatting appends to an io buffer; output is a prefix that ends on an
-> item.** printf formats into an `el_buf` or an `el_buffered_writer`. Each
-> knows its free space, so an item enters only if it fits. When it does not
-> fit, the call returns `EL_ERR_NO_SPACE`, or the inner writer's status for
-> a buffered writer. What was accepted is a prefix of the unlimited output:
-> numbers whole or absent, text cut at the last byte, nothing after the
-> first item that did not fit, within the call. Nothing is sticky across
-> calls. Callers that compose several calls check each status or roll back
-> with `el_buf_truncate`. No terminator is written. *Cost:* the
-> "check only the last call" convenience of ADR 0011 is gone; a buffered
-> stream that stalls mid-line is left mid-line unless the caller reserved
-> the line first. *Revisit when:* the same as ADR 0011's, plus a consumer
-> that composes many calls and keeps getting the chain wrong.
+> item.** printf formats into an `el_buf` or an `el_buffered_writer`; each
+> knows its free space, so an item enters only if it fits. When it does
+> not fit, the call returns `EL_ERR_NO_SPACE`, or for a buffered writer the
+> status that kept room from being made. What was accepted is a prefix of
+> the unlimited output: numbers whole or absent, text cut at the last byte,
+> nothing after the first item that did not fit, within the call. Nothing
+> carries over to the next call. Callers that compose several calls check
+> each status, or roll back with `el_buf_truncate`. No terminator is
+> written. *Cost:* the "check only the last call" convenience of ADR 0011 is
+> gone; a buffered stream that stalls mid-line is left mid-line unless the
+> caller reserved the line first. *Revisit when:* the same as ADR 0011's,
+> plus a consumer that composes many calls and keeps getting the chain
+> wrong.
 
 ## What `fmt` drops and keeps
 
 | Today | After | Why |
 |---|---|---|
 | `el_fmt`, `el_fmt_init`, `el_fmt_len` | Gone; `el_buf` | The cursor was the duplicate |
-| `el_fmt_str`, `el_fmt_cstr` | Gone; `el_buf_append` (cut at a byte) or `el_buf_append_whole` | Appending bytes is the buffer's job. `cstr` saved a `strlen`, which the caller has. |
-| `el_fmt_dec_u64`, `_i64`, `el_fmt_hex_u64` with `width`, `flags` | Kept as pure conversions, without width or zero-pad. `EL_FMT_UPPER` stays. | Padding needs a destination with free space, which a scratch array is not. printf keeps width and `0`. A binding pads in its own language. |
-| `el_fmt_hex_bytes` | Dropped (decision 8) | No consumer outside fmt's own example and tests. It is a four-line loop over `el_fmt_printf(b, i ? " %02x" : "%02x", p[i])`. It returns with a consumer (a hex-dump log helper in M4, say), as a function on `el_buf` in `fmt`. |
-| NUL termination | Dropped (decision 9) | Lengths never include a terminator (conventions, Storage rule 4). Rust and `el_write_all` never wanted it. It cost every buffer a byte. |
-| Sticky truncation across calls | Per call only (decision 7) | A buffer used as a stream endpoint, or behind a buffered writer, cannot be "sticky until reset" in any useful sense |
+| `el_fmt_str`, `el_fmt_cstr` | Gone; `el_buf_append` (whole) | Appending bytes is the buffer's job. Text cut at a byte remains printf's (`%s`, `%.*s`). |
+| `el_fmt_dec_u64`, `_i64`, `el_fmt_hex_u64` with `width`, `flags` | Pure conversions without width or zero-pad. `EL_FMT_UPPER` stays. | Padding needs a destination with free space. printf keeps width and `0`. |
+| `el_fmt_hex_bytes` | Dropped (decision 8) | No consumer outside fmt's own example and tests. It comes back with one. |
+| NUL termination | Dropped (decision 9) | Lengths never include a terminator (conventions, Storage rule 4) |
+| Sticky truncation across calls | Per call only (decision 7) | — |
 | `el_fmt_printf(el_fmt *, ...)` | `el_fmt_printf(el_buf *, ...)` plus the `_buffered` pair | Targets that know their free space |
 | `FMT_BUILTIN` / `FMT_LIBC` (digits) | `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | [Below](#the-platform-option-on-printf) |
 | `EL_FMT_PRINTF_CHECK` | Kept | — |
 
 ## The platform option on printf
 
-**Built-in** (default) is today's parser and subset, retargeted. **Libc**
-works like this:
+**Built-in** (default) is today's parser and subset, retargeted. It parses
+only the portable syntax. Anything else fails the conversion check and is
+asserted.
 
-- Elemental's parser still walks the format and fetches each argument with
-  the type its conversion names.
-- A conversion in the portable subset takes the built-in path, so its
-  output cannot differ between the options.
-- Every other numeric conversion's spec (`%-+08.3f`, say), with `*` values
-  written in, goes to `snprintf` with that one argument.
-- The result enters the buffer whole, or not at all.
-- A `%s` or `%c` stays Elemental's.
+**Libc** works like this:
 
-The libc option therefore no longer avoids a second copy of the digit code,
-which was the only measured benefit of today's `FMT_LIBC` (−104 bytes where
-printf is linked anyway). That is given up on purpose: identical output for
-the common set is then true by construction rather than by test.
+- Elemental's parser walks the format and fetches each argument with the
+  type its specification names.
+- A specification in the portable subset takes the built-in path.
+- `%s` and `%c` with `-` or a `*` width take Elemental's text code.
+- Every other numeric specification is rebuilt, with `*` values written
+  in, and handed to `snprintf` with that one argument. The result enters
+  the target whole, or not at all.
 
 Handing the whole format to `vsnprintf` would cut numbers and lose the item
-boundary. That was already the reason in the
-[fmt amendment](fmt.md#amendment-2026-11-12).
+boundary.
 
-Details that a reviewer will ask about:
+Details:
 
-- **Fitting.** `snprintf` writes into a 32-byte stack scratch first. If the
-  result fits there, it is reserved and copied, so it is exact.
-
-  A longer result (a wide field, or a `%f` of a large double) is formatted
-  again straight into the buffer's spare room after reserving its length
-  plus one, because `snprintf` must write a terminator. So in libc mode, an
-  extended conversion of 32 bytes or more needs **one more free byte** than
-  its length to be written. It concerns only conversions that built-in does
-  not accept, so rule 2 below still holds. Decision 10 accepts it; the
-  alternative is a scratch as large as any conversion, which has no bound.
+- **Fitting.** `snprintf` writes into a 32-byte stack scratch first. A
+  result that fits there is reserved and copied, which is exact. A longer
+  one is formatted again in place after reserving its length plus one,
+  because `snprintf` writes a terminator. So an extended conversion of 32
+  bytes or more needs one more free byte than its length. Only conversions
+  outside the portable subset are affected (decision 10).
+- **No second copy is avoided.** The portable subset always uses the
+  built-in code, so a libc-option image links both the built-in
+  conversions and `snprintf`. Identical output for the common set is then
+  true by construction, not by test. Today's `FMT_LIBC` saved 104 bytes by
+  avoiding that copy, and that saving is given up.
 - **Probe.** `FMT_PRINTF_LIBC` depends on the existing `PLATFORM_SNPRINTF`
-  (it converts `long long`). Floats are whatever the C library does: with
-  picolibc at `PICOLIBC_IO_LONG_LONG` that is not a real float conversion.
-  That is the platform's behavior, reported as it is, and the contract says
-  so ("what this C library's `snprintf` writes").
-- **Execution context.** In libc mode, printf is exactly as safe in an
-  interrupt or signal handler as the C library's `snprintf`. The note moves
-  from `fmt.h` to `fmt_printf.h`. The conversions in `fmt.h` become
-  unconditionally safe.
+  probe. Floats are whatever the C library does, and the contract says so.
+- **Execution context.**
+  - The portable subset is interrupt-safe in both options.
+  - An extended conversion is as safe as the C library's `snprintf`.
+  - The note moves from `fmt.h` to `fmt_printf.h`.
 
 **[ADR 0004](../adr/0004-private-configuration.md).** Signatures, layouts
-and macros stay identical in every configuration, so the letter of the ADR
-holds. The spirit is stretched: a format that is correct under libc is a
-contract violation under built-in. Today's private choices change *how*
-(`CRC_*`, `FMT_DIGITS`). This one changes *what is accepted*.
+and macros stay identical in every configuration. A format that is correct
+under libc is still a contract violation under built-in. **An ADR to be
+written** settles this: "A private choice may widen what a function
+accepts, never change it". It has five rules:
 
-**An ADR to be written** settles it: "A private choice may widen what a
-function accepts, never change it". It has five rules:
-
-1. The default option accepts the least.
+1. The default accepts the least.
 2. For every input that every option accepts, the output is identical, and
-   tested identical in each configuration.
+   tested identical in each configuration. Here this holds by construction:
+   it is the same code.
 3. Inputs outside the default's set are contract violations under it,
-   asserted where the check is cheap (here it is the parser's).
+   asserted where cheap.
 4. The public header documents each set and names the option.
-5. Code that must build against any configuration (a library over `fmt`,
-   `log` itself) uses only the common set.
+5. Code that must build against any configuration (`log`, a library over
+   `fmt`) uses only the common set.
 
-It amends ADR 0004 rather than replacing it.
+How it is tested:
 
-It is contracted and tested like this:
-
-- The header's subset table above.
 - `fmt.unit` (portable subset, literal expectations) runs in both
-  configurations and must give identical bytes.
-- A new `fmt.libc` suite runs only with `FMT_PRINTF_LIBC`:
-  - on the host, each extended conversion is checked against glibc
-    `snprintf` and the prefix rule at every capacity;
-  - on Zephyr, the same runs against picolibc, with float cases only where
-    the test sees `CONFIG_PICOLIBC_IO_FLOAT`.
-- `fmt.violations` asserts `%f` under built-in and `%n` under libc.
-- `integration.choices` builds both, as today.
+  configurations.
+- A new `fmt.libc` suite runs only with `FMT_PRINTF_LIBC`. It covers the
+  extended conversions against glibc and the item rule at every capacity,
+  and its own cases for `-` and `*` on `%s` and `%c`.
+  - On Zephyr it runs against picolibc. Float cases run only where the
+    test sees `CONFIG_PICOLIBC_IO_FLOAT`.
+- `fmt.violations` asserts `%+d` under built-in, and `%n` under libc.
 
 ## Dependencies and cost
 
 | | |
 |---|---|
 | Elemental modules | `io`: `status`; `alloc` with `IO_ALLOC` (unchanged). `fmt`: `status`, **`io`** (new). |
-| Runtime symbols (freestanding) | `memcpy` (as today) and **`memmove`** (new, for compaction). `snprintf` with `FMT_PRINTF_LIBC`. |
-| Allocation | Only `el_buf_init_alloc` buffers, through the allocator they are given |
-| Per-object storage (32-bit) | `el_buf` 24 bytes; `el_buffered_writer` 12; `el_buffered_reader` 16. Was: `el_mem_writer` 12, `el_grow_writer` 20, `el_fmt` 16. |
+| Runtime symbols (freestanding) | `memcpy` (as today) and **`memmove`** (new: compaction). With `FMT_PRINTF_LIBC`, also `snprintf`, `strchr`, `strlen`. |
+| Allocation | Only `el_grow_buf`, through the allocator it is given |
+| Per-object storage (32-bit) | `el_buf` 16 bytes; `el_grow_buf` 24; `el_buffered_writer` 16; `el_buffered_reader` 16. Was: `el_mem_writer` 12, `el_grow_writer` 20, `el_fmt` 16. |
 | New status codes | None |
 
 **`memmove`.** *Source fact* (GCC 16.2.1 manual, "Language Standards
 Supported by GCC"): "GCC requires the freestanding environment provide
-`memcpy`, `memmove`, `memset` and `memcmp`". It is therefore the same kind
-of dependency as `memcpy`, which the allowlist already justifies this way.
-It joins `tests/zephyr/allowed-undefined.txt` (decision 11).
+`memcpy`, `memmove`, `memset` and `memcmp`". It joins
+`tests/zephyr/allowed-undefined.txt` (decision 11).
 
-**Code size. Measured** on 2026-11-13 with the Zephyr SDK's GCC 14.3.0
-(`arm-zephyr-eabi`):
+**`memset` is not needed, but was nearly emitted.** The prototype first
+zero-initialized the printf parser's specification struct with `{0}`. On
+ARMv6-M, GCC 14.3.0 turned that into a `memset` call. Initializing it field
+by field removed the call. The Zephyr symbol check is what would catch a
+regression.
 
-- **Flags:** `-Os -mthumb -ffreestanding -fno-jump-tables
-  -ffunction-sections`, assertions trapping.
-- **What was compiled:** each source compiled alone. This is not a Zephyr
-  build.
-- **Checking the method:** the same commands for Cortex-M3 reproduce
-  [build.md](../build.md#code-size-of-the-assertion-configurations)'s
-  figures:
-  - `fmt` 1 705 bytes, exactly;
-  - the grow writer 332, exactly;
-  - `io` without it 574 (build.md records 578).
-- **The prototype** is functional but not tuned. Its numbers are an upper
-  estimate for an implementation written with the repository's care.
+### Code size
 
-Library objects, text bytes, Cortex-M0 (ARMv6-M):
+**Measured** on 2026-11-13, on `main` at `33dca06` (after ADR 0013) and
+on the revised prototype.
 
-| Today | Bytes | Proposed (prototype) | Bytes |
-|---|---|---|---|
-| `io.c` | 328 | `io.c` (unchanged) | 328 |
-| `io_mem.c`: reader 122, writer 116 | 238 | `io_mem.c`, reader only | ~122 |
-| `io_alloc.c` (grow writer) | 342 | `io_buf.c` (fixed and grown buffer, endpoint) | 640 |
-| — | — | `io_buffered.c` (writer 336, reader 336, both adapters) | 660 |
-| `fmt.c` (cursor, typed calls, hex dump) | 775 | `fmt.c` (three conversions) | 510 |
-| `fmt_digits_builtin.c` | 398 | (inside `fmt.c`) | — |
-| `fmt_printf.c` | 704 | `fmt_printf.c` (both targets) | 1 144 |
-| **Total** | **2 785** | **Total** | **3 404**, of which 660 is the new buffered adapters |
+**Method:**
 
-Linked images on Cortex-M0, measured with `--gc-sections`, a
-`memcpy`/`memmove` stub, and nothing else:
+- **Compiler:** the Zephyr SDK 1.0.1's GCC 14.3.0, `-Os -mthumb
+  -ffreestanding -fno-jump-tables -ffunction-sections`, assertions
+  trapping.
+- **Objects** are each source compiled alone; this is not a Zephyr build.
+  The same commands reproduce `build.md`'s Cortex-M3 figures for `main`:
+  - the grow writer, 378 bytes;
+  - `io` without it, 574 (build.md: 578);
+  - `fmt`, 1 705.
+- **Images** are linked with `--gc-sections`, a startup stub, and either a
+  byte-loop `memcpy`/`memmove` stub, or the SDK's prebuilt picolibc
+  where marked.
+- **The prototype** is functional but not tuned.
 
-| Program | Today | Proposed |
+Library objects, text bytes:
+
+| | Cortex-M0 | Cortex-M3 |
 |---|---|---|
-| `printf` of `"%10lu %s: %d\n"` into a 64-byte stack buffer, then `el_write_all` | 1 759 | 1 959 (+200), with growth and the buffered-writer path reached through pointers |
-| The same, with growth and the buffered writer called directly from the buffer and printf | — | 2 351 (+592) |
-| The same line printed through a 64-byte buffered writer and flushed (streams; today has no equivalent) | — | 2 135 |
+| **`main`:** `io.c` + `io_mem.c` + grow writer | 328 + 238 + 388 = 954 | 356 + 218 + 378 = 952 |
+| **`main`:** `fmt.c` + digits + `fmt_printf.c` | 775 + 398 + 704 = 1 877 | 723 + 290 + 692 = 1 705 |
+| **Proposed:** `io_buf.c` | 412 | 370 |
+| **Proposed:** `io_alloc.c` (`el_grow_buf`) | 270 | 286 |
+| **Proposed:** `io_buffered.c` (writer 620, provisional reader 348, on M0) | 968 | 958 |
+| **Proposed:** `fmt.c` (three conversions) | 510 | 414 |
+| **Proposed:** `fmt_printf.c`, built-in / libc parser | 1 100 / 1 426 | 1 054 / 1 392 |
+| **Proposed:** `fmt_printf_buffered.c` | 72 | 72 |
+| **Proposed:** `fmt_printf_libc.c` (libc only) | 662 | 644 |
 
-What the numbers say:
+Linked images, Cortex-M0. Each prints `"%10lu %s: %d\n"` and sends it with
+`el_write_all`, unless stated:
 
-- The pointers (`el_buf.grow`, and printf's target holding its `reserve`
-  function) are what keep a fixed-buffer program from paying for the
-  allocator and the buffered writer. They are recommended (decision 12).
-- The remaining +200 bytes are the conversions writing into a scratch
-  array and being copied, plus the out-of-line buffer accessors that printf
-  calls across the module boundary. That is the price of the layering.
+| Program | Text bytes |
+|---|---|
+| `main`: into a 64-byte `el_fmt` | 1 759 |
+| Proposed: into a 64-byte fixed `el_buf` | 1 975 (+216) |
+| … with growth called directly instead of through `el_buf.grow` | 2 303 (the hook saves 328) |
+| … with printf's target reserve called directly instead of through the pointer the entry point passes | 2 279 (the pointer saves 304) |
+| … with neither | 2 607 |
+| Proposed: through a 64-byte fixed buffered writer, then flush | 2 367 |
+| Proposed: into an `el_grow_buf` over a bump arena, then deinit | 2 584 |
 
-Not measured:
+What the image numbers show:
 
-- the libc printf option;
-- assertions off and the application handler;
+- **The two pointers** (decision 12) save 632 bytes together for a
+  fixed-buffer program.
+  - `el_buf.grow` costs one word per buffer. Without it, `el_buf_reserve`
+    would have to name the growth code.
+  - printf's target pointer costs no struct word. It is an argument
+    between the two entry points and the shared parser.
+- **The remaining +216 bytes** come from three things:
+  - the conversions writing into scratch and being copied;
+  - out-of-line buffer accessors called across the module boundary;
+  - a wider specification record in the parser.
+
+The libc option, linked against the SDK's prebuilt picolibc:
+
+| Program (Cortex-M0) | picolibc default `vfprintf` (`__d_vfprintf`) | `vfprintf=__i_vfprintf` (integer only) |
+|---|---|---|
+| Built-in option, the same line as above | 1 975 | — |
+| Libc option, `"%10lu %s: %+d\n"` (`%+d` goes to `snprintf`) | 10 440 | 4 444 |
+| Libc option, `"%10lu %s: %+d %.2f\n"` | 10 448 | — |
+| No Elemental `fmt`: `snprintf` of `"%10lu %s: %+d\n"` into a stack array, then `el_write_all` | 7 696 | 1 699 |
+
+So the libc option costs about 2.7 KB of Elemental code above calling
+`snprintf` directly, under either picolibc printf:
+
+- the built-in conversions and parser;
+- the 520-byte `snprintf` bridge;
+- the buffer.
+
+Most of an image's printf cost is the C library's choice of `vfprintf`.
+Picolibc's default double version is about 6 KB more than its integer
+version.
+
+**Not measured:**
+
+- other assertion configurations;
 - Cortex-M3 images;
+- a Zephyr build of the libc option (picolibc there is built by Zephyr
+  with its own `PICOLIBC_IO_*` level);
 - cycle counts.
-
-[build.md's](../build.md#code-size-of-the-assertion-configurations) table is
-rewritten from `code_size.sh` when the implementation lands.
 
 ## Contracts
 
 - **Ownership and lifetime.**
   - The caller owns every object. An `el_buf` borrows fixed storage until
-    it is no longer used. A grown buffer owns its storage until
-    `el_buf_deinit`.
-  - An adapter borrows its `el_buf` and its inner handle for as long as it
-    is used.
-  - `el_buf_data`, `el_buf_spare` and a peek's `*data` are valid until the
-    next call that can append, grow, compact or consume.
-  - An object may move while no handle made from it is in use, and while
-    no adapter borrows it (conventions, Storage rule 3).
+    it is no longer used. An `el_grow_buf` owns its storage until
+    `el_grow_buf_deinit`.
+  - An adapter borrows its `el_buf` and its inner handle while it is used.
+    What the `el_buf`'s owner may do meanwhile is
+    [above](#what-the-owner-may-do-while-an-adapter-borrows-the-buffer).
+  - `el_buf_data`, `el_buf_data_mut`, `el_buf_spare` and a peek's `*data`
+    are valid until the next call that can append, grow, compact or remove
+    bytes.
+  - An object may move while no handle or adapter refers to it.
+    `el_grow_buf` may not move while its `el_buf *` is in use.
 - **Errors.**
-  - The buffer: `EL_ERR_NO_SPACE` only, and never permanent. For a fixed
-    buffer, room returns after `el_buf_truncate`. For a grown one, also
-    when the allocator has room again.
-  - The adapters: the inner stream's statuses unchanged, plus
-    `EL_ERR_NO_SPACE` where a request exceeds the buffer.
-  - printf: the target's statuses, by the item rule.
+  - The buffer: `EL_ERR_NO_SPACE` only, never permanent.
+  - The buffered writer: as [above](#buffered-writer-failures-decision-a).
+  - printf: its target's statuses, by the item rule.
 - **Concurrency.** None internal. One object, one context. An adapter and
   the `el_buf` it borrows count as one object.
 - **Execution context.**
-  - Fixed `el_buf` and the conversions: interrupt-safe (no blocking, no
-    allocation, no lock), under the one-context rule.
-  - Grown `el_buf`: wherever its allocator may be used.
-  - Adapters: whatever the inner stream allows. They add no waiting.
-  - printf: built-in into a fixed buffer is interrupt-safe; libc is as safe
-    as `snprintf`.
+  - Fixed `el_buf`, the conversions, and portable-subset printf into a
+    fixed buffer are interrupt-safe under both printf options.
+  - `el_grow_buf` is usable wherever its allocator may be used.
+  - Adapters are as the inner stream allows, and add no waiting.
+  - Extended (libc) conversions are as safe as `snprintf`.
 - **Contract violations (asserted).**
-  - Null objects and handles; null storage with a nonzero capacity.
-  - Null data with a nonzero length.
+  - Null objects or handles; null storage with a nonzero capacity; null
+    data with a nonzero length.
+  - `data` pointing into the buffer's own storage.
   - `commit` past the room; `truncate` past the length; `consume` past
     what is available.
-  - A conversion `cap` below `EL_FMT_INT_MAX`; unknown flag bits.
-  - A null format, a null `%s` argument, a conversion outside the
+  - The owner using a borrowed `el_buf` beyond the rule above; this is
+    checked at the adapter's next call where cheap.
+  - A conversion `cap` below `EL_FMT_INT_LEN_MAX`; unknown flag bits.
+  - A null format or `%s` argument; a specification outside the
     configuration's set.
-  - Use after `el_buf_deinit`.
-- **Exceptions to [conventions.md](../conventions.md).** Two:
-  - `el_buf_append` reports progress and a status together, like
-    `el_write_all`. It is a loop in effect, and it says so. The single-attempt
-    form is the endpoint's `write`.
-  - `el_buffered_reader_peek` returns data with a non-`EL_OK` status, by
-    the same rule.
+  - A second `el_grow_buf_deinit`.
+- **Exceptions to [conventions.md](../conventions.md).** One:
+  `el_buffered_reader_peek` (provisional) returns data with a non-`EL_OK`
+  status, as `el_read_exact` reports progress with one. The draft's other
+  exception, `el_buf_append` reporting progress and status together, is
+  gone: `el_buf_append` is whole-or-nothing.
 
 ## Interface model
 
-The buffer and the adapters are concrete types (mechanism 1 of
-[ADR 0002](../adr/0002-interface-model.md)). Each has `_as_writer` /
-`_as_reader` to enter the existing handles. Nothing new varies by platform,
-so nothing new is an interface. Any number of buffers and adapters coexist,
-and adapters stack: a buffered writer over a buffered writer is legal and
-pointless.
+The buffer and the buffered writer are concrete types (mechanism 1 of
+[ADR 0002](../adr/0002-interface-model.md)), entered into the existing
+handles with `_as_writer` / `_as_reader`. `el_buf.grow` is a storage hook,
+not an interface: only `io_alloc.c` sets it, and it is not a documented
+extension point.
 
-Build time decides `IO_ALLOC` (whether grown buffers exist) and the printf
-option. Everything else is per instance: storage kind, capacity, inner
-stream.
+Build time decides `IO_ALLOC` (whether `el_grow_buf` exists) and the printf
+option. Everything else is per instance.
 
 ## Configuration
 
 | Option | Default | Use case | Why not the linker / a parameter |
 |---|---|---|---|
-| `IO_ALLOC` (unchanged meaning, new help) | y | Grown buffers; the only part of `io` that needs `alloc` | A dependency edge, not a size question: the linker cannot drop a library dependency |
+| `IO_ALLOC` (new help text) | y | `el_grow_buf`; the only part of `io` that needs `alloc` | A dependency edge, which the linker cannot remove |
 | `FMT` | y, now `select IO` | — | — |
-| Choice `FMT_PRINTF`: `FMT_PRINTF_BUILTIN` (default) / `FMT_PRINTF_LIBC`, replacing `FMT_DIGITS` | builtin | Libc: the image already links the C library's printf, or needs floats, `%p` or flags, through Elemental's truncation rule | It changes what a function accepts, decided once per image. A parameter would put the variadic C library on every call path. The option is renamed so that an old defconfig naming `FMT_LIBC` gets the default and a Kconfig warning, not silently wider semantics. |
-
-The buffered adapters get no option: the linker leaves them out of a
-program that does not call them.
+| Choice `FMT_PRINTF`: `FMT_PRINTF_BUILTIN` (default) / `FMT_PRINTF_LIBC`, replacing `FMT_DIGITS` | built-in | Libc: the image already links the C library's printf, or needs floats, `%p` or flags, through Elemental's truncation rule | It changes what a function accepts, once per image. Renamed so that an old defconfig naming `FMT_LIBC` gets the default and a Kconfig warning, not silently wider semantics. |
 
 ## Verification
 
-- **io contract suite.**
-  - The suite gains one optional capability, `writer_full_after(room)`: a
-    writer that takes exactly `room` bytes and then reports
-    `EL_ERR_NO_SPACE` until storage is released, with a test that it keeps
-    what fitted.
-  - Today a writer that fills up with `EL_ERR_NO_SPACE` is covered only by
-    skips. Both buffer fixtures (fixed, grown) provide the capability.
-- **Implementations it runs against**, replacing `io.contract.mem` and
-  `io.contract.grow`:
+### Run on the prototype (2026-11-13)
 
-| Implementation | Expected, of 12 tests (not run) | Change |
+**Host:** GCC 16.2.1 with AddressSanitizer and UndefinedBehaviorSanitizer,
+GoogleTest v1.18.0 (the repository's provisioned copy).
+
+**The io contract suite** was copied unchanged, plus one proposed optional
+capability, `writer_full_after(room)`. It describes a writer that takes
+exactly `room` bytes and then reports `EL_ERR_NO_SPACE`, not permanently.
+Its test checks that the writer keeps what fitted and repeats
+`EL_ERR_NO_SPACE`.
+
+12 tests per fixture, 72 in all. **53 passed, 19 skipped, none failed.**
+
+| Fixture | Passed | Skipped, and why |
 |---|---|---|
-| `el_mem_reader` + fixed `el_buf` | 9 run, 3 skipped (cannot stall, twice; does not end) | Was 9 / 2 of 11, with the writer ending. The ending test is now skipped; the new full test runs. |
-| `el_mem_reader` + grown `el_buf` over the checking allocator | 9 run, 3 skipped | Was 8 / 3 of 11 |
-| Buffered writer over the ring pipe example (reader side: a memory reader until step 5) | 10 run, 2 skipped (stalls instead of ending; never full) | New. It can stall, because the inner can. |
-| Buffered writer over a scripted stream that also ends | The ending test runs | New |
+| Fixed `el_buf` as a writer, memory reader | 9 | 3: cannot stall (reader, writer); does not end |
+| `el_grow_buf` as a writer, over a stack arena wrapped in the checking allocator | 8 | 4: as above, and cannot be made full after an exact count |
+| Buffered writer, fixed 16 bytes, over the ring pipe example | 9 | 3: the memory reader cannot stall; does not end; never full at an exact count |
+| Buffered writer, grown, over the ring pipe. Stalled = ring full **and** a 256-byte arena spent (decision B). | 9 | 3: as above |
+| Buffered writer, fixed capacity 0 (pass-through), over a writer that ends after N bytes | 9 | 3: cannot stall; never full at an exact count |
+| Buffered reader (provisional), fixed 16 bytes, over the ring pipe | 9 | 3: the writer-side capabilities of its fixed-buffer writer |
 
-- **Unit tests.**
-  - The buffer: growth sizes, the exact-size retry, append versus
-    append-whole at every boundary, reserve/spare/commit, truncate, and
-    every buffer freed with its capacity under the checking allocator.
-    These are the existing `io.unit.grow` cases, moved.
-  - The adapters: write-through threshold; flush resuming after each of
-    would-block, end and error at every byte; reserve passing on only what
-    it needs; peek at, below and above capacity; compaction; reading
-    through after peek.
-- **fmt.**
-  - Conversions against `/` and `%` (the existing 2×10⁶-value check).
-  - printf on both targets with the existing literal expectations,
-    rewritten with the terminator and padding-on-typed-calls cases removed.
-  - The glibc oracle by the prefix rule at every capacity, for a buffer
-    and for a buffered writer over a writer that stalls after k bytes, for
-    every k.
-  - The mutation checks from M3 (divide, whole-or-absent, parser) carry
-    over. The sticky and terminator mutations go with their features.
-- **Death tests** for each violation listed in Contracts.
-- **Rust.**
-  - `rust_sketch.rs` calls the conversions and `el_buf_append_whole`
-    (above).
-  - `rust_alloc_sketch.rs` uses `el_buf_init_alloc` in place of
-    `el_grow_writer`.
-- **Zephyr.**
-  - The new tests are registered with `elemental_add_test()` and run in
-    the image.
-  - The `variant` scenario switches to `FMT_PRINTF_LIBC`.
+**Unit checks:**
+
+- **Built-in option: 47 checks, all passed.** Each of decision A's cases:
+  - write-through meeting `END_OF_STREAM`, and later writes;
+  - `END_OF_STREAM` met by a pass-on, and a later write that would fit;
+  - `IO` and `NO_SPACE` from a pass-on, returned with nothing taken, and
+    recovery from `IO`;
+  - `WOULD_BLOCK` leading to buffering what fits;
+  - a write-through that would-blocks, falling back to buffering.
+
+  Decision B's cases:
+  - a cap-0 grown buffer that grows instead of writing through;
+  - growing while the stream would block, until the arena refuses;
+  - `reserve` beyond the allocator returning `NO_SPACE`;
+  - `flush` not growing;
+  - `deinit` leaving an always-full buffer;
+  - `len + min` overflow returning `NO_SPACE`.
+
+  Item 4: a partial flush moves no byte, and the next write compacts.
+  Also checked: reserve-first rollback, streaming printf, a stalled
+  printf, whole-or-absent numbers, and Example 1's line ending.
+- **Libc option: 385 checks, all passed.** Everything above, plus 13
+  extended specifications compared with glibc `snprintf` at every capacity
+  by the item rule, the one-byte edge included. Also `-` and `*` on `%s`
+  and `%c`.
+- **Built-in rejects `%+d`:** the program stops at the assertion (trap).
+
+**Mutation:** five deliberately broken buffered writers. Each was caught.
+
+| Mutant | Caught by |
+|---|---|
+| Remembering no `END_OF_STREAM` | 2 checks |
+| The pass-on swallowing `IO` | `el_write`'s progress-or-status assertion, which traps |
+| A write-through returning `WOULD_BLOCK` instead of buffering | 2 checks |
+| Grown storage that never grows | 5 checks |
+| `flush` compacting on every partial flush | 2 checks |
+
+**Headers:** each prototype header compiled alone as C11, and `io_buf.h`
+also as C++11, with `-Wall -Wextra -Wpedantic -Werror`.
+
+### Planned for the implementation
+
+- **The io contract suite** gains `writer_full_after`. The fixtures above
+  move into `modules/io/tests`, replacing `io.contract.mem` and
+  `io.contract.grow`. The ring-pipe fixtures stay under
+  `examples/backend_ring`'s pattern.
+- **Unit tests** move from the prototype's checks into GoogleTest. The
+  existing grow-writer cases (`io.unit.grow`) carry over to `el_grow_buf`.
+- **fmt tests:**
+  - conversions against `/` and `%` (the existing 2×10⁶-value check);
+  - printf on both targets with the existing literal expectations, minus
+    the terminator and typed-call padding cases;
+  - the glibc oracle at every capacity, for a buffer, and for a buffered
+    writer over a writer that stalls after k bytes, for every k;
+  - `fmt.libc` as above;
+  - death tests for each violation.
+- **Rust:** `rust_sketch.rs` calls the conversions and `el_buf_append`.
+  `rust_alloc_sketch.rs` uses `el_grow_buf`.
+- **Zephyr:**
+  - the new tests run in the image;
+  - the `variant` scenario switches to `FMT_PRINTF_LIBC`;
   - `allowed-undefined.FMT_LIBC.txt` becomes
-    `allowed-undefined.FMT_PRINTF_LIBC.txt`, and `memmove` joins the base
-    list.
-  - The symbol check on `qemu_cortex_m0` is what shows that GCC emitted no
-    other helper. Today `-fno-jump-tables` on `fmt` exists for that reason
-    and stays.
+    `allowed-undefined.FMT_PRINTF_LIBC.txt` (`snprintf`, `strchr`,
+    `strlen`), and `memmove` joins the base list;
+  - the symbol check on `qemu_cortex_m0` guards against `memset` and jump
+    tables.
 
 | Target | Toolchain | Level intended |
 |---|---|---|
@@ -1120,131 +1368,116 @@ program that does not call them.
 
 **Code that changes.**
 
-- `modules/io`:
+- **`modules/io`:**
   - `io_mem.h`/`.c` lose `el_mem_writer`.
-  - New `io_buf.h`/`io_buf.c` and `io_buffered.h`/`io_buffered.c`.
-  - `io_alloc.h`/`.c` become `el_buf_init_alloc` and the growth path.
+  - New `io_buf.h`/`.c` and `io_buffered.h`/`.c`, and a private
+    `io_private.h`.
+  - `io_alloc.h`/`.c` become `el_grow_buf`.
   - `io.h`'s status table: `EL_ERR_NO_SPACE` is no longer "only from
     writers that allocate". `EL_ERR_END_OF_STREAM` no longer gives "its
     buffer is full" as its writer example.
-  - Kconfig help, `CMakeLists.txt`, every test file in `tests/`, and the
-    README.
-- `modules/fmt`:
+  - Kconfig help, `CMakeLists.txt`, all tests, and the README.
+- **`modules/fmt`:**
   - All of `fmt.h`, `fmt_printf.h` and `src/`.
-  - `fmt_digits_*.c` and `fmt_private.h`'s digits split go.
-  - `fmt_printf_libc.c` is new.
-  - Kconfig (`select IO`, the new choice); `CMakeLists.txt` (`DEPENDS
-    status io`).
-  - All tests and the README.
-- `examples/consume_subdirectory/main.c` (uses `el_mem_writer`).
-- `tests/interop/rust_sketch.rs`, `rust_alloc_sketch.rs`.
-- `tests/integration/integration.py`:
-  - expected suite summaries;
-  - the `IO_ALLOC` comment;
-  - choices discovery picks up the renamed choice.
-- `cmake/ElementalConfiguration.cmake` (comment naming `FMT_LIBC`).
-- `configs/variant_defconfig`.
-- `tests/zephyr/allowed-undefined*.txt` and `testcase.yaml`.
+  - New `fmt_printf_buffered.c` and `fmt_printf_libc.c`.
+  - `fmt_digits_*.c` go.
+  - Kconfig (`select IO`, the new choice); `DEPENDS status io`.
+  - Tests and the README.
+- **Elsewhere:**
+  - `examples/consume_subdirectory/main.c`;
+  - `tests/interop/rust_sketch.rs` and `rust_alloc_sketch.rs`;
+  - `tests/integration/integration.py`;
+  - `cmake/ElementalConfiguration.cmake` (a comment);
+  - `configs/variant_defconfig`;
+  - `tests/zephyr/allowed-undefined*.txt` and `testcase.yaml`.
 
 **Docs that change.**
 
-- `CHANGELOG.md`: every public change above.
-- `README.md` module table.
-- `docs/build.md`: the options table, code size, test totals and the
-  verified matrix, from the run that lands each step.
+- `CHANGELOG.md`; `README.md`; `docs/build.md` (options, code size, test
+  totals, the verified matrix).
 - `docs/architecture.md`:
-  - §6.3: buffered reading and flush are no longer "deliberately absent".
-  - The dependency graph gains `fmt → io`.
-  - The "Logic, separated from effects" text, if it cites fmt.
-- `docs/module-plan.md`, as proposed [below](#roadmap-and-module-plan).
-- `docs/proposals/fmt.md` and `alloc.md`: a note at the top pointing here,
-  as `alloc.md`'s "As accepted and implemented" does. No rewriting of
-  history.
-- `docs/adr/`, three records to be written:
+  - §6.3: buffering is no longer "deliberately absent";
+  - the dependency graph gains `fmt → io`.
+- `docs/conventions.md`: Errors rule 4 names `el_read_exact` and
+  `el_write_all` as the only optional outputs. That stays true, because
+  `el_buf_append` no longer has an optional output. No change is needed
+  there.
+- `docs/module-plan.md` (proposed [below](#roadmap-and-module-plan)).
+- A note at the top of `docs/proposals/fmt.md` and `alloc.md`.
+- Three ADRs to be written:
   - superseding 0011;
-  - flush outside the operation table;
+  - flush outside the operation table (provisional until M4);
   - private choices that widen a contract.
 - `docs/roadmap.md` is the owner's.
 
-**Implementation order**, each step one reviewable branch that passes
+**Implementation order.** Each step is one reviewable branch that passes
 preflight on its own:
 
-1. **`el_buf` replaces both writers.**
-   - Fixed and grown storage, append, append-whole, reserve, spare,
-     commit, truncate and the endpoint writer.
-   - Fixtures, tests and the new contract capability.
+1. **`el_buf` and `el_grow_buf` replace both writers.**
+   - Append, reserve/spare/commit, truncate, `data_mut`, and the endpoint.
+   - Fixtures, the new suite capability, and tests.
    - `consume_subdirectory` and `rust_alloc_sketch`.
-   - `fmt` is untouched.
-2. **`el_buffered_writer`.**
-   - Flush and reserve, contract instantiations, `memmove` on the
-     allowlist.
-   - The flush ADR.
+2. **`el_buffered_writer`** with decisions A and B.
+   - Contract instantiations; `memmove` on the allowlist.
+   - The flush ADR, provisional.
 3. **`fmt` on `io`, built-in only.**
-   - Pure conversions; printf on both targets; `el_fmt` and the hex dump
-     removed; `FMT_DIGITS` removed.
-   - The ADR superseding 0011; `rust_sketch`.
-   - Between steps 3 and 4 there is briefly no libc option. That is
-     acceptable on `main` for one merge, or 3 and 4 merge together.
+   - Conversions; printf on both targets.
+   - Remove `el_fmt`, the hex dump and `FMT_DIGITS`.
+   - The ADR superseding 0011.
+   - Steps 3 and 4 may merge together, to avoid a moment with no libc
+     option.
 4. **`FMT_PRINTF_LIBC`.**
-   - The libc delegation and the `fmt.libc` suite.
-   - The Zephyr variant scenario and the allowlist rename.
-   - The ADR on widening choices.
-5. **`el_buffered_reader`**, with `frame` in M6 (decision 14). Its design
-   is fixed here so that step 1's `el_buf` already serves it.
+   - `fmt.libc`, the Zephyr variant scenario, the allowlist rename.
+   - The widening ADR.
+5. **The buffered reader**, proposed again and built with `frame` in M6
+   (decision 14).
 
 ## Roadmap and module-plan
 
-Proposed text for the owner to apply. This document does not edit them.
+Proposed text for the owner to apply.
 
-**Roadmap.** A milestone between M3 and M4:
+**Roadmap.** Add a milestone between M3 and M4:
 
 > **M3a — Buffers and formatting, second pass.** Depends on M2, M3.
-> `el_buf` replaces `el_mem_writer` and `el_grow_writer`; the buffered
-> writer with flush; `fmt` reduced to conversions, with printf into a
-> buffer or a buffered writer; the platform option moved to printf.
-> Acceptance: [ ] the proposal accepted and the three ADRs recorded;
-> [ ] io contract suite passes for both buffer storages and the buffered
-> writer, with the new `writer_full_after` capability; [ ] printf output
-> byte-identical on the host and on Zephyr Cortex-M3 and Cortex-M0+ in both
-> printf options, for the common subset; [ ] the Zephyr symbol check shows
-> `memcpy` and `memmove` only by default; [ ] Example 2 runs on a Zephyr
-> target against a writer that stalls (QEMU UART or a scripted writer).
+> `el_buf` and `el_grow_buf` replace `el_mem_writer` and `el_grow_writer`;
+> the buffered writer with flush; `fmt` reduced to conversions, with printf
+> into a buffer or a buffered writer; the platform option moved to printf.
+> Acceptance: [ ] the proposal accepted and the three ADRs recorded (flush
+> provisional); [ ] the io contract suite passes for both storages and the
+> buffered writer, with `writer_full_after`; [ ] printf output identical on
+> the host and on Zephyr Cortex-M3 and Cortex-M0+ in both printf options,
+> for the portable subset; [ ] the Zephyr symbol check shows `memcpy` and
+> `memmove` only by default; [ ] Example 2 runs on a Zephyr target against
+> a writer that stalls.
 
 Other roadmap changes:
 
-- **M4** depends on M3a, and its writer sink uses Example 1's shape.
+- **M4** depends on M3a. Its acceptance gains: "the flush decision
+  confirmed or reopened by the writer sink".
+- **M6** gains the buffered reader, proposed with `frame`.
 - **M7** shrinks to:
-  - the buffered reader with peek, built with `frame`, or moved into M6
-    outright;
   - the flush-in-operations check with `frame`'s evidence;
   - any revision M4 and M6 show.
 
-  The acceptance item "the decision on flush in the operation table is
-  recorded, with the log example" moves to M3a, as its ADR.
+**Module-plan:**
 
-**Module-plan.**
-
-- **Catalogue:** the `fmt` row's hard dependencies become `status`, `io`.
-  The `io`, second iteration row names `fmt` printf as its first consumer,
-  beside `log` and `frame`.
+- **Catalogue:** `fmt`'s hard dependencies become `status`, `io`.
 - **The `fmt` entry:** replace "The core does not format into an
-  `el_writer` … *Open:* whether to use its own small cursor or
-  `el_mem_writer`" with:
+  `el_writer` … *Open:* … `el_mem_writer`" with:
 
   > The core is pure conversions into a caller's scratch array. printf
   > formats into an `el_buf` or an `el_buffered_writer` from `io`, which
   > know their free space, so a number is still whole or absent; it never
   > writes to a bare `el_writer`.
-- **The `io`, second iteration entry:** the buffer, the buffered writer
-  (this proposal), and the buffered reader (designed here, built with
-  `frame`). Flush on the concrete type, per the ADR.
+- **The io second-iteration entry:** the buffer and the buffered writer
+  (this proposal); the buffered reader with `frame`; flush on the concrete
+  type, per the provisional ADR.
 - **"Where stream glue lives":** append:
 
   > `fmt` depends on `io` after all (owner, date): its output targets are
-  > io buffers, and the glue holds real logic, item-wise fitting and making
-  > room by flushing.
-- **The dependency graph:** add `fmt --> io`. The "no cycles" paragraph's
-  first bullet becomes:
+  > io buffers, and the glue holds real logic.
+- **The dependency graph:** add `fmt --> io`. The first "no cycles" bullet
+  becomes:
 
   > `fmt` writes into an io buffer; io does not depend on `fmt`, and
   > backends never log.
@@ -1253,33 +1486,32 @@ Other roadmap changes:
 
 | Alternative | Why rejected |
 |---|---|
-| **A "when full" hook in `el_buf`** (fixed, grow, or flush), making the buffered writer just a buffer with a flush hook. One printf entry point. | It erases the distinction the owner asked for: `el_buf_data` on a flushing buffer would return bytes that are about to leave, and any code holding an `el_buf *` could trigger I/O. Two printf entry points are cheaper than that ambiguity. |
-| **`el_buf` as a queue with a read offset** (Go's `bytes.Buffer`), with a reader handle | Every reader of `el_buf_data` would handle an offset, and append would need a compaction policy. A reader over a buffer someone else may append to cannot keep `EL_ERR_END_OF_STREAM` permanent. The two adapters that need front removal keep their own offset or compact privately. |
-| **Fold `el_mem_reader` into `el_buf`** | Loses `const`: a reader over a flash table would need a cast (decision 1) |
-| **Adapters embed their storage**, with `_init` and `_init_alloc` each | Four init functions for two adapters, and a fifth combination as soon as a third adapter exists. Borrowing an `el_buf` keeps storage orthogonal, at the cost of one more object to keep alive (decision 4). |
-| **printf into the buffered writer's buffer only, no streaming** | Output longer than the buffer would be cut. A 300-byte `%s` into a 64-byte UART buffer would print 64 bytes, which is not what "printf to a UART" means. Streaming costs one `reserve` function. |
-| **Resumable printf** (save the format position and a `va_copy`) | A variadic function must `va_end` its list before it returns (C11 7.16.1.3), so the arguments cannot outlive the call. Resuming would need the arguments captured into a package, which is Zephyr's `cbprintf_package`: a different, larger design with no consumer. |
-| **Sticky truncation flag in `el_buf`** | Decision 7. For a buffer behind a buffered writer, "refuse everything until reset" has no reset that makes sense, because bytes already left. For a plain buffer it saves a chain of `if`s that bindings write anyway (Rust's `?`). |
-| **Keep NUL termination as a buffer option** | An option for one byte, with a length rule that differs by option. Callers who need a C string append one. |
+| **`el_buf` carrying the allocator** (the first draft: six words, `el_buf_deinit` in `io_buf.h`) | `deinit` had to name `el_free`, so every buffer user linked it. Fixed storage got a `deinit` whose misuse could not be detected. Replaced by `el_grow_buf` (decision C). |
+| **A "when full" hook that also flushes**, making the buffered writer a buffer with a flush hook | It erases the endpoint/adapter distinction the owner asked for. Code holding an `el_buf *` could trigger I/O. |
+| **`el_buf` as a queue with a read offset** (Go's `bytes.Buffer`) | Every reader of `el_buf_data` would handle an offset. The adapters keep their own `pos` instead. |
+| **Adapters embed their storage**, with an init per storage kind | Combinatorial inits. Borrowing an `el_buf *` keeps storage orthogonal. |
+| **A public "append what fits"** | The first draft had it. Its only callers are the endpoint and printf's text path, which use a private helper and spare/commit. A public partial append reports progress and status together, which was a conventions exception. |
+| **printf into the buffered writer's buffer only, no streaming** | Output longer than the buffer would be cut |
+| **Resumable printf** | A variadic function must `va_end` its list before it returns (C11 7.16.1.3) |
+| **Sticky truncation flag in `el_buf`** | Decision 7: incoherent behind a buffered writer, which has already passed bytes on |
+| **A latched error for every inner status** (Go's `bufio`) | The owner decided against it. `IO` and `NO_SPACE` are not permanent in io.h, and remembering them would turn a recoverable failure into a permanent one. Only `END_OF_STREAM` is remembered (decision 17). |
+| **Mapping the inner `END_OF_STREAM` to `EL_ERR_IO`**, so that nothing needs remembering | Keeps io.h's rules without state, but tells the caller "the environment failed, try again" when the peer is gone for good. Recorded as the alternative in decision 17. |
 | **Flush in `el_writer_ops` now** | Decision 5 |
-| **Libc option delegating the whole format to `vsnprintf`** | Cuts numbers and loses the item boundary. Already rejected by the fmt amendment. |
-| **Keep the digits split as well as the printf option** (two choices) | The digits split's measured value is ±104 / 1 268 bytes. It was a stand-in for the platform option the owner wanted. Two choices for one module doubles `integration.choices` for no consumer. |
-| **Conversions that take a destination `el_buf`** (`el_fmt_dec_u64(el_buf *, value)`) | The core would then depend on `io` too, and stop being trivially bindable and interrupt-safe with no conditions. One `el_buf_append_whole` after a scratch conversion costs a 20-byte copy. |
+| **The libc option delegating the portable subset too** | The first draft considered it. Identical output would rest on tests, a `%0Nd` with N ≥ 32 would differ at the edge of a buffer, and the portable subset would lose its interrupt safety under libc. |
+| **Libc delegating the whole format to `vsnprintf`** | Cuts numbers and loses the item boundary |
+| **Conversions that take an `el_buf`** | The core would depend on `io` and stop being trivially bindable |
 
 ## Evidence required before stable
 
 The baseline in [api-stability.md](../process/api-stability.md), and:
 
-- `log` (M4) formats through Example 1's shape or through a buffered
-  writer, and a second consumer not written for this proposal uses
-  `el_buf`.
-- `frame` (M6) has used the buffered reader. Its COBS decoder decided
-  whether `peek(min)` is the right primitive (open question 1), and whether
-  flush must enter `el_writer_ops`.
-- The libc option ran on Zephyr with `PICOLIBC_IO_FLOAT` at least once,
-  with its float output recorded as the platform's.
-- io's promotion still waits for async discovery (M9). This adds buffer
-  ownership to what M9 must look at, as module-plan's risk already says.
+- `log` (M4) formats through Example 1's shape or a buffered writer, and
+  confirms or reopens the flush decision. A second consumer not written for
+  this proposal uses `el_buf`.
+- `frame` (M6) re-proposes and uses the buffered reader.
+- The libc option ran on Zephyr with `PICOLIBC_IO_FLOAT` at least once.
+- io's promotion still waits for async discovery (M9). Buffer ownership is
+  added to what M9 must look at.
 
 ## Review: three seats
 
@@ -1287,135 +1519,120 @@ The baseline in [api-stability.md](../process/api-stability.md), and:
 
 | Friction found | Fixed by |
 |---|---|
-| Printing to a UART meant a stack buffer, a format call, and `el_write_all`, cut at the buffer's size | `el_fmt_printf_buffered` streams (Example 2) |
-| A buffered stream that stalls mid-line leaves half a line | Reserve the line first (Example 2), or format a record into an `el_buf` then write it (Example 1). Documented in `fmt_printf.h`. |
-| Without sticky truncation, a later call can follow a dropped number | Chain on the status (Example 1), or `el_buf_truncate` to a mark. The cost is stated in the ADR draft. |
-| A growing buffer and a fixed one needed different code | One type. Only the init differs (Example 3). |
-| Reading a stream to its end bounced through a chunk | `el_buf_reserve` / `el_buf_spare` / `el_buf_commit` |
-| The trailing-newline trick held back two bytes | No terminator; `el_buf_truncate` overwrites the last byte |
+| Printing to a UART was a stack buffer and `el_write_all`, cut at the buffer's size | `el_fmt_printf_buffered` streams (Example 2) |
+| A stalled line leaves half a line on the stream | Reserve first, and roll back with `el_buf_truncate` while nothing was passed on (Example 2) |
+| A burst into a non-blocking stream is dropped | Grown storage absorbs it up to the allocator's limit (Example 2b) |
+| Without sticky truncation, a later call can follow a dropped number | Chain on the status (Example 1) |
+| A growing buffer and a fixed one needed different code | Both are an `el_buf *` (Example 3) |
+| The newline on a full line needed truncate-then-append | `el_buf_data_mut` (Example 1) |
 
 **Backend author.**
 
 | Friction found | Fixed by |
 |---|---|
 | A UART writer that would-blocks forced every caller to keep resume state | The buffered writer keeps it. The UART writer stays a plain single-attempt `el_writer`. |
-| Does a backend now have to implement flush? | No: flush is not an operation (decision 5) |
-| How does a buffered adapter run the contract suite? | Like any backend, over an inner stream that can stall; table in Verification |
+| Does a backend now implement flush? | No (decision 5, provisional) |
+| Does the buffered writer keep io.h's rules over any inner writer? | Decision A, the contract suite over three inner writers, and the mutation table |
 
 **Maintainer.**
 
 | Friction found | Fixed by |
 |---|---|
-| `fmt` gains a dependency | Accepted by the owner. `io` is below `fmt`, and nothing in `io` needs `fmt`, so there is no cycle. |
-| Fixed-buffer programs paid for the allocator and the buffered writer (+592 bytes, measured) | Growth and the printf target's reserve reached through pointers (+200, measured; decision 12) |
-| A private choice now changes what printf accepts | An ADR to be written, with the five rules above, and tests per configuration |
-| `memmove` is a new runtime symbol | GCC already requires it of freestanding environments (source fact); decision 11 |
-| Hard to change later | `el_buf`'s layout (6 words); printf's two targets; the item rule; flush outside the operation table. The first two are the decisions below. |
+| `fmt` gains a dependency | Accepted by the owner. There is no cycle. |
+| Fixed-buffer programs paid for the allocator and the buffered writer | The hook and the target pointer, 632 bytes measured (decision 12) |
+| `el_buf_deinit` named `el_free` | `el_grow_buf` (decision C) |
+| A private choice now changes what printf accepts | The widening ADR, and the portable subset by construction |
+| `memmove`; a near-miss `memset` | Decision 11; the symbol check |
+| Hard to change later | `el_buf`'s four words; the two printf targets; the item rule; flush outside the operation table |
 
-Names: `el_buf_*`, `el_buffered_writer_*`, `el_buffered_reader_*`, and
-`el_fmt_*` follow `el_<module-ish noun>_<verb>`, as `el_mem_reader` does.
-None equals a name in libedit's `histedit.h`: libedit has `el_init`,
-`el_get`, `el_set`, `el_push`, and others, but no `el_buf*` and no
-`el_fmt*`.
+Names: `el_buf_*`, `el_grow_buf_*`, `el_buffered_writer_*`,
+`el_buffered_reader_*` and `el_fmt_*`. None equals a name in libedit's
+`histedit.h`.
 
 ## Decisions for the owner
 
-Each has a recommendation. The ones that reverse an accepted decision are
-marked.
+**Decided** (owner, 2026-11-13):
 
-1. **`el_buf` replaces `el_mem_writer` and `el_grow_writer`; `el_mem_reader`
-   stays** as a reader over `const` bytes. *Recommended.* Folding the reader
-   in would cast away `const`.
-2. **`el_buf` is an append buffer, with no read offset.** The adapters keep
-   their own offset or compact privately. *Recommended* over a Go-style
-   queue.
-3. **A full memory buffer reports `EL_ERR_NO_SPACE`, not
-   `EL_ERR_END_OF_STREAM`**, through its writer handle, in both storages.
-   *Recommended.* ADR 0009 defines `NO_SPACE` as "a caller buffer that is
-   too small". `END_OF_STREAM` predates it, and it is false once a buffer
-   can be truncated and reused. This changes what `el_write_all` returns to
-   today's `el_mem_writer` users.
-4. **Adapters borrow an `el_buf`** (one init each) rather than embedding
-   storage with an init per storage kind. *Recommended.*
-5. **Flush stays a function of `el_buffered_writer`, not an operation in
-   `el_writer_ops`**, decided by M4's planned writer sink, which never holds
-   a buffered writer it did not create. Revisit with `frame`'s encoder
-   writer. An ADR is to be written. *Recommended.*
-6. **printf into a buffered writer streams.** On a stall or failure it stops
-   at an item, keeps what it accepted buffered, and returns the inner
-   status. Line atomicity is the caller's, by reserve-first.
-   *Recommended* over "no streaming" and over a resumable printf.
-7. **Truncation is per call, not sticky across calls.** *Recommended.*
-   *Reverses part of ADR 0011.* The alternative is a sticky flag in
-   `el_buf`, cleared by `el_buf_truncate`. It is cheap for plain buffers
-   and incoherent behind a buffered writer.
-8. **The `fmt` core is three pure conversions with `cap` asserted ≥
-   `EL_FMT_INT_MAX`.** It drops width and zero-pad on typed calls,
-   `el_fmt_str`/`cstr`, and the hex dump. *Recommended.* The hex dump can
-   return with a consumer.
-9. **No NUL termination anywhere.** *Recommended.* *Reverses fmt
-   decision 1's termination rule* (ADR 0011).
-10. **The platform option moves to printf**: `FMT_PRINTF_BUILTIN` (default)
-    / `FMT_PRINTF_LIBC`, replacing `FMT_DIGITS`. Libc delegates the
-    conversions outside the portable subset one at a time, with the
-    one-byte edge for those of 32 bytes or more. The portable subset and
-    text stay Elemental's code in both options. An ADR on private choices that
-    widen a contract is to be written. *Recommended.* *Replaces the
-    2026-11-12 fmt amendment.*
-11. **`memmove` joins `memcpy` on the Zephyr allowlist.** *Recommended*, on
-    GCC's own freestanding requirement. The alternative is a forward copy
-    loop, which GCC may turn back into `memmove` anyway.
-12. **Growth and printf's target are reached through pointers**, so that a
-    fixed-buffer program links neither the allocator path nor the buffered
-    writer. It costs one word in `el_buf`. *Recommended* (+200 instead of
-    +592 bytes, measured).
-13. **Names:**
-    - `el_buf`, `el_buf_append` (what fits), `el_buf_append_whole`;
-    - `el_buffered_writer`, `el_buffered_reader`;
-    - `el_fmt_printf` / `el_fmt_printf_buffered`;
-    - headers `io_buf.h`, `io_buffered.h`, with `io_alloc.h` kept for
-      `el_buf_init_alloc`.
+1. `el_buf` replaces `el_mem_writer` and `el_grow_writer`; `el_mem_reader`
+   stays.
+2. `el_buf` has no read offset.
+3. A full memory buffer reports `EL_ERR_NO_SPACE`, not
+   `EL_ERR_END_OF_STREAM`.
+4. Adapters borrow an `el_buf *`.
+5. Flush stays a function of `el_buffered_writer`. **Provisional until
+   M4's writer sink exists.** Its ADR is to be written.
+6. printf into a buffered writer streams, and stops at an item on a stall.
+7. Truncation is per call, not sticky. This partly reverses ADR 0011.
+8. The `fmt` core is three pure conversions. Width, zero-pad,
+   `el_fmt_str`/`cstr` and the hex dump are dropped.
+9. No NUL termination. This reverses fmt decision 1's termination rule.
+10. The option moves to printf: `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC`.
+    The portable subset, decided by whole specification, is built-in code
+    in both options. The widening ADR is to be written.
+11. `memmove` joins the allowlist.
+12. Growth is reached through `el_buf.grow`, and printf's target reserve
+    through a pointer the entry point passes. This saves 328 + 304 bytes,
+    measured, at the cost of one word in `el_buf` and none elsewhere.
+    Revised by decision C.
+13. Names: `el_buf`, `el_buf_append` (whole-or-nothing; "what fits" is
+    private), `el_buf_data_mut`, `el_grow_buf`, `el_buffered_writer`,
+    `el_fmt_printf_buffered`, `EL_FMT_INT_LEN_MAX`. Headers `io_buf.h`,
+    `io_alloc.h`, `io_buffered.h`.
+14. The buffered reader is provisional, proposed again with `frame`.
+15. `fmt` depends on `io`. This reverses fmt decision 3 and module-plan's
+    "Where stream glue lives".
+- **A.** Buffered writer failures: one pass-on attempt, and only
+  `WOULD_BLOCK` leads to buffering.
+- **B.** Grown storage grows instead of waiting, bounded by the allocator.
+- **C.** `el_buf` is four words, and grown storage is `el_grow_buf`.
 
-    *Recommended.* The owner may prefer a shorter `el_bufw`/`el_bufr` or
-    `_to` suffixes: the names are cheap to change now and expensive later.
-14. **Build the buffered reader with `frame` (M6), not in this milestone.**
-    Its design is fixed here. *Recommended.* Its consumer is `frame`, and
-    COBS may want a different primitive than `peek(min)` (open question 1).
-    *Challenges the owner's direction*, which asked for both adapters now.
-    If both are wanted now, step 5 joins M3a at about 336 bytes and one test
-    file.
-15. **`fmt` depends on `io`.** *Recommended* (the owner already accepted
-    it). *Reverses fmt decision 3 and module-plan's "Where stream glue
-    lives"*, with the text above.
-16. **Roadmap: an M3a before M4** containing steps 1 to 4. M7 shrinks to the
-    reader (with `frame`) and the flush re-check. *Recommended*; the owner
-    applies it.
+**Still open:**
+
+16. **Roadmap: an M3a before M4** containing steps 1–4, with the reader in
+    M6 and M7 shrunk to match. *Recommended.* The owner applies it.
+17. **How `EL_ERR_END_OF_STREAM` stays permanent without a latched error.**
+    A buffered write that fits never calls the inner writer, so permanence
+    needs one remembered fact.
+    - *Recommended:* the sentinel `pos == SIZE_MAX`, set only on the inner
+      writer's `END_OF_STREAM`, with no new field. `IO`, `NO_SPACE` and
+      `WOULD_BLOCK` are never remembered.
+    - *Alternative:* report the inner `END_OF_STREAM` from `write` as
+      `EL_ERR_IO`, which needs no memory and is never permanent. Only
+      `flush` would then return `END_OF_STREAM`. That loses the "peer is
+      gone" meaning for holders of the handle.
+
+    One related reading also needs confirming. "A write-through that takes
+    nothing falls back to buffering what fits" is applied to
+    `WOULD_BLOCK` only. A write-through that meets `END_OF_STREAM`, `IO`
+    or `NO_SPACE` returns it, as the pass-on does. Buffering after
+    `END_OF_STREAM` would accept bytes that can never leave.
+18. **The status when a write finds no room** (stream stalled, allocator
+    refused or storage fixed). *Recommended:* `EL_ERR_WOULD_BLOCK`. Space
+    returns as the stream drains, which is io.h's definition, and the
+    caller already handles it for any non-blocking stream.
+    `EL_ERR_NO_SPACE` is kept for requests no draining can satisfy:
+    `reserve(min)` beyond the capacity or the allocator.
 
 ## Open questions
 
-1. **COBS and `peek(min)`.** A delimiter scan does not know its `min`.
-   With `peek(have + 1)` it rescans and reads one byte per call at worst.
-   A `fill` primitive ("read once more into spare room, return all
-   available") may be what `frame` wants instead of, or beside, `peek`.
-   Settled by M6's COBS example, which is why decision 14 defers the
-   reader.
+1. **COBS and `peek(min)`.** A delimiter scan does not know its `min`. A
+   `fill` primitive may suit `frame` better. Settled when the reader is
+   proposed again in M6.
 2. **A `%s` longer than the buffer, through a buffered writer,** is copied
-   through the buffer in capacity-sized pieces. Writing it straight through
-   when the buffer is empty would save the copy, as the writer handle does.
-   That is an implementation detail with no contract effect, left to step 3.
-3. **The libc option's float output on picolibc** at `PICOLIBC_IO_LONG_LONG`
-   (no float support) has not been looked at. The contract says "whatever
-   the C library writes". Whether Elemental should refuse `%f` when the
-   probe says floats are absent is a question for step 4.
-4. **The libc option's code size** is unmeasured. The fmt amendment
-   measured +1 268 bytes for picolibc's integer printf in an image with
-   nothing else formatting. Floats will be more.
+   through the buffer in capacity-sized pieces. Writing it straight
+   through when nothing is pending would save the copy. This is an
+   implementation detail.
+3. **The libc option's float output on picolibc** at
+   `PICOLIBC_IO_LONG_LONG` has not been looked at. The contract says
+   "whatever the C library writes".
+4. **The libc option in a Zephyr build** is unmeasured. The image numbers
+   above use the SDK's prebuilt picolibc, not Zephyr's.
 
 ## Sources
 
 Pinned, read on 2026-11-13. The source facts above cite these.
 
-- Rust 1.90.0, `github.com/rust-lang/rust` tag `1.90.0`:
+- **Rust 1.90.0**, `github.com/rust-lang/rust` tag `1.90.0`:
   - `library/std/src/io/buffered/bufwriter.rs`:
     - 73–76 (`panicked`);
     - 145–150 (`into_inner`);
@@ -1424,44 +1641,43 @@ Pinned, read on 2026-11-13. The source facts above cite these.
     - 651–653 (`flush`);
     - 681–687 (drop flushes, "we ignore a failed flush").
   - `library/std/src/io/mod.rs`:
-    - 615–652 (`default_write_fmt`'s `Adapter` keeps the `io::Error`);
+    - 615–652 (`default_write_fmt`'s `Adapter`);
     - 1677, 1801 (`Write`; `flush` required);
     - 2308, 2344, 2361 (`BufRead`; `fill_buf`, `consume` required).
   - `library/core/src/fmt/mod.rs`:
     - 70–85 (`Error` carries no information);
-    - 107 (`pub struct Error;`);
+    - 107;
     - 151 (`write_str`).
-- Go go1.23.0, `github.com/golang/go` tag `go1.23.0`:
+- **Go go1.23.0**, `github.com/golang/go` tag `go1.23.0`:
   - `src/bufio/bufio.go`:
     - 570–572 (errors are sticky);
     - 632 (`Flush` on `*Writer`);
     - 132–135 (`Peek`, `ErrBufferFull`).
-  - `src/io/io.go`, 99–101 (`io.Writer` has only `Write`).
+  - `src/io/io.go`, 99–101.
   - `src/bytes/buffer.go`:
-    - 126–155 (`grow`, slides data down);
+    - 126–155 (`grow`);
     - 229–247 (`growSlice`, at least doubles);
     - 44, 174 (`ErrTooLarge`).
-- Pigweed, `github.com/google/pigweed` commit
+- **Pigweed**, `github.com/google/pigweed` commit
   `1b610f4d8c1ba74808a552844474f3f620913a3f`:
-  - `pw_stream/public/pw_stream/stream.h`:
-    - 147–151, 172–177 (`Write` all or nothing; no `Flush` in the file);
-    - the directory has no buffered stream.
-  - `pw_string/public/pw_string/string_builder.h`:
-    - 39–41 (always NUL-terminated);
-    - 130–133 (sticky status until `clear_status()`);
-    - 186–187 (strings cut).
-  - `pw_string/public/pw_string/type_to_string.h`, 46–47 (numbers never
-    truncated).
-- Zephyr v4.5.0 (`41d10b59730`, local workspace):
-  - `include/zephyr/sys/cbprintf.h`, 262–278 (`cbprintf_cb`, a negative
-    return aborts);
-  - `lib/os/cbprintf_complete.c`, 1387–1395 (`OUTC` returns the callback's
-    error);
-  - `lib/libc/picolibc/Kconfig`, 40–63 (the picolibc printf levels).
-- cppreference, `std::format_to_n`, oldid 189663 (returns the untruncated
-  size).
-- GCC 16.2.1 manual (`gcc.info`), "Language Standards Supported by GCC":
-  the freestanding environment must provide `memcpy`, `memmove`, `memset`
-  and `memcmp`.
-- C11 (N1570) 7.16.1.3: each `va_start` and `va_copy` is matched by a
-  `va_end` in the same function invocation, before it returns.
+  - `pw_stream/public/pw_stream/stream.h`, 147–151 and 172–177; no `Flush`
+    in the file, and no buffered stream in the directory;
+  - `pw_string/public/pw_string/string_builder.h`, 39–41, 130–133 and
+    186–187;
+  - `pw_string/public/pw_string/type_to_string.h`, 46–47.
+- **Zephyr v4.5.0** (`41d10b59730`, local workspace):
+  - `include/zephyr/sys/cbprintf.h`, 262–278;
+  - `lib/os/cbprintf_complete.c`, 1387–1395;
+  - `lib/libc/picolibc/Kconfig`, 40–63.
+- **cppreference**, `std::format_to_n`, oldid 189663.
+- **GCC 16.2.1 manual** (`gcc.info`), "Language Standards Supported by
+  GCC": the freestanding environment must provide `memcpy`, `memmove`,
+  `memset` and `memcmp`.
+- **C11 (N1570):**
+  - 6.7.2.1p15: a pointer to a structure, converted, points to its first
+    member, and back;
+  - 7.16.1.3: `va_end` before the function returns.
+- **Elemental `main` at `33dca06`:**
+  - `modules/alloc/include/elemental/alloc.h`: `el_layout`,
+    `el_layout_make`, `el_alloc(a, layout)`, `el_free(a, ptr, layout)`;
+  - [ADR 0013](../adr/0013-allocation-layout.md).
