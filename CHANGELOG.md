@@ -97,5 +97,10 @@ First milestone: the project's foundation.
 - `io_contract` (M3a): the optional fixture capability `writer_full_after`
   and the test `WriterNoSpaceKeepsWhatFitAndRepeats`. A fixture written with
   designated initializers before it existed leaves it null and skips it.
+- `io` (M3a): `el_buffered_writer` (`elemental/io_buffered.h`), a buffer in
+  front of another writer: `el_buffered_writer_init`, `_pending`, `_flush`,
+  `_reserve`, `_as_writer`. Flush is a function of the type, not an
+  operation of `el_writer` ([ADR 0014](docs/adr/0014-flush-on-the-concrete-type.md),
+  provisional). `io` now needs `memmove` as well as `memcpy`.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

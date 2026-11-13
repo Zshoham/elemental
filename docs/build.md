@@ -560,8 +560,9 @@ Every build of the application for an ARM board runs
 libraries: the symbols they leave undefined, after removing those they
 define for each other, must be in
 [allowed-undefined.txt](../tests/zephyr/allowed-undefined.txt), or the build
-fails. The list has two entries: `memcpy`, and `el_assert_failed` in the
-configuration that asks the application to define it. A symbol that only
+fails. The list has three entries: `memcpy`, `memmove` (the buffered
+writer compacts its buffer with it, since M3a), and `el_assert_failed` in
+the configuration that asks the application to define it. A symbol that only
 one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
 which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
 [allowed-undefined.FMT_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_LIBC.txt),
@@ -578,9 +579,9 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`; with `FMT_LIBC` (`variant`) also `snprintf` |
-| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
-| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; with `FMT_LIBC` (`variant`) also `snprintf` |
+| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
+| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the

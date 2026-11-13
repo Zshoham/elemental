@@ -12,6 +12,7 @@
 
 #include <elemental/io.h>
 #include <elemental/io_buf.h>
+#include <elemental/io_buffered.h>
 #include <elemental/io_mem.h>
 
 #include <cstddef>
@@ -204,6 +205,43 @@ TEST_F(IoViolationsDeathTest, CallerAppendsFromTheBuffersOwnStorage)
     EXPECT_VIOLATION((void)el_buf_append(&mem, el_buf_data(&mem), 1));
     EXPECT_VIOLATION((void)el_buf_append(&mem, sink + 3, 1));
     EXPECT_VIOLATION(el_write(writer, sink, 1, &n));
+}
+
+TEST_F(IoViolationsDeathTest, CallerBreaksABufferedWriterPrecondition)
+{
+    el_buffered_writer bw;
+    uint8_t storage[8];
+    el_buf held;
+    el_buf_init(&held, storage, sizeof(storage));
+    EXPECT_VIOLATION(el_buffered_writer_init(nullptr, writer, &held));
+    EXPECT_VIOLATION(el_buffered_writer_init(&bw, writer, nullptr));
+    EXPECT_VIOLATION(el_buffered_writer_init(&bw, el_writer{nullptr, nullptr}, &held));
+    EXPECT_VIOLATION((void)el_buffered_writer_pending(nullptr));
+    EXPECT_VIOLATION((void)el_buffered_writer_flush(nullptr));
+    EXPECT_VIOLATION((void)el_buffered_writer_reserve(nullptr, 1));
+    EXPECT_VIOLATION((void)el_buffered_writer_as_writer(nullptr));
+}
+
+TEST_F(IoViolationsDeathTest, OwnerTruncatesPastWhatWasPassedOn)
+{
+    /* In front of the 4-byte memory sink: a flush passes 4 of 6 bytes on,
+     * then the sink is full. */
+    el_buffered_writer bw;
+    uint8_t storage[8];
+    el_buf held;
+    el_buf_init(&held, storage, sizeof(storage));
+    el_buffered_writer_init(&bw, writer, &held);
+    ASSERT_EQ(el_write(el_buffered_writer_as_writer(&bw), content, 4, &n), EL_OK);
+    ASSERT_EQ(el_write(el_buffered_writer_as_writer(&bw), content, 2, &n), EL_OK);
+    ASSERT_EQ(el_buffered_writer_flush(&bw), EL_ERR_NO_SPACE);
+    ASSERT_EQ(el_buffered_writer_pending(&bw), 2u);
+    /* Back to the passed-on point is allowed; before it is not. */
+    el_buf_truncate(&held, 4);
+    EXPECT_EQ(el_buffered_writer_pending(&bw), 0u);
+    el_buf_truncate(&held, 2);
+    EXPECT_VIOLATION((void)el_buffered_writer_pending(&bw));
+    EXPECT_VIOLATION((void)el_buffered_writer_flush(&bw));
+    EXPECT_VIOLATION(el_write(el_buffered_writer_as_writer(&bw), content, 1, &n));
 }
 
 TEST_F(IoViolationsDeathTest, CallerCommitsOrTruncatesPastTheBuffer)

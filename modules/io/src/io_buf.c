@@ -6,15 +6,16 @@
 #include "io_private.h"
 
 /*
- * memcpy() is this file's runtime dependency. A freestanding toolchain is
- * not required to ship <string.h>, but GCC and Clang both require the
- * environment to provide memcpy(), so declaring it asks for nothing the
- * compiler does not already assume.
+ * memcpy() and memmove() are this file's runtime dependencies. A
+ * freestanding toolchain is not required to ship <string.h>, but GCC and
+ * Clang both require the environment to provide these two, so declaring
+ * them asks for nothing the compiler does not already assume.
  */
 #if __STDC_HOSTED__
 #include <string.h>
 #else
 void *memcpy(void *dest, const void *src, size_t n);
+void *memmove(void *dest, const void *src, size_t n);
 #endif
 
 static int is_valid(const el_buf *b)
@@ -146,6 +147,18 @@ el_status el_buf_append_some_(el_buf *b, const void *data, size_t len, size_t *n
     b->len += count;
     *n = count;
     return EL_OK;
+}
+
+void el_buf_drop_front_(el_buf *b, size_t n)
+{
+    EL_ASSERT(n <= b->len);
+    if (n == 0) {
+        return;
+    }
+    b->len -= n;
+    if (b->len != 0) {
+        memmove(b->data, b->data + n, b->len);
+    }
 }
 
 static el_status buf_write(void *ctx, const void *data, size_t len, size_t *n)

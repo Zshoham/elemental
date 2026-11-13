@@ -20,6 +20,7 @@ by editing history.
 | [0011](0011-formatting-truncation.md) | Formatting writes to caller memory; truncation keeps a prefix that ends on an item | Accepted |
 | [0012](0012-sized-free.md) | Free takes the size and alignment back | Accepted; refined by 0013 |
 | [0013](0013-allocation-layout.md) | An allocation is described by a layout | Accepted |
+| [0014](0014-flush-on-the-concrete-type.md) | Flush is a function of the buffered writer, not an operation of `el_writer` | Accepted, provisional until M4's writer sink |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

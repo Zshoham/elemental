@@ -8,7 +8,7 @@ can end in.
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
 | Targets | `elemental::io`, `elemental::io_contract`, `elemental::io_posix` |
-| Depends on | `status`; `alloc` when `IO_ALLOC` is on. Runtime: `memcpy`. |
+| Depends on | `status`; `alloc` when `IO_ALLOC` is on. Runtime: `memcpy`, `memmove`. |
 | Allocates | Only `el_grow_buf`, through the allocator it is given |
 | Kconfig | `IO`, `IO_POSIX`, `IO_ALLOC` |
 
@@ -20,6 +20,7 @@ can end in.
 | `el_mem_reader` | Portable implementation of `el_reader` | [`elemental/io_mem.h`](include/elemental/io_mem.h) |
 | `el_buf`, and `el_buf_as_writer`, the memory endpoint | A buffer, and a portable implementation of `el_writer` | [`elemental/io_buf.h`](include/elemental/io_buf.h) |
 | `el_grow_buf` (`IO_ALLOC`) | Buffer storage that grows, over an allocator | [`elemental/io_alloc.h`](include/elemental/io_alloc.h) |
+| `el_buffered_writer` | A buffer in front of another writer: flush, reserve, pending, and an `el_writer` | [`elemental/io_buffered.h`](include/elemental/io_buffered.h) |
 | The io contract suite | GoogleTest tests, shipped as source | [`elemental/io_contract.hpp`](contract/include/elemental/io_contract.hpp), fixture in [`elemental/io_contract.h`](contract/include/elemental/io_contract.h) |
 | `el_posix_fd` | Platform backend | [`elemental/io_posix.h`](backends/posix/include/elemental/io_posix.h), [PORT.md](backends/posix/PORT.md) |
 
@@ -97,6 +98,9 @@ as a full memory buffer does.
 | POSIX, blocking pipe | 8 | 4: cannot stall; a pipe cannot end, or be full without stalling, after an exact count |
 | POSIX, non-blocking pipe | 10 | 2: a pipe cannot end, or be full without stalling, after an exact count |
 | Ring pipe example | 10 | 2: stalls when full instead of ending or reporting `EL_ERR_NO_SPACE` |
+| Buffered writer, fixed 16 bytes, in front of a sink that stalls | 9 | 3: the memory reader cannot stall; accepts what its sink has not, so cannot end or be full after an exact count |
+| Buffered writer, fixed capacity 0 (pass-through), in front of a sink that stalls or ends | 10 | 2: the memory reader cannot stall; cannot be full after an exact count |
+| Buffered writer, grown over a 256-byte arena (`IO_ALLOC`); stalled is the sink full **and** the arena spent | 9 | 3: as for fixed storage |
 
 What the suite does not cover is deliberate: behavior that belongs to one
 backend. Deliberately broken variants of the ring pipe were used to check
@@ -148,12 +152,57 @@ sets in the buffer, so a program that only uses fixed buffers links none.
 `el_buf` and `el_grow_buf` replaced `el_mem_writer` and `el_grow_writer` in
 milestone M3a ([proposal](../../docs/proposals/io-buffers-fmt.md)).
 
+## The buffered writer (`io_buffered`)
+
+`el_buffered_writer` borrows an `el_buf`, fixed or grown, and puts it in
+front of an inner writer, such as a UART writer that takes what its FIFO
+has room for and would-blocks when it is full:
+
+```c
+static uint8_t console_storage[256];
+static el_buf console_buf;
+static el_buffered_writer console;
+
+el_buf_init(&console_buf, console_storage, sizeof console_storage);
+el_buffered_writer_init(&console, uart_writer(), &console_buf);
+/* el_write_all(el_buffered_writer_as_writer(&console), ...), or printf */
+(void)el_buffered_writer_flush(&console); /* from the main loop */
+```
+
+A write that fits is buffered without calling the inner writer. One that
+does not makes **one** attempt to pass pending bytes on; a failure other
+than would-block from it is returned with nothing taken. With nothing
+pending, a write of at least the capacity goes straight through. Then the
+writer compacts, grows if the storage can, and buffers what fits; if
+nothing fits, the stream refused, and it returns `EL_ERR_WOULD_BLOCK`.
+Only `EL_ERR_END_OF_STREAM` is remembered, so that it stays permanent; the
+writer recovers from the others as its inner writer does. A fixed buffer of
+capacity 0 makes a pass-through writer. The full rules are in
+[io_buffered.h](include/elemental/io_buffered.h).
+
+- `el_buffered_writer_flush` passes every pending byte on, resumably. It
+  never grows and never moves bytes.
+- `el_buffered_writer_reserve(w, min)` makes room for a record before it is
+  written, passing bytes on only until there is room. A record of at most
+  `min` bytes then reaches the stream whole.
+- `el_buffered_writer_pending` is what was accepted and not passed on. The
+  owner may roll back a record with `el_buf_truncate` to a mark at or after
+  `el_buf_len(buf) - pending`, but a mark is only good until the next
+  write, reserve or printf call, which may compact the buffer.
+
+Grown storage grows only where fixed storage would wait, and its allocator
+is the bound. Flush is a function of this type, not an operation of
+`el_writer` ([ADR 0014](../../docs/adr/0014-flush-on-the-concrete-type.md),
+provisional until M4's writer sink exists).
+
 ## Tests
 
 | Test | What it checks |
 |---|---|
 | `io.contract.buf.*` | The contract suite against the memory reader and a fixed `el_buf` as a writer. |
 | `io.unit.buf.*` | Whole-or-nothing append, overflow, writing in place, truncation, the all-zeros buffer, and the memory endpoint. |
+| `io.contract.buffered.*`, `io.contract.buffered_grown.*` | The contract suite against the buffered writer: fixed 16 bytes and capacity 0 in front of a sink that stalls or ends; grown over an arena (`IO_ALLOC`). |
+| `io.unit.buffered.*`, `io.unit.buffered_grown.*` | Each case of a write that does not fit, the one remembered status, write-through, the pass-through writer, partial flush and compaction, reserve, rollback; growth where fixed storage would wait, bounded by the allocator. |
 | `io.helpers.*` | `el_read_exact` and `el_write_all` against a scripted stream: every interleaving of progress, would-block, and failure, and the bound on attempts. |
 | `io.violations.*` | Each documented contract violation stops the program, for callers and for implementations. Death tests, so they hold in every assertion configuration that has assertions on. |
 | `io.contract.grow_buf.*` | The io contract suite against an `el_grow_buf` as a writer, over a stack arena wrapped in the checking allocator. Only with `IO_ALLOC`. |
@@ -167,6 +216,8 @@ group, and a test binary takes GoogleTest's own flags, such as
 
 ## Known gaps
 
-No flush, buffered reading, peek, vectored I/O, seek, or close. Each waits
+No buffered reading or peek (with `frame`, M6), no flush through an
+`el_writer` handle ([ADR 0014](../../docs/adr/0014-flush-on-the-concrete-type.md)),
+no vectored I/O, seek, or close. Each waits
 for a consumer that needs it; see the roadmap. Nothing here is designed for
 operations that outlive the call that started them.

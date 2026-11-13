@@ -5,8 +5,9 @@ config IO
 	help
 	  The el_reader and el_writer interfaces, helpers built on them, a
 	  reader over caller-provided memory, the el_buf memory buffer and
-	  the writer that ends in one, and the contract test suite for
-	  backends. Freestanding: needs only memcpy().
+	  the writer that ends in one, a buffered writer, and the contract
+	  test suite for backends. Freestanding: needs only memcpy() and
+	  memmove().
 
 config IO_POSIX
 	bool "io_posix: POSIX file descriptor backend"

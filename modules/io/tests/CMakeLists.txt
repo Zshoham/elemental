@@ -10,6 +10,18 @@ elemental_add_test(io.unit.buf
   SOURCES io_buf_test.cpp
   LIBRARIES elemental::io)
 
+# Interface semantics: the contract suite, against the buffered writer with
+# 16 bytes of fixed storage and with capacity 0 (a pass-through writer).
+elemental_add_test(io.contract.buffered
+  SOURCES contract_buffered_test.cpp fixture_buffered.c
+  LIBRARIES elemental::io_contract)
+
+# What only the buffered writer promises: a write that does not fit, the
+# one remembered status, flush, reserve, and when bytes move.
+elemental_add_test(io.unit.buffered
+  SOURCES io_buffered_test.cpp
+  LIBRARIES elemental::io)
+
 # The helpers, driven by a scripted stream so every interleaving of progress,
 # would-block, and failure is reproducible.
 elemental_add_test(io.helpers
@@ -35,6 +47,15 @@ if(EL_CONFIG_IO_ALLOC)
   # frees exactly what it allocated.
   elemental_add_test(io.unit.grow_buf
     SOURCES io_alloc_test.cpp
+    LIBRARIES elemental::io elemental::alloc_contract)
+
+  # The buffered writer over grown storage: the contract suite, and growth
+  # where fixed storage would wait.
+  elemental_add_test(io.contract.buffered_grown
+    SOURCES contract_buffered_grown_test.cpp fixture_buffered_grown.c fixture_buffered.c
+    LIBRARIES elemental::io_contract elemental::alloc)
+  elemental_add_test(io.unit.buffered_grown
+    SOURCES io_buffered_alloc_test.cpp
     LIBRARIES elemental::io elemental::alloc_contract)
 
   if(EL_CONFIG_ASSERT AND ELEMENTAL_DEATH_TESTS)

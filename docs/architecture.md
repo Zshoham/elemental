@@ -470,7 +470,7 @@ make stream interfaces go wrong:
 | Question | Answer |
 |---|---|
 | Partial progress | Normal, and success. One attempt moves between 1 and the requested count. Helpers that loop report the status and the progress so far, so they are resumable. |
-| End of stream | A status, never a zero count. A zero count would be ambiguous with a zero-length request, and "zero means end" is the classic mistake. It is permanent once reported. For a writer it means "no more can ever be accepted", which covers a full fixed buffer and a vanished peer alike. |
+| End of stream | A status, never a zero count. A zero count would be ambiguous with a zero-length request, and "zero means end" is the classic mistake. It is permanent once reported. For a writer it means "no more can ever be accepted": a vanished peer. A full memory buffer is not an end: it reports `EL_ERR_NO_SPACE`, which is not permanent (M3a). |
 | Would-block | A status with zero progress. Whether a stream can stall is a property of the stream, chosen by whoever created it. The interface does not have a blocking mode. |
 | Buffer lifetime | Borrowed for the call. An implementation copies what it takes and may not keep the pointer. The contract suite checks this by overwriting the buffer after the call. |
 
@@ -479,8 +479,15 @@ error and states that a zero count "does not indicate end of stream";
 Pigweed's stream returns `OUT_OF_RANGE` at the end of a reader or writer and
 `RESOURCE_EXHAUSTED` when nothing can be read now.
 
+Buffering arrived in M3a ([proposal](proposals/io-buffers-fmt.md)): one
+buffer type, `el_buf`, with fixed or grown storage, is the end of a memory
+stream (`el_buf_as_writer`) and the storage a buffered writer borrows
+(`el_buffered_writer`). Flush is a function of the buffered writer, not an
+operation of `el_writer` ([ADR 0014](adr/0014-flush-on-the-concrete-type.md),
+provisional until M4). The buffered reader and peek wait for `frame` (M6).
+
 Deliberately absent, to be added only with a consumer that needs them:
-flush, buffered reading and peek, vectored I/O, seek, and close. Deadlines
+vectored I/O, seek, and close. Deadlines
 are not coming to this interface at all: a deadline needs a clock, and the
 caller already has the means to stop calling.
 

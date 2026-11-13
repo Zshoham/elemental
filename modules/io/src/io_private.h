@@ -16,4 +16,11 @@
  */
 el_status el_buf_append_some_(el_buf *b, const void *data, size_t len, size_t *n);
 
+/*
+ * Remove the first `n` bytes (n <= len), moving the rest to the front with
+ * one memmove. The buffered writer compacts with it; a buffered reader would
+ * use it too.
+ */
+void el_buf_drop_front_(el_buf *b, size_t n);
+
 #endif /* ELEMENTAL_IO_PRIVATE_H */
