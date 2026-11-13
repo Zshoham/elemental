@@ -197,17 +197,21 @@ The [io buffers and fmt proposal](proposals/io-buffers-fmt.md), accepted on
 conversions, with printf into a buffer or a buffered writer; the platform
 option moved to printf. Built in the proposal's four steps.
 
-- [ ] The three ADRs the proposal names are recorded: superseding
+- [x] The three ADRs the proposal names are recorded: superseding
       ADR 0011, flush outside the operation table (provisional until M4),
-      and private choices that widen a contract.
-- [ ] The io contract suite passes for both storages and the buffered
-      writer, with the `writer_full_after` capability.
+      and private choices that widen a contract. (ADRs 0015, 0014, 0016.)
+- [x] The io contract suite passes for both storages and the buffered
+      writer, with the `writer_full_after` capability. (Host presets;
+      Zephyr `native_sim` and `mps2/an385`.)
 - [ ] printf output is identical on the host and on Zephyr Cortex-M3 and
       Cortex-M0+ in both printf options, for the portable subset.
-- [ ] The Zephyr symbol check shows only `memcpy` and `memmove` in the
-      default configuration.
-- [ ] The proposal's Example 2 runs on a Zephyr target against a writer
-      that stalls.
+- [x] The Zephyr symbol check shows only `memcpy` and `memmove` in the
+      default configuration. (`mps2/an385`, `nucleo_g0b1re_renode`,
+      `qemu_cortex_m0`.)
+- [x] The proposal's Example 2 runs on a Zephyr target against a writer
+      that stalls. (`mps2/an385` under QEMU, against a scripted FIFO in the
+      test image, `FmtExample2.*`. Not on the Cortex-M0+ board: the image
+      does not fit its RAM.)
 
 ## M4 — Time and logging
 

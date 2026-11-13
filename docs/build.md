@@ -518,6 +518,13 @@ presets only.
 
 ### Memory the test image needs
 
+**M3a, 2026-11-13, measured in an M3a worktree (a different checkout
+path from the figures below):** 283 tests. `mps2/an385`: flash 491 700,
+static RAM 48 432, peak heap 122 008, main stack 2 636 of 4 096.
+`nucleo_g0b1re_renode`: flash 503 160 of 524 288, static RAM 46 440; the
+run did not start (out of heap, [above](#what-is-verified)). The table
+below is the last state that fit.
+
 Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 203 tests.
 The flash and heap figures are approximate: they change with the path of
 the checkout, which reaches the image through GoogleTest's file names and
@@ -610,21 +617,24 @@ evidence about Zephyr integration, not about a target CPU.
 
 `libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
 GCC 14.3.0 at Zephyr's default size optimization, text bytes, without and
-with the grow writer (`IO_ALLOC`, on by default):
+with grown buffer storage (`el_grow_buf`, `IO_ALLOC`, on by default).
+Measured 2026-11-13 on M3a's branch; `io` now includes `el_buf` and the
+buffered writer (before M3a, with the memory and grow writers: 578 and 956
+bytes, trap):
 
-| Configuration | `IO_ALLOC` off | `IO_ALLOC` on | The grow writer |
+| Configuration | `IO_ALLOC` off | `IO_ALLOC` on | `el_grow_buf` |
 |---|---|---|---|
-| Assertions off | 394 | 710 | 316 |
-| Trap in place (default) | 578 | 956 | 378 |
-| Application handler | 782 | 1 255 | 473 |
+| Assertions off | 1 134 | 1 396 | 262 |
+| Trap in place (default) | 1 640 | 1 926 | 286 |
+| Application handler | 2 101 | 2 436 | 335 |
 
 The other libraries in the same build:
 
 | Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
 |---|---|---|---|---|---|
-| Assertions off | 376 | 93 | 1 627 | 1 084 | 212 |
-| Trap in place (default) | 568 | 93 | 1 705 | 1 318 | 224 |
-| Application handler | 794 | 93 | 1 896 | 1 642 | 255 |
+| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 |
+| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 |
+| Application handler | 798 | 93 | 1 921 | 1 642 | 255 |
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -632,13 +642,12 @@ Zephyr's own code and table. `CRC_GCC_BUILTIN` cannot be built by this
 GCC 14.3.0; on x86-64, GCC 16.2.1 at `-Os` makes it 1 925 bytes against
 312 for the 16-entry tables. `bytes` grew by 370 bytes with byte swap and
 bit counting, portable code on this core except CLZ, and by 722 more with
-rotate, bit reversal, bit fields, and alignment (1 318 bytes in all, trap). Of `fmt`'s 1 705, 1 013 are the typed core (290
-of them the built-in digit conversion) and 692 the printf front end, which
-a program that never calls `el_fmt_printf` does not link. With `FMT_LIBC`
-`fmt` is 1 502 bytes (trap), the conversion 87 of them; what that costs or
-saves in an image depends on whether printf is already linked: −104 bytes
-where it is (Zephyr's defaults), +1 268 where nothing else formats
-([modules/fmt](../modules/fmt/README.md#configuration)). Text includes read-only data such as the CRC tables.
+rotate, bit reversal, bit fields, and alignment (1 318 bytes in all, trap). `fmt` is measured with `FMT_PRINTF_BUILTIN`: the three
+conversions, the printf parser, and the buffered-writer entry points, each
+its own object, so a program links only what it calls (M3's `fmt`, with
+`el_fmt` and the hex dump, was 1 705, trap). `FMT_PRINTF_LIBC` was not
+measured in a Zephyr build here; the proposal's prototype measurements are
+in [its Code size section](proposals/io-buffers-fmt.md#code-size). Text includes read-only data such as the CRC tables.
 
 The handler configuration pays for a call, a file name, and a line number
 per check. These are measurements of one compiler at one optimization
@@ -654,62 +663,71 @@ and exited successfully.
 | Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
-| Unit and helper tests | passed | passed | passed | passed | passed | passed | not run |
+| Unit and helper tests | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
 | Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
-| io contract suite: memory streams | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed | not run |
-| io contract suite: grow writer (`IO_ALLOC`) | passed | passed | passed | passed | passed | passed | not run |
-| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed | not run |
+| io contract suite: ring pipe example | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
+| io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
+| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
-| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed | not run |
+| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
 | libc heap platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
 | C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
-| fmt: typed calls and printf subset, literal expectations | passed | passed | passed | passed | passed | passed | not run |
-| fmt: printf subset against glibc `snprintf`, every capacity; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
+| fmt: printf subset against glibc `snprintf`, every capacity and through a buffered writer stalling after every k; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
-| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed | not run |
-| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed | not run |
+| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
+| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | **not run: the image runs out of heap at start (M3a)** | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
-| fmt: every fmt test with `FMT_LIBC` (`variant_defconfig`), against glibc's and picolibc's `snprintf` | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
-| crc: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin | passed: 4-bit, 8-bit | passed: 4-bit, 8-bit | n/a | n/a | n/a | n/a |
+| fmt: every fmt test with `FMT_PRINTF_LIBC` (`variant_defconfig`), `fmt.libc` against glibc's and picolibc's `snprintf` (floats skipped at picolibc's integer level) | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
+| crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
-| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (portable) | not run |
+| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | **not run: the image runs out of heap at start (M3a)** | not run |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed; `snprintf` allowed only with `FMT_LIBC` | passed | passed |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
 
-The hosted presets run 330 GoogleTest tests, of which 18 are reported as
+The hosted presets run 415 GoogleTest tests, of which 31 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 344 CTest tests in
-all, 342 under sanitizers. `assert-off` runs 296: the same less the 48
-tests of the `*.violations` binaries, which are not built without
-assertions. The two Rust
-sketches are skipped under sanitizers because a plain `rustc` link has no
-sanitizer runtime.
+integration, and two format-attribute compile checks: 429 CTest tests in
+all. `sanitize` runs 434: its `variant_defconfig` adds `fmt.libc` and the
+libc option's violations, and the two Rust sketches are skipped under
+sanitizers because a plain `rustc` link has no sanitizer runtime.
+`assert-off` runs 378: 429 less the 51 tests of the `*.violations`
+binaries, which are not built without assertions.
 
-The Zephyr test image runs 203 of those GoogleTest tests: all but the POSIX
+The Zephyr test image has 283 of those GoogleTest tests: all but the POSIX
 and C library backends', the death tests, and the host-only `fmt.oracle`
-and `bytes.portable`.
-9 are skipped, the same 9 as on the host for those fixtures. Twister reports
-the six test configurations passed (the three `elemental.tests` boards and
-the `variant`, `assert_off`, and `crc_zephyr` scenarios on `mps2/an385`; 194 passed and 9
-skipped on each, by GoogleTest's count; Twister adds one case for the image
-itself) and
+and `bytes.portable`; 290 in the `variant` scenario, with `fmt.libc`.
+Twister (2026-11-13, M3a) reports five test configurations passed:
+`elemental.tests` on `native_sim` and `mps2/an385`, and the `variant`,
+`assert_off`, and `crc_zephyr` scenarios on `mps2/an385` (263 passed and 20
+skipped by GoogleTest's count, 270 and 21 in `variant`, where `fmt.libc`'s
+float test is skipped; Twister adds one case for the image itself), and
 `elemental.symbols.armv6m` built, with no warnings: Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.
 
+**`elemental.tests` on `nucleo_g0b1re_renode` failed**: the image builds
+(503 160 bytes of flash of 524 288) and the symbol check passes, but it
+calls `abort()` 33 ms after boot, before GoogleTest prints anything. It runs
+out of heap: on `mps2/an385` the run now needs 122 008 bytes of heap at peak
+(76 576 before M3a) for 283 tests (203), and the Cortex-M0+ board leaves
+about 97 KB after 46 440 bytes of static RAM. See
+[Memory the test image needs](#memory-the-test-image-needs).
+
 `fmt`'s literal-expectation tests (`fmt.unit`) pass unchanged on
-`mps2/an385` and `nucleo_g0b1re_renode`, so its output is byte-identical
-on the host, on an emulated ARMv7-M, and on an emulated ARMv6-M. The
-ARMv6-M evidence is an emulator run on a modified model, not hardware.
+`mps2/an385`, so the portable subset's output is byte-identical on the host
+and on an emulated ARMv7-M, in both printf options (`variant` builds
+`FMT_PRINTF_LIBC`). Before M3a they also passed on the emulated ARMv6-M
+board; with M3a's tests that image does not fit.
 
 Additionally, each run once by hand and not part of the automated suite:
 

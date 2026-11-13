@@ -1614,6 +1614,86 @@ Names: `el_buf_*`, `el_grow_buf_*`, `el_buffered_writer_*`,
     `EL_ERR_NO_SPACE` is kept for requests no draining can satisfy:
     `reserve(min)` beyond the capacity or the allocator.
 
+## Implementation notes
+
+**2026-11-13, M3a.** Where the implementation had to decide something this
+proposal leaves open, the smallest decision consistent with it, recorded
+here. None changes a signature, a layout, or a status the owner accepted.
+
+1. **A write that finds no room, when the stream was never asked.** Decision
+   18 makes it `EL_ERR_WOULD_BLOCK` "because the stream refused". One case
+   has no refusal: grown storage with nothing pending whose allocator
+   refuses (a cap-0 grown buffer skips the write-through). There the write
+   returns `EL_ERR_NO_SPACE`, which `io.h` defines for a writer that could
+   not get storage. A caller waiting for the stream to drain would wait
+   forever.
+2. **`el_buffered_writer_pending` after `END_OF_STREAM`** is 0. The
+   sentinel `pos == SIZE_MAX` (decision 17) no longer holds where the
+   passed-on bytes ended, and nothing pending will ever be passed on. The
+   bytes stay in the buffer for the owner to read.
+3. **`reserve` with `min` above the capacity** passes nothing on. Fixed
+   storage returns `EL_ERR_NO_SPACE` at once; grown storage compacts and
+   grows. Passing bytes on cannot help, and would be I/O the call cannot use.
+4. **`flush` with nothing pending** resets `pos` and `len` to 0, as a flush
+   that empties the buffer does, which covers an owner who rolled back to
+   exactly the passed-on point.
+5. **A rollback mark is good only until the next write, reserve or printf
+   call.** Compaction moves the bytes behind a mark. The borrowing rule is
+   unchanged (checked when the owner truncates), and `io_buffered.h` says
+   this. It has a consequence for **Example 2's rollback**, which takes the
+   mark before the printf call and tests it after. A line over `LINE_MAX`
+   makes printf reserve more room, which can pass earlier bytes on and
+   compact. Then `mark` no longer names the line's start, and the test
+   `len - pending <= mark` can pass while truncating the wrong bytes (for
+   example: 25 bytes pending at the mark, the stream takes 10 of them during
+   the call, the buffer compacts by 10, and `truncate(mark)` keeps 10 bytes
+   of the line). It is correct when nothing moved during the call, which is
+   the case the tests run: the stream stalled throughout, with `pos == 0` at
+   the mark (`FmtExample2.AnOverlongLineIsTakenBackWhileNoneOfItWasPassedOn`). The example needs a sound rollback test, or a contract
+   change, which is the owner's to decide; not changed here.
+6. **printf into a buffered writer first checks that the stream has not
+   ended** (a `reserve` of 0), so that an item that would fit is not
+   accepted into a writer whose bytes can never leave.
+7. **Text into a buffered writer** asks for room for the whole remaining
+   run, then for one byte when there is none. Grown storage therefore grows
+   to hold a long `%s` (reserve's "min exceeds what draining can free"
+   rule) instead of streaming it; fixed storage streams. Open question 2 is
+   unchanged.
+8. **`fmt_printf_buffered.c` reads the writer's `buf` field**, `io`'s
+   layout, to write into the buffer the writer borrows. It is Elemental's
+   own code on both sides; no accessor was added to the accepted header.
+9. **`FMT_PRINTF_LIBC` needs only `snprintf`.** The prototype listed
+   `strchr` and `strlen`; this implementation calls neither, so
+   `allowed-undefined.FMT_PRINTF_LIBC.txt` lists `snprintf` alone, and the
+   symbol check would catch either.
+10. **What the libc option accepts, at the edges.** `%zd` reads a
+    `ptrdiff_t` (as the built-in subset does) and `%tu` a `ptrdiff_t`;
+    unsigned arguments are read as their unsigned types. A width or precision
+    written in the format above `INT_MAX` is a contract violation (one
+    `snprintf` cannot take it). Violations under both options besides `%n`,
+    `%lc`, `%ls`: a length C gives no meaning for the conversion (`%Ld`,
+    `%hf`, `%lp`), flags other than `-` on `%s` and `%c`, a precision on
+    `%c`, and any flag, width or precision on `%%`.
+11. **The contract suite's new test** is
+    `WriterNoSpaceKeepsWhatFitAndRepeats`, and `writer_full_after` is the
+    last member of the fixture struct, so a fixture written with designated
+    initializers before it existed leaves it null. The memory fixtures are
+    `io.contract.buf` and `io.contract.grow_buf`; the buffered writer's,
+    `io.contract.buffered` (fixed 16 bytes, and capacity 0 in front of a
+    sink that can end) and `io.contract.buffered_grown`.
+12. **Example 2 on a Zephyr target** runs as `fmt.unit`'s `FmtExample2.*`
+    against a scripted FIFO in the test image that takes a set number of
+    bytes per call and would-blocks when full.
+13. **`el_buf_drop_front_`**, the only user of `memmove`, arrived with the
+    buffered writer in step 2, so that step 1 needs `memcpy` alone.
+14. **Not done: the Cortex-M0+ run.** With M3a's tests the Zephyr test
+    image has 283 GoogleTest tests (203 before) and needs 122 008 bytes of
+    peak heap on `mps2/an385` (76 576 before). `nucleo_g0b1re_renode` leaves
+    about 97 KB, so the image aborts at start. The board model was not
+    enlarged; how to proceed (splitting the image, trimming tests) is the
+    owner's choice ([build.md](../build.md#what-is-verified)). Until then
+    the roadmap's Cortex-M0+ printf item is open.
+
 ## Open questions
 
 1. **COBS and `peek(min)`.** A delimiter scan does not know its `min`. A
