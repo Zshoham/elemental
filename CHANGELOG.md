@@ -121,5 +121,10 @@ First milestone: the project's foundation.
   subset is built-in code under both. A private choice may now widen what a
   function accepts ([ADR 0016](docs/adr/0016-private-choices-that-widen.md)).
   No public header depends on it.
+- Zephyr tests (M3a): one test image per module, selected by the CMake
+  variable `ELEMENTAL_TEST_MODULE` of `tests/zephyr` (default `all`), and
+  one Twister scenario per module, `elemental.tests.<module>`, on every
+  board; the single `elemental.tests` scenario is gone. A test whose name
+  is in no module's list stops the configure.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

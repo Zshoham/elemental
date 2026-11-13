@@ -1698,15 +1698,20 @@ here. None changes a signature, a layout, or a status the owner accepted.
     bytes per call and would-blocks when full.
 13. **`el_buf_drop_front_`**, the only user of `memmove`, arrived with the
     buffered writer in step 2, so that step 1 needs `memcpy` alone.
-14. **The Cortex-M0+ runs the tests in groups** (decided by the owner,
+14. **One Zephyr test image per module** (decided by the owner,
     2026-11-13). With M3a's tests the single image needs 122 336 bytes of
     peak heap on `mps2/an385` (76 576 before M3a), more than
-    `nucleo_g0b1re_renode` leaves. That board now runs one image per test
-    group, `status_alloc`, `io` and `fmt_bytes_crc`; every other board keeps
-    the single image. The owner's first split, `status_alloc_io` and
-    `fmt_bytes_crc`, still ran out in `status_alloc_io` (95 536 bytes of
-    heap on `mps2/an385`), so that group is two. The board model was not
-    enlarged ([build.md](../build.md#memory-the-test-image-needs)).
+    `nucleo_g0b1re_renode` leaves; it aborted at start. Each module's tests
+    are now their own image (`ELEMENTAL_TEST_MODULE`), run as
+    `elemental.tests.<module>` on all three boards; the configuration
+    scenarios keep one image on `mps2/an385`. Before that decision, two and
+    then three module groups were tried; the `io`-carrying group of the
+    first split still ran out (the abort seen in
+    `IoGrowBuf/...WriterNoSpaceKeepsWhatFitAndRepeats`, a skipped test, was
+    GoogleTest allocating near the heap's end, not the fixture, whose
+    allocator is a stack arena over 1 KB). `io`'s image now peaks at 74 688
+    bytes of heap on the Cortex-M0+. The board model was not enlarged
+    ([build.md](../build.md#memory-the-test-image-needs)).
 
 ## Open questions
 

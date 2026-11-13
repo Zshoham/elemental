@@ -2,44 +2,81 @@
 common:
   tags: elemental
 tests:
-  # Every Elemental test, in one image.
-  elemental.tests:
-    harness: gtest
-    platform_allow:
-      - native_sim
-      - mps2/an385
-    integration_platforms:
-      - native_sim
-      - mps2/an385
-  # The same tests on nucleo_g0b1re_renode, a Cortex-M0+ (ARMv6-M) under
-  # Renode, defined in boards/ (pass --board-root <this directory>/boards to
-  # Twister). Its 144 KB of RAM cannot hold every test at once, so it runs
-  # one image per test group (CMakeLists.txt, ELEMENTAL_TEST_GROUP). Each
+  # One image per module: each module's tests (examples with the module they
+  # test), so that a failing module is its own scenario and every image
+  # fits the smallest board (CMakeLists.txt, ELEMENTAL_TEST_MODULE).
+  # nucleo_g0b1re_renode is a Cortex-M0+ (ARMv6-M) under Renode, defined in
+  # boards/; pass --board-root <this directory>/boards to Twister. Each Arm
   # image builds every library and runs the symbol check.
-  elemental.tests.status_alloc:
+  elemental.tests.status:
     harness: gtest
-    extra_args: ELEMENTAL_TEST_GROUP=status_alloc
+    extra_args: ELEMENTAL_TEST_MODULE=status
     platform_allow:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
     integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.alloc:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=alloc
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
   elemental.tests.io:
     harness: gtest
-    extra_args: ELEMENTAL_TEST_GROUP=io
+    extra_args: ELEMENTAL_TEST_MODULE=io
     platform_allow:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
     integration_platforms:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
-  elemental.tests.fmt_bytes_crc:
+  elemental.tests.fmt:
     harness: gtest
-    extra_args: ELEMENTAL_TEST_GROUP=fmt_bytes_crc
+    extra_args: ELEMENTAL_TEST_MODULE=fmt
     platform_allow:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
     integration_platforms:
+      - native_sim
+      - mps2/an385
       - nucleo_g0b1re_renode
-  # The host presets' other configurations, on one Arm board: one
-  # non-default option of each Kconfig choice, and contract assertions
-  # compiled out.
+  elemental.tests.bytes:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=bytes
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.crc:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=crc
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  # The host presets' other configurations, on one Arm board, each as one
+  # image with every test: one non-default option of each Kconfig choice,
+  # and contract assertions compiled out.
   elemental.tests.variant:
     harness: gtest
     extra_args: ELEMENTAL_ZEPHYR_VARIANT=variant

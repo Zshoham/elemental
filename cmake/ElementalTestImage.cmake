@@ -21,30 +21,31 @@ add_library(GTest::gtest ALIAS gtest)
 
 set(ELEMENTAL_DEATH_TESTS OFF)
 
-# Test groups. An image may hold only some of the tests, for a board too
-# small for all of them (tests/zephyr/CMakeLists.txt). The application sets:
+# Test modules. An image may hold one module's tests only, so that each
+# image stays within a small board's RAM (tests/zephyr/CMakeLists.txt). The
+# application sets:
 #
-#   ELEMENTAL_TEST_GROUPS        the group names;
-#   ELEMENTAL_TEST_GROUP_<group> each group's test-name prefixes: a test
-#                                belongs to a group if its <name> is a prefix
-#                                or starts with "<prefix>.";
-#   ELEMENTAL_TEST_GROUP         the group this image holds, or "all".
+#   ELEMENTAL_TEST_MODULES        the module names;
+#   ELEMENTAL_TEST_MODULE_<m>     the test-name prefixes of module <m>'s
+#                                 tests: a test belongs to it if its <name>
+#                                 is a prefix or starts with "<prefix>.";
+#   ELEMENTAL_TEST_MODULE         the module this image holds, or "all".
 #
-# Every test must belong to exactly one group, so that a test a new module
-# registers cannot silently go missing from the split images.
+# Every test must belong to exactly one module, so that a test cannot
+# silently go missing from the per-module images.
 
-# The group `name` belongs to, in `out`.
-function(_elemental_test_group name out)
+# The module `name` belongs to, in `out`.
+function(_elemental_test_module name out)
   set(found "")
-  foreach(group IN LISTS ELEMENTAL_TEST_GROUPS)
-    foreach(prefix IN LISTS ELEMENTAL_TEST_GROUP_${group})
+  foreach(module IN LISTS ELEMENTAL_TEST_MODULES)
+    foreach(prefix IN LISTS ELEMENTAL_TEST_MODULE_${module})
       string(LENGTH "${prefix}." length)
       string(SUBSTRING "${name}." 0 ${length} head)
       if(head STREQUAL "${prefix}.")
-        if(found AND NOT found STREQUAL group)
-          message(FATAL_ERROR "test ${name} is in both test groups ${found} and ${group}")
+        if(found AND NOT found STREQUAL module)
+          message(FATAL_ERROR "test ${name} is in the images of both ${found} and ${module}")
         endif()
-        set(found "${group}")
+        set(found "${module}")
       endif()
     endforeach()
   endforeach()
@@ -54,20 +55,21 @@ endfunction()
 # elemental_add_test(<name> SOURCES <file>... [LIBRARIES <target>...])
 #
 # The same registration as on the host, but the sources are added to the
-# image, if the test is in the image's group. GoogleTest reports each test by
-# suite and name; <name> only selects the group.
+# image, if the test is in the image's module. GoogleTest reports each test
+# by suite and name; <name> only selects the image.
 function(elemental_add_test name)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;LIBRARIES")
   if(arg_UNPARSED_ARGUMENTS OR NOT arg_SOURCES)
     message(FATAL_ERROR "elemental_add_test(${name}): expected SOURCES <file>... [LIBRARIES <target>...]")
   endif()
-  if(ELEMENTAL_TEST_GROUPS)
-    _elemental_test_group("${name}" group)
-    if(NOT group)
-      message(FATAL_ERROR "test ${name} is in no test group: add its module to a group "
-                          "in tests/zephyr/CMakeLists.txt (docs/build.md, \"Memory the test image needs\")")
+  if(ELEMENTAL_TEST_MODULES)
+    _elemental_test_module("${name}" module)
+    if(NOT module)
+      message(FATAL_ERROR "test ${name} belongs to no test image: add its prefix to "
+                          "ELEMENTAL_TEST_MODULE_<module> in tests/zephyr/CMakeLists.txt, "
+                          "or a new module there and in testcase.yaml")
     endif()
-    if(NOT ELEMENTAL_TEST_GROUP STREQUAL "all" AND NOT group STREQUAL ELEMENTAL_TEST_GROUP)
+    if(NOT ELEMENTAL_TEST_MODULE STREQUAL "all" AND NOT module STREQUAL ELEMENTAL_TEST_MODULE)
       return()
     endif()
   endif()

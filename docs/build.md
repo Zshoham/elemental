@@ -457,10 +457,10 @@ Twister builds that board's image and does not run it.
 
 | Scenario | Board | What it does |
 |---|---|---|
-| `elemental.tests` | `native_sim` | Every test, in a 32-bit Linux process. |
-| `elemental.tests` | `mps2/an385` | Every test, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
-| `elemental.tests.status_alloc`, `.io`, `.fmt_bytes_crc` | `nucleo_g0b1re_renode` | Every test, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M), as one image per test group (`ELEMENTAL_TEST_GROUP`): the board's RAM cannot hold all of them at once ([below](#memory-the-test-image-needs)). Each image builds every library and runs the symbol check. |
-| `elemental.tests.variant` | `mps2/an385` | Every test with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
+| `elemental.tests.<module>`: `status`, `alloc`, `io`, `fmt`, `bytes`, `crc` | `native_sim` | One module's tests, in a 32-bit Linux process. |
+| `elemental.tests.<module>` | `mps2/an385` | One module's tests, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
+| `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
+| `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
 | `elemental.tests.crc_zephyr` | `mps2/an385` | The same with [configs/crc_zephyr_defconfig](../configs/crc_zephyr_defconfig) and `CONFIG_CRC=y`: `crc` through Zephyr's functions, the one choice option no host can select. |
 | `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
@@ -518,42 +518,54 @@ presets only.
 
 ### Memory the test image needs
 
-**Test groups.** GoogleTest's registry and per-test records take heap for
-each test, so a board's RAM bounds how many tests one image can hold. Since
-M3a the Cortex-M0+ board runs the tests as one image per group, and every
-other board runs one image with all of them. A test's group is its
-`elemental_add_test()` name prefix, listed in `ELEMENTAL_TEST_GROUP_<group>`
-in [tests/zephyr/CMakeLists.txt](../tests/zephyr/CMakeLists.txt); a test in
-no group stops the configure, so a new module must join one. A new module
-joins the group with the most heap left in the table below. When a group
-outgrows the board (its peak heap nears what the board leaves after static
-RAM, less the margin below), the milestone that grows it splits it: a new
-group in that list and a scenario for it in
-[testcase.yaml](../tests/zephyr/testcase.yaml). The first split, into
-`status_alloc_io` and `fmt_bytes_crc`, still ran out: `status_alloc_io`
-needs 95 536 bytes of heap on `mps2/an385`, and ran out near its end on the
-Cortex-M0+, so it is two groups.
+**One image per module.** GoogleTest's registry and per-test records take
+heap for each test, so a board's RAM bounds how many tests one image can
+hold. Since M3a each module's tests are their own image
+(`ELEMENTAL_TEST_MODULE` in [tests/zephyr/CMakeLists.txt](../tests/zephyr/CMakeLists.txt)),
+run as the scenario `elemental.tests.<module>` on every board, so a failing
+module is its own line in Twister's report. An example's tests are in the
+image of the module they test (the ring pipe with `io`, the size classes
+with `alloc`). The configuration scenarios (`variant`, `assert_off`,
+`crc_zephyr`) build all the tests into one image (`ELEMENTAL_TEST_MODULE`
+`all`, the default) on `mps2/an385`, which has the RAM for it. A test whose
+name is in no module's list stops the configure, so **a new module adds its
+name to `ELEMENTAL_TEST_MODULES` there and its scenario to
+[testcase.yaml](../tests/zephyr/testcase.yaml).** A module whose image
+outgrows the Cortex-M0+ board (peak heap near what static RAM leaves of its
+147 456 bytes, less the margin below) splits its tests across two images
+the same way.
+
+M3a first ran the Cortex-M0+ board as a single image (it aborted at start,
+out of heap: the whole image needs 122 336 bytes of peak heap on
+`mps2/an385`), then as two and three module groups; the per-module images
+replaced those on the owner's decision.
 
 **M3a, 2026-11-13, measured in an M3a worktree (a different checkout path
 from the M3 figures further below).** Flash, static RAM and peak heap in
-bytes; main stack used of 4 096:
+bytes; main stack used of 4 096. Tests are GoogleTest's count, skipped
+included:
 
-| Image | Tests | Flash | RAM, static | Heap, peak | Main stack |
-|---|---|---|---|---|---|
-| All, `mps2/an385` (Cortex-M3) | 284 | 493 700 | 48 432 | 122 336 | 2 636 |
-| All, `mps2/an385`, `variant` | 291 | 508 472 | 48 432 | 125 232 | 2 636 |
-| `status_alloc`, `nucleo_g0b1re_renode` (Cortex-M0+) | 63 | 285 196 of 524 288 | about 39 KB | 35 948 | 1 948 |
-| `io`, `nucleo_g0b1re_renode` | 143 | 360 144 | 15 984 | 74 688 | 2 732 |
-| `fmt_bytes_crc`, `nucleo_g0b1re_renode` | 78 | 352 104 | 17 616 | 32 256 | 1 892 |
+| Image | Tests | `mps2/an385`: flash, RAM, heap, stack | `nucleo_g0b1re_renode`: flash (of 524 288), RAM, heap, stack |
+|---|---|---|---|
+| `status` | 5 | 224 984, 15 576, 3 024, 1 324 | 236 084, 13 536, 3 164, 1 364 |
+| `alloc` | 58 | 268 256, 41 904, 32 488, 1 836 | 279 844, 39 912, 34 216, 1 948 |
+| `io` | 143 | 348 092, 18 024, 70 416, 2 636 | 360 144, 15 984, 74 688, 2 732 |
+| `fmt` | 32 | 268 504, 19 656, 15 056, 1 772 | 279 372, 17 616, 15 728, 1 892 |
+| `bytes` | 38 | 283 296, 15 552, 14 408, 1 324 | 293 700, 13 512, 15 184, 1 364 |
+| `crc` | 8 | 230 768, 15 552, 3 936, 1 324 | 241 908, 13 512, 4 128, 1 364 |
+| All, `variant` | 291 | 508 472, 48 432, 125 232, 2 636 | not built |
 
-The board has 147 456 bytes of RAM; the heap is what static RAM leaves. So
-`io`, the largest group, uses about 75 KB of the about 131 KB it has, and
-the whole image (about 127 KB of heap on the Cortex-M0+, by M3's ratio of
-the two boards) would not fit beside its static RAM. `status_alloc`'s
-static RAM is the allocator fixtures' storage. (Zephyr printed that image's
-RAM in KB.)
+`io` is the largest: about 75 KB of heap of the about 131 KB its static RAM
+leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
 
-The figures below are M3's, for the single image that fitted then.
+**Twister's run time** (`--integration -j 8`, this machine, fresh output
+directory each time): 170.6 s for M3a's first run with one image per
+board (7 configurations, the Cortex-M0+ image failing at start), 175.4 s
+for the per-module layout (22 configurations, all passing). The extra
+builds cost little because each module image compiles only its own tests;
+both runs had Zephyr's build cache available, so read them as "about".
+
+The figures below are M3's, for the single image that fitted every board then.
 
 Zephyr SDK GCC 14.3.0, Zephyr's default size optimization, 203 tests.
 The flash and heap figures are approximate: they change with the path of
@@ -693,29 +705,29 @@ and exited successfully.
 | Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
-| Unit and helper tests | passed | passed | passed | passed | passed | passed (per group) | not run |
+| Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
-| io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | passed (per group) | not run |
+| io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | passed (per module) | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed (per group) | not run |
-| io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | passed (per group) | not run |
-| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed (per group) | not run |
+| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
-| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed (per group) | not run |
+| Allocator contract suite: size classes example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | libc heap platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
 | C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
-| fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | passed (per group) | not run |
+| fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | passed (per module) | not run |
 | fmt: printf subset against glibc `snprintf`, every capacity and through a buffered writer stalling after every k; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
-| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed (per group) | not run |
-| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed (per group) | not run |
+| bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed (per module) | not run |
+| crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | fmt: every fmt test with `FMT_PRINTF_LIBC` (`variant_defconfig`), `fmt.libc` against glibc's and picolibc's `snprintf` (floats skipped at picolibc's integer level) | not this configuration | not this configuration | passed, oracle included | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
-| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per group) | not run |
+| bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per module) | not run |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
@@ -733,19 +745,19 @@ sanitizers because a plain `rustc` link has no sanitizer runtime.
 `assert-off` runs 379: 430 less the 51 tests of the `*.violations`
 binaries, which are not built without assertions.
 
-The Zephyr test image has 284 of those GoogleTest tests: all but the POSIX
-and C library backends', the death tests, and the host-only `fmt.oracle`
-and `bytes.portable`; 291 in the `variant` scenario, with `fmt.libc`.
-Twister (2026-11-13, M3a) reports eight test configurations passed and
+The Zephyr tests are 284 of those GoogleTest tests: all but the POSIX and
+C library backends', the death tests, and the host-only `fmt.oracle` and
+`bytes.portable`; 291 in the `variant` scenario, with `fmt.libc`. Twister
+(2026-11-13, M3a) reports 21 test configurations passed and
 `elemental.symbols.armv6m` built, with no warnings:
 
-- `elemental.tests` on `native_sim` and `mps2/an385`, and the
-  `assert_off` and `crc_zephyr` scenarios on `mps2/an385`: 264 passed and
-  20 skipped by GoogleTest's count each; `variant` on `mps2/an385`: 271 and
-  21 (`fmt.libc`'s float test skipped at picolibc's integer level);
-- on `nucleo_g0b1re_renode`, one image per group: `status_alloc` 60 passed
-  and 3 skipped, `io` 126 and 17, `fmt_bytes_crc` 78 and 0. Together, the
-  same 284 tests as the single image.
+- `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
+  `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
+  same on each board: `status` 5 and 0, `alloc` 55 and 3, `io` 126 and 17,
+  `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (284 together);
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 264 passed
+  and 20 skipped, `variant` 271 and 21 (`fmt.libc`'s float test skipped at
+  picolibc's integer level).
 
 Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
