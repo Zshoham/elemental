@@ -3,6 +3,13 @@
 Status: Accepted (2026-11-11, by the project owner)
 Author, date: design draft for milestone M3, 2026-11-11
 
+> **Revised in M3a.** The [io buffers and fmt proposal](io-buffers-fmt.md)
+> replaced `el_fmt` with `io`'s `el_buf`, reduced the core to three pure
+> conversions, dropped the hex dump and NUL termination, and made `fmt`
+> depend on `io` (decisions 1, 3 and 8 below are reversed or replaced;
+> [ADR 0015](../adr/0015-formatting-into-io-buffers.md) supersedes ADR 0011).
+> This text is kept as it was accepted.
+
 Formats text into caller memory: integers, strings, and hex dumps. It has a
 non-variadic core of typed calls and a printf-subset convenience in its own
 header. The plan entry is in

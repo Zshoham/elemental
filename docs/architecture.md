@@ -124,11 +124,16 @@ layer under it.
 ```
 status          (no dependencies)
   ^
-  io            (status; memcpy)
-  ^        ^
-io_posix   io_contract
+  io            (status; memcpy, memmove; alloc with IO_ALLOC)
+  ^        ^          ^
+io_posix   io_contract  fmt   (status, io; since M3a)
 (POSIX)    (test support)
 ```
+
+`fmt` depends on `io` because its printf formats into an `io` buffer or a
+buffered writer ([ADR 0015](adr/0015-formatting-into-io-buffers.md)); `io`
+does not depend on `fmt`. `alloc`, `bytes` and `crc` depend on `status`
+only.
 
 `status` is the only module every other module may depend on. That privilege
 is why it must stay tiny; its admission rule is in

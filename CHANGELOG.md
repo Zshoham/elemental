@@ -102,5 +102,17 @@ First milestone: the project's foundation.
   `_reserve`, `_as_writer`. Flush is a function of the type, not an
   operation of `el_writer` ([ADR 0014](docs/adr/0014-flush-on-the-concrete-type.md),
   provisional). `io` now needs `memmove` as well as `memcpy`.
+- `fmt` (M3a): reworked on `io` ([ADR 0015](docs/adr/0015-formatting-into-io-buffers.md),
+  superseding ADR 0011). `elemental/fmt.h` is three pure conversions,
+  `el_fmt_dec_u64`, `el_fmt_dec_i64`, `el_fmt_hex_u64(out, cap, value[,
+  flags])`, returning the length, with `EL_FMT_INT_LEN_MAX` (20) and
+  `EL_FMT_UPPER` (now 1). `el_fmt_printf` and `el_fmt_vprintf` take an
+  `el_buf *`; `el_fmt_printf_buffered` and `el_fmt_vprintf_buffered` are
+  new, into an `el_buffered_writer`. Removed: `el_fmt`, `el_fmt_init`,
+  `el_fmt_len`, `el_fmt_str`, `el_fmt_cstr`, `el_fmt_hex_bytes`,
+  `EL_FMT_ZERO_PAD`, the width and flags of the conversions, NUL
+  termination, and sticky truncation (truncation is per call). `fmt` now
+  depends on `io` (Kconfig `select IO`). The private choice `FMT_BUILTIN` /
+  `FMT_LIBC` is removed.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.

@@ -1,37 +1,30 @@
 /*
- * Shared by fmt.c and fmt_printf.c; not installed. The callers have already
- * checked their arguments, so these functions check nothing.
+ * Shared by the printf sources; not installed. The entry points have
+ * already checked their arguments, so these functions check nothing.
  */
 #ifndef ELEMENTAL_FMT_PRIVATE_H
 #define ELEMENTAL_FMT_PRIVATE_H
 
-#include <stdbool.h>
+#include <stdarg.h>
 #include <stddef.h>
-#include <stdint.h>
 
-#include <elemental/fmt.h>
-
-/* One text item: `pad` spaces, then `len` bytes of `s`, cut at the last
- * byte that fits. */
-el_status el_fmt_text_(el_fmt *f, size_t pad, const char *s, size_t len);
-
-/* One number item, whole or not at all. `base` is 10 or 16. */
-el_status el_fmt_number_(el_fmt *f, uint64_t magnitude, bool negative, unsigned base, bool upper,
-                         size_t width, bool zero_pad);
-
-/* Bytes el_fmt_digits_() may use: UINT64_MAX has 20 decimal digits, and
- * snprintf() writes a terminator after them. */
-#define EL_FMT_DIGITS_SIZE 21
+#include <elemental/io_buf.h>
 
 /*
- * The digits of `value` in `base` (10 or 16), with no sign, padding, or
- * prefix, written somewhere in `buf`, which has EL_FMT_DIGITS_SIZE bytes.
- * Returns the first digit and sets `*count`. One source per configuration:
- * fmt_digits_builtin.c (FMT_BUILTIN) or fmt_digits_libc.c (FMT_LIBC).
+ * Where printf writes: the buffer the bytes go into, and how to make room
+ * in it. el_fmt_printf passes el_buf_reserve on the buffer itself;
+ * el_fmt_printf_buffered passes el_buffered_writer_reserve on the writer
+ * that borrows it, in its own object file, so a program that prints only
+ * into buffers links no buffered-writer code.
  */
-const char *el_fmt_digits_(char *buf, uint64_t value, unsigned base, bool upper, size_t *count);
+typedef struct el_fmt_target_ {
+    el_buf *buf;
+    el_status (*reserve)(void *ctx, size_t min);
+    void *ctx;
+} el_fmt_target_;
 
-/* Length of a NUL-terminated string, reading at most `max` bytes. */
-size_t el_fmt_strnlen_(const char *s, size_t max);
+/* The parser: format into `target` by the item rule (fmt_printf.h). `args`
+ * is advanced past every argument that was read. */
+el_status el_fmt_format_(const el_fmt_target_ *target, const char *format, va_list *args);
 
 #endif /* ELEMENTAL_FMT_PRIVATE_H */

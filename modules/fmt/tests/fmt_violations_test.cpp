@@ -6,6 +6,8 @@
 #include <gtest/gtest.h>
 
 #include <elemental/fmt.h>
+#include <elemental/io_buf.h>
+#include <elemental/io_buffered.h>
 #include <elemental/fmt_printf.h>
 
 #include <cstdarg>
@@ -47,13 +49,25 @@ bool StoppedByACheck(int status)
  * many are valid printf with matching arguments, which is the point (the
  * format attribute does not catch them), and the rest would be diagnosed.
  */
-el_status Unchecked(el_fmt *f, const char *format, ...)
+el_status Unchecked(el_buf *b, const char *format, ...)
 {
     va_list args;
     va_start(args, format);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-    const el_status status = el_fmt_vprintf(f, format, args);
+    const el_status status = el_fmt_vprintf(b, format, args);
+#pragma GCC diagnostic pop
+    va_end(args);
+    return status;
+}
+
+el_status UncheckedBuffered(el_buffered_writer *w, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+    const el_status status = el_fmt_vprintf_buffered(w, format, args);
 #pragma GCC diagnostic pop
     va_end(args);
     return status;
@@ -77,12 +91,17 @@ class FmtViolations : public testing::Test
 
     void SetUp() override
     {
-        el_fmt_init(&f, buf, sizeof buf);
+        el_buf_init(&b, storage, sizeof storage);
+        el_buf_init(&sink, sink_storage, sizeof sink_storage);
+        el_buffered_writer_init(&w, el_buf_as_writer(&sink), &b);
     }
 
-    char buf[64];
-    el_fmt f;
-    const uint8_t byte = 0;
+    uint8_t storage[64];
+    uint8_t sink_storage[64];
+    el_buf b;
+    el_buf sink;
+    el_buffered_writer w;
+    char digits[EL_FMT_INT_LEN_MAX];
 };
 
 using FmtViolationsDeathTest = FmtViolations;
@@ -90,101 +109,96 @@ using FmtViolationsDeathTest = FmtViolations;
 TEST_F(FmtViolations, CorrectUseDoesNotTripACheck)
 {
     /* Including the edge cases. A check that fired would end the test. */
-    el_fmt empty;
-    el_fmt_init(&empty, nullptr, 0);
-    (void)el_fmt_str(&f, nullptr, 0);
-    (void)el_fmt_hex_bytes(&f, nullptr, 0);
-    (void)el_fmt_dec_u64(&f, 1, 3, EL_FMT_ZERO_PAD);
-    (void)el_fmt_dec_i64(&f, -1, 3, EL_FMT_ZERO_PAD);
-    (void)el_fmt_hex_u64(&f, 1, 3, EL_FMT_ZERO_PAD | EL_FMT_UPPER);
-    (void)Unchecked(&f, "%0hhd%05hu%lld%zu%zd%3c%.*s%5.2s%%", 1, 2u, 3LL, size_t{4}, ptrdiff_t{5},
-                    'c', -1, "s", "str");
+    (void)el_fmt_dec_u64(digits, sizeof digits, UINT64_MAX);
+    (void)el_fmt_dec_i64(digits, sizeof digits, INT64_MIN);
+    (void)el_fmt_hex_u64(digits, sizeof digits, 1, EL_FMT_UPPER);
+    (void)el_fmt_hex_u64(digits, sizeof digits, 1, 0);
+    (void)Unchecked(&b, "%0hhd%05hu%lld%zu%zd%3c%.*s%5.2s%.s%%", 1, 2u, 3LL, size_t{4},
+                    ptrdiff_t{5}, 'c', -1, "s", "str", "x");
+    (void)UncheckedBuffered(&w, "%05d%s", 1, "s");
+    el_buf empty;
+    el_buf_init(&empty, nullptr, 0);
+    (void)Unchecked(&empty, "%d", 1);
 }
 
-TEST_F(FmtViolationsDeathTest, NullObject)
+TEST_F(FmtViolationsDeathTest, AConversionGivenTooLittleRoom)
 {
-    EXPECT_VIOLATION(el_fmt_init(nullptr, buf, sizeof buf));
-    EXPECT_VIOLATION((void)el_fmt_len(nullptr));
-    EXPECT_VIOLATION((void)el_fmt_str(nullptr, "a", 1));
-    EXPECT_VIOLATION((void)el_fmt_cstr(nullptr, "a"));
-    EXPECT_VIOLATION((void)el_fmt_dec_u64(nullptr, 1, 0, 0));
-    EXPECT_VIOLATION((void)el_fmt_dec_i64(nullptr, 1, 0, 0));
-    EXPECT_VIOLATION((void)el_fmt_hex_u64(nullptr, 1, 0, 0));
-    EXPECT_VIOLATION((void)el_fmt_hex_bytes(nullptr, &byte, 1));
+    EXPECT_VIOLATION((void)el_fmt_dec_u64(digits, EL_FMT_INT_LEN_MAX - 1, 1));
+    EXPECT_VIOLATION((void)el_fmt_dec_i64(digits, EL_FMT_INT_LEN_MAX - 1, 1));
+    EXPECT_VIOLATION((void)el_fmt_hex_u64(digits, EL_FMT_INT_LEN_MAX - 1, 1, 0));
+    EXPECT_VIOLATION((void)el_fmt_dec_u64(nullptr, EL_FMT_INT_LEN_MAX, 1));
+    EXPECT_VIOLATION((void)el_fmt_dec_i64(nullptr, EL_FMT_INT_LEN_MAX, 1));
+    EXPECT_VIOLATION((void)el_fmt_hex_u64(nullptr, EL_FMT_INT_LEN_MAX, 1, 0));
+}
+
+TEST_F(FmtViolationsDeathTest, FlagsTheHexConversionDoesNotList)
+{
+    EXPECT_VIOLATION((void)el_fmt_hex_u64(digits, sizeof digits, 1, 2));
+    EXPECT_VIOLATION((void)el_fmt_hex_u64(digits, sizeof digits, 1, EL_FMT_UPPER | 4u));
+}
+
+TEST_F(FmtViolationsDeathTest, NullTargetFormatOrString)
+{
     EXPECT_VIOLATION((void)el_fmt_printf(nullptr, "a"));
     EXPECT_VIOLATION((void)Unchecked(nullptr, "a"));
+    EXPECT_VIOLATION((void)el_fmt_printf_buffered(nullptr, "a"));
+    EXPECT_VIOLATION((void)UncheckedBuffered(nullptr, "a"));
+    EXPECT_VIOLATION((void)Unchecked(&b, nullptr));
+    EXPECT_VIOLATION((void)UncheckedBuffered(&w, nullptr));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%s", static_cast<const char *>(nullptr)));
+    EXPECT_VIOLATION((void)UncheckedBuffered(&w, "%s", static_cast<const char *>(nullptr)));
 }
 
-TEST_F(FmtViolationsDeathTest, NullBufferWithANonzeroCapacity)
-{
-    EXPECT_VIOLATION(el_fmt_init(&f, nullptr, 1));
-}
-
-TEST_F(FmtViolationsDeathTest, NullTextOrDataWithANonzeroLength)
-{
-    EXPECT_VIOLATION((void)el_fmt_str(&f, nullptr, 1));
-    EXPECT_VIOLATION((void)el_fmt_hex_bytes(&f, nullptr, 1));
-}
-
-TEST_F(FmtViolationsDeathTest, NullCString)
-{
-    EXPECT_VIOLATION((void)el_fmt_cstr(&f, nullptr));
-    EXPECT_VIOLATION((void)Unchecked(&f, nullptr));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%s", static_cast<const char *>(nullptr)));
-}
-
-TEST_F(FmtViolationsDeathTest, FlagsAFunctionDoesNotList)
-{
-    EXPECT_VIOLATION((void)el_fmt_dec_u64(&f, 1, 0, EL_FMT_UPPER));
-    EXPECT_VIOLATION((void)el_fmt_dec_i64(&f, 1, 0, EL_FMT_UPPER));
-    EXPECT_VIOLATION((void)el_fmt_dec_u64(&f, 1, 0, 4));
-    EXPECT_VIOLATION((void)el_fmt_hex_u64(&f, 1, 0, 4));
-}
+/* Each of these is outside the portable subset. Under FMT_PRINTF_LIBC some
+ * are accepted (fmt_libc_test.cpp); this file is built only for the default. */
 
 TEST_F(FmtViolationsDeathTest, ConversionsOutsideTheSubset)
 {
     int count = 0;
-    EXPECT_VIOLATION((void)Unchecked(&f, "%f", 1.0));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%p", static_cast<void *>(buf)));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%n", &count));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%o", 8u));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%e", 1.0));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%f", 1.0));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%p", static_cast<void *>(storage)));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%n", &count));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%o", 8u));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%e", 1.0));
+    EXPECT_VIOLATION((void)UncheckedBuffered(&w, "%f", 1.0));
 }
 
 TEST_F(FmtViolationsDeathTest, FlagsWidthsAndModifiersOutsideTheSubset)
 {
-    EXPECT_VIOLATION((void)Unchecked(&f, "%-5d", 1));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%+d", 1));
-    EXPECT_VIOLATION((void)Unchecked(&f, "% d", 1));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%#x", 1u));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%*d", 5, 1));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%jd", intmax_t{1}));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%td", ptrdiff_t{1}));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%Lf", 1.0L));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%-5d", 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%+d", 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "% d", 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%#x", 1u));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%*d", 5, 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%jd", intmax_t{1}));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%td", ptrdiff_t{1}));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%Lf", 1.0L));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%-8s", "s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%*c", 3, 'c'));
 }
 
 TEST_F(FmtViolationsDeathTest, PrecisionOutsideStrings)
 {
-    EXPECT_VIOLATION((void)Unchecked(&f, "%.2d", 1));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%.2u", 1u));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%.*x", 2, 1u));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%.2c", 'c'));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%.2d", 1));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%.2u", 1u));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%.*x", 2, 1u));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%.2c", 'c'));
 }
 
 TEST_F(FmtViolationsDeathTest, ModifiersOnCharactersAndStrings)
 {
-    EXPECT_VIOLATION((void)Unchecked(&f, "%05s", "s"));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%05c", 'c'));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%ls", L"s"));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%lc", 'c'));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%hhs", "s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%05s", "s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%05c", 'c'));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%ls", L"s"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%lc", 'c'));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%hhs", "s"));
 }
 
 TEST_F(FmtViolationsDeathTest, MalformedPercent)
 {
-    EXPECT_VIOLATION((void)Unchecked(&f, "%"));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%5%"));
-    EXPECT_VIOLATION((void)Unchecked(&f, "%l"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%5%"));
+    EXPECT_VIOLATION((void)Unchecked(&b, "%l"));
 }
 
 } // namespace
