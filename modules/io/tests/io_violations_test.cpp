@@ -154,24 +154,24 @@ TEST_F(IoViolations, CorrectUseDoesNotTripACheck)
 
 TEST_F(IoViolationsDeathTest, CallerOmitsTheOutputParameter)
 {
-    EXPECT_VIOLATION(el_read(reader, buf, sizeof(buf), nullptr));
-    EXPECT_VIOLATION(el_write(writer, content, sizeof(content), nullptr));
+    EXPECT_VIOLATION((void)el_read(reader, buf, sizeof(buf), nullptr));
+    EXPECT_VIOLATION((void)el_write(writer, content, sizeof(content), nullptr));
 }
 
 TEST_F(IoViolationsDeathTest, CallerPassesANullBufferWithANonzeroSize)
 {
-    EXPECT_VIOLATION(el_read(reader, nullptr, 1, &n));
-    EXPECT_VIOLATION(el_write(writer, nullptr, 1, &n));
-    EXPECT_VIOLATION(el_read_exact(reader, nullptr, 1, &n));
-    EXPECT_VIOLATION(el_write_all(writer, nullptr, 1, &n));
+    EXPECT_VIOLATION((void)el_read(reader, nullptr, 1, &n));
+    EXPECT_VIOLATION((void)el_write(writer, nullptr, 1, &n));
+    EXPECT_VIOLATION((void)el_read_exact(reader, nullptr, 1, &n));
+    EXPECT_VIOLATION((void)el_write_all(writer, nullptr, 1, &n));
 }
 
 TEST_F(IoViolationsDeathTest, CallerUsesAHandleThatWasNeverMade)
 {
-    EXPECT_VIOLATION(el_read(el_reader{nullptr, nullptr}, buf, 1, &n));
-    EXPECT_VIOLATION(el_write(el_writer{nullptr, nullptr}, content, 1, &n));
-    EXPECT_VIOLATION(el_read(BrokenReader(nullptr), buf, 1, &n));
-    EXPECT_VIOLATION(el_write(BrokenWriter(nullptr), content, 1, &n));
+    EXPECT_VIOLATION((void)el_read(el_reader{nullptr, nullptr}, buf, 1, &n));
+    EXPECT_VIOLATION((void)el_write(el_writer{nullptr, nullptr}, content, 1, &n));
+    EXPECT_VIOLATION((void)el_read(BrokenReader(nullptr), buf, 1, &n));
+    EXPECT_VIOLATION((void)el_write(BrokenWriter(nullptr), content, 1, &n));
 }
 
 TEST_F(IoViolationsDeathTest, CallerBreaksAMemoryStreamPrecondition)
@@ -204,7 +204,7 @@ TEST_F(IoViolationsDeathTest, CallerAppendsFromTheBuffersOwnStorage)
     ASSERT_EQ(el_buf_append(&mem, content, 2), EL_OK);
     EXPECT_VIOLATION((void)el_buf_append(&mem, el_buf_data(&mem), 1));
     EXPECT_VIOLATION((void)el_buf_append(&mem, sink + 3, 1));
-    EXPECT_VIOLATION(el_write(writer, sink, 1, &n));
+    EXPECT_VIOLATION((void)el_write(writer, sink, 1, &n));
 }
 
 TEST_F(IoViolationsDeathTest, CallerBreaksABufferedWriterPrecondition)
@@ -241,7 +241,7 @@ TEST_F(IoViolationsDeathTest, OwnerTruncatesPastWhatWasPassedOn)
     el_buf_truncate(&held, 2);
     EXPECT_VIOLATION((void)el_buffered_writer_pending(&bw));
     EXPECT_VIOLATION((void)el_buffered_writer_flush(&bw));
-    EXPECT_VIOLATION(el_write(el_buffered_writer_as_writer(&bw), content, 1, &n));
+    EXPECT_VIOLATION((void)el_write(el_buffered_writer_as_writer(&bw), content, 1, &n));
 }
 
 TEST_F(IoViolationsDeathTest, CallerCommitsOrTruncatesPastTheBuffer)
@@ -256,16 +256,16 @@ TEST_F(IoViolationsDeathTest, CallerCommitsOrTruncatesPastTheBuffer)
 
 TEST_F(IoViolationsDeathTest, ReaderBreaksTheOperationContract)
 {
-    EXPECT_VIOLATION(el_read(BrokenReader(ReadOkWithoutProgress), buf, 4, &n));
-    EXPECT_VIOLATION(el_read(BrokenReader(ReadMoreThanAsked), buf, 4, &n));
-    EXPECT_VIOLATION(el_read(BrokenReader(ReadFailureWithProgress), buf, 4, &n));
+    EXPECT_VIOLATION((void)el_read(BrokenReader(ReadOkWithoutProgress), buf, 4, &n));
+    EXPECT_VIOLATION((void)el_read(BrokenReader(ReadMoreThanAsked), buf, 4, &n));
+    EXPECT_VIOLATION((void)el_read(BrokenReader(ReadFailureWithProgress), buf, 4, &n));
 }
 
 TEST_F(IoViolationsDeathTest, WriterBreaksTheOperationContract)
 {
-    EXPECT_VIOLATION(el_write(BrokenWriter(WriteOkWithoutProgress), content, 4, &n));
-    EXPECT_VIOLATION(el_write(BrokenWriter(WriteMoreThanAsked), content, 4, &n));
-    EXPECT_VIOLATION(el_write(BrokenWriter(WriteFailureWithProgress), content, 4, &n));
+    EXPECT_VIOLATION((void)el_write(BrokenWriter(WriteOkWithoutProgress), content, 4, &n));
+    EXPECT_VIOLATION((void)el_write(BrokenWriter(WriteMoreThanAsked), content, 4, &n));
+    EXPECT_VIOLATION((void)el_write(BrokenWriter(WriteFailureWithProgress), content, 4, &n));
 }
 
 } // namespace

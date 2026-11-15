@@ -100,7 +100,7 @@ size_t el_buf_room(const el_buf *b);
  * `data` may be null only if `len` is 0, and must not point into this
  * buffer's storage.
  */
-el_status el_buf_append(el_buf *b, const void *data, size_t len);
+EL_NODISCARD el_status el_buf_append(el_buf *b, const void *data, size_t len);
 
 /*
  * Writing in place. el_buf_reserve() makes el_buf_room() at least `min`,
@@ -110,7 +110,7 @@ el_status el_buf_append(el_buf *b, const void *data, size_t len);
  * be written there. el_buf_commit() makes the first `n` of them part of the
  * contents (n <= el_buf_room()).
  */
-el_status el_buf_reserve(el_buf *b, size_t min);
+EL_NODISCARD el_status el_buf_reserve(el_buf *b, size_t min);
 uint8_t *el_buf_spare(el_buf *b);
 void el_buf_commit(el_buf *b, size_t n);
 

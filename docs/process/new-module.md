@@ -75,6 +75,10 @@ Contract:
       as a contract violation.
 - [ ] Each function documents its statuses and what every output parameter
       holds for each.
+- [ ] Each function that returns `el_status`, and any that reports failure
+      by `NULL`, is declared `EL_NODISCARD`. Sources pass a status on with
+      `EL_TRY` and discard one only through `el_status_ignore()`
+      ([conventions.md](../conventions.md#errors), rules 8 and 9).
 - [ ] An interface has operation tables with "called with" and "must"
       lists, and a public function in front that enforces both.
 - [ ] Sources include `elemental_config.h` first. Public headers do not.
@@ -119,7 +123,8 @@ Records:
 - [ ] The roadmap and, where a lasting decision was made, an ADR.
 
 Public C headers (`*.h`) are checked for self-containment and C++
-compatibility automatically; there is nothing to register. A contract
+compatibility automatically, and every header for a status-returning
+function without `EL_NODISCARD`; there is nothing to register. A contract
 suite's `.hpp` is C++17 by design and is exercised by the tests that use it.
 
 ## Configuration options

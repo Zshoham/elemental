@@ -142,6 +142,24 @@ TEST_F(Buffered, AnIoFailureFromThePassOnIsReturnedWithNothingTakenAndNotRemembe
     EXPECT_EQ(inner.got, "abcdefghij");
 }
 
+TEST_F(Buffered, AnApplicationStatusFromTheInnerWriterIsReturnedUnchangedAndNotRemembered)
+{
+    /* Negative statuses are the application's (elemental/status.h). */
+    constexpr el_status kMine = -42;
+    Open(8);
+    ASSERT_EQ(Write("abcdefgh", 8), EL_OK);
+    inner.fail = kMine;
+    EXPECT_EQ(Write("ij", 2), kMine);
+    EXPECT_EQ(n, 0u);
+    EXPECT_EQ(el_buffered_writer_flush(&bw), kMine);
+    EXPECT_EQ(el_buffered_writer_reserve(&bw, 1), kMine);
+    EXPECT_EQ(Held(), "abcdefgh");
+
+    inner.fail = EL_OK;
+    EXPECT_EQ(el_buffered_writer_flush(&bw), EL_OK);
+    EXPECT_EQ(inner.got, "abcdefgh");
+}
+
 TEST_F(Buffered, NoSpaceFromThePassOnIsReturnedWithNothingTaken)
 {
     Open(8);

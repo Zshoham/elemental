@@ -18,7 +18,7 @@
  * status that stopped the copy. Never waits on its own: if a stream stalls,
  * the caller is told and decides what waiting means.
  */
-static el_status copy_stream(el_reader in, el_writer out, size_t *copied)
+EL_NODISCARD static el_status copy_stream(el_reader in, el_writer out, size_t *copied)
 {
     char chunk[4096];
     *copied = 0;
@@ -27,18 +27,14 @@ static el_status copy_stream(el_reader in, el_writer out, size_t *copied)
         size_t got;
         el_status status = el_read(in, chunk, sizeof(chunk), &got);
         if (status == EL_ERR_END_OF_STREAM) {
-            return EL_OK;
+            return EL_OK; /* the one status that is not a failure here */
         }
-        if (status != EL_OK) {
-            return status;
-        }
+        EL_TRY(status);
 
         size_t put;
         status = el_write_all(out, chunk, got, &put);
         *copied += put;
-        if (status != EL_OK) {
-            return status;
-        }
+        EL_TRY(status);
     }
 }
 

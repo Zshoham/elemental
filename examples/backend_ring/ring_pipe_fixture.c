@@ -21,7 +21,7 @@ static void reset(void *ctx)
 static void fill(const uint8_t *content, size_t len)
 {
     size_t n = 0;
-    (void)el_write_all(ring_pipe_as_writer(&state.pipe), content, len, &n);
+    el_status_ignore(el_write_all(ring_pipe_as_writer(&state.pipe), content, len, &n));
 }
 
 /*
@@ -36,7 +36,7 @@ static void start_mid_storage(void)
 
     ring_pipe_init(&state.pipe, state.storage, sizeof(state.storage));
     fill(scratch, sizeof(scratch));
-    (void)el_read_exact(ring_pipe_as_reader(&state.pipe), scratch, sizeof(scratch), &n);
+    el_status_ignore(el_read_exact(ring_pipe_as_reader(&state.pipe), scratch, sizeof(scratch), &n));
 }
 
 static el_reader reader_with_content(void *ctx, const uint8_t *content, size_t len)

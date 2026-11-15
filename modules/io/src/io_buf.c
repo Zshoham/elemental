@@ -99,10 +99,7 @@ el_status el_buf_append(el_buf *b, const void *data, size_t len)
     if (len == 0) {
         return EL_OK;
     }
-    const el_status status = el_buf_reserve(b, len);
-    if (status != EL_OK) {
-        return status;
-    }
+    EL_TRY(el_buf_reserve(b, len));
     memcpy(b->data + b->len, data, len);
     b->len += len;
     return EL_OK;
@@ -137,7 +134,7 @@ el_status el_buf_append_some_(el_buf *b, const void *data, size_t len, size_t *n
 
     /* Room for all of it if the storage can grow; if it cannot, or is
      * refused, what is left is taken. */
-    (void)el_buf_reserve(b, len);
+    el_status_ignore(el_buf_reserve(b, len));
     const size_t room = b->cap - b->len;
     if (room == 0) {
         return EL_ERR_NO_SPACE;

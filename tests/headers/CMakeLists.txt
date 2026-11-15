@@ -78,3 +78,11 @@ endforeach()
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(header_check_cxx PRIVATE ${strict_flags})
 endif()
+
+# A status must be used, and the compiler can only say so where the
+# declaration carries EL_NODISCARD. Every header under modules/ and
+# examples/ is read, private ones included; new headers are covered without
+# touching this file.
+add_test(NAME headers.nodiscard
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/check_nodiscard.py"
+          "${PROJECT_SOURCE_DIR}/modules" "${PROJECT_SOURCE_DIR}/examples")

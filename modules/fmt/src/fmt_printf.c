@@ -215,10 +215,7 @@ el_status el_fmt_put_run_(const el_fmt_target_ *t, const char *s, size_t len)
  * byte that fits. */
 static el_status put_text(const el_fmt_target_ *t, size_t pad, const char *s, size_t len)
 {
-    const el_status status = el_fmt_put_run_(t, NULL, pad);
-    if (status != EL_OK) {
-        return status;
-    }
+    EL_TRY(el_fmt_put_run_(t, NULL, pad));
     return el_fmt_put_run_(t, s, len);
 }
 
@@ -229,10 +226,7 @@ static el_status put_number(const el_fmt_target_ *t, const char *digits, size_t 
 {
     const size_t body = count + (negative ? 1u : 0u);
     const size_t total = width > body ? width : body;
-    const el_status status = el_fmt_need_(t, total);
-    if (status != EL_OK) {
-        return status;
-    }
+    EL_TRY(el_fmt_need_(t, total));
     uint8_t *out = el_buf_spare(t->buf);
     const size_t pad = total - body;
     for (size_t i = 0; !zero_pad && i < pad; i++) {
@@ -308,10 +302,7 @@ el_status el_fmt_format_(const el_fmt_target_ *t, const char *format, va_list *a
             while (*p != '\0' && *p != '%') {
                 p++;
             }
-            const el_status status = put_text(t, 0, start, (size_t)(p - start));
-            if (status != EL_OK) {
-                return status;
-            }
+            EL_TRY(put_text(t, 0, start, (size_t)(p - start)));
             continue;
         }
         p++;

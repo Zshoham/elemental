@@ -541,23 +541,28 @@ out of heap: the whole image needs 122 336 bytes of peak heap on
 `mps2/an385`), then as two and three module groups; the per-module images
 replaced those on the owner's decision.
 
-**M3a, 2026-11-13, measured in an M3a worktree (a different checkout path
-from the M3 figures further below).** Flash, static RAM and peak heap in
-bytes; main stack used of 4 096. Tests are GoogleTest's count, skipped
-included:
+**M3b, 2026-11-15, measured in the repository's own checkout (a different
+path from M3a's worktree and from the M3 figures further below; the path
+moves the heap figures by several KB, as explained there).** Flash, static
+RAM and peak heap in bytes; main stack used of 4 096. Tests are
+GoogleTest's count, skipped included:
 
 | Image | Tests | `mps2/an385`: flash, RAM, heap, stack | `nucleo_g0b1re_renode`: flash (of 524 288), RAM, heap, stack |
 |---|---|---|---|
-| `status` | 5 | 224 984, 15 576, 3 024, 1 324 | 236 084, 13 536, 3 164, 1 364 |
-| `alloc` | 58 | 268 256, 41 904, 32 488, 1 836 | 279 844, 39 912, 34 216, 1 948 |
-| `io` | 143 | 348 092, 18 024, 70 416, 2 636 | 360 144, 15 984, 74 688, 2 732 |
-| `fmt` | 32 | 268 504, 19 656, 15 056, 1 772 | 279 372, 17 616, 15 728, 1 892 |
-| `bytes` | 38 | 283 296, 15 552, 14 408, 1 324 | 293 700, 13 512, 15 184, 1 364 |
-| `crc` | 8 | 230 768, 15 552, 3 936, 1 324 | 241 908, 13 512, 4 128, 1 364 |
-| All, `variant` | 291 | 508 472, 48 432, 125 232, 2 636 | not built |
+| `status` | 17 | 234 800, 15 576, 6 832, 1 324 | 245 812, 13 536, 7 236, 1 364 |
+| `alloc` | 58 | 268 064, 41 904, 29 648, 1 836 | 279 652, 39 912, 31 376, 1 948 |
+| `io` | 145 | 350 228, 18 024, 63 576, 2 636 | 362 208, 15 984, 67 908, 2 732 |
+| `fmt` | 32 | 268 348, 19 656, 13 912, 1 772 | 279 216, 17 616, 14 584, 1 892 |
+| `bytes` | 38 | 283 220, 15 552, 12 888, 1 324 | 293 624, 13 512, 13 664, 1 364 |
+| `crc` | 8 | 230 728, 15 552, 3 680, 1 324 | 241 868, 13 512, 3 872, 1 364 |
+| All, `variant` | 306 | 519 592, 48 440, 116 432, 2 636 | not built |
 
-`io` is the largest: about 75 KB of heap of the about 131 KB its static RAM
+`io` is the largest: about 68 KB of heap of the about 131 KB its static RAM
 leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
+M3b added 12 tests to `status` and 2 to `io`. In M3a's worktree
+(2026-11-13) the `status` image, then 5 tests, took 224 984 bytes of flash
+and 3 024 of heap on `mps2/an385`, and `io`, then 143 tests, 348 092 and
+70 416.
 
 **Twister's run time** (`--integration -j 8`, this machine, fresh output
 directory each time): 170.6 s for M3a's first run with one image per
@@ -661,15 +666,22 @@ evidence about Zephyr integration, not about a target CPU.
 `libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
 GCC 14.3.0 at Zephyr's default size optimization, text bytes, without and
 with grown buffer storage (`el_grow_buf`, `IO_ALLOC`, on by default).
-Measured 2026-11-13 on M3a's branch; `io` now includes `el_buf` and the
+Measured 2026-11-15 on M3b's branch; `io` includes `el_buf` and the
 buffered writer (before M3a, with the memory and grow writers: 578 and 956
 bytes, trap):
 
 | Configuration | `IO_ALLOC` off | `IO_ALLOC` on | `el_grow_buf` |
 |---|---|---|---|
 | Assertions off | 1 134 | 1 396 | 262 |
-| Trap in place (default) | 1 640 | 1 926 | 286 |
-| Application handler | 2 101 | 2 436 | 335 |
+| Trap in place (default) | 1 648 | 1 934 | 286 |
+| Application handler | 2 121 | 2 456 | 335 |
+
+M3b's status handling changed these by two assertions and nothing else:
+`io` is 8 bytes larger with the trap and 20 with the handler, where the
+buffered writer now asserts that an append it has made room for succeeded
+instead of dropping its status, and is unchanged with assertions off.
+`EL_TRY` in `io` and `fmt`, and `EL_NODISCARD` on every declaration, cost
+nothing: every other number here is what it was on 2026-11-13.
 
 The other libraries in the same build:
 
@@ -700,10 +712,10 @@ the application without tests in each configuration.
 
 ## What is verified
 
-On one x86-64 Linux machine, 2026-11-13. "Passed" means the command was run
+On one x86-64 Linux machine, 2026-11-15. "Passed" means the command was run
 and exited successfully.
 
-| Check | GCC 16.2.1 | Clang 23.1.4 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
+| Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
@@ -718,6 +730,8 @@ and exited successfully.
 | libc heap platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | POSIX platform tests | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Public headers as C11 and C++11 | passed | passed | passed | not run | not run | not run | not run |
+| status: `EL_TRY`, `EL_TRY_GOTO`, `EL_TRY_NEG`, `EL_ENSURE`, and `el_status_ignore()` in C functions, for Elemental's codes and an application's; a negative status through `io` unchanged | passed | passed | passed | passed | passed | passed (per module) | not run |
+| status: a dropped status is rejected by the compiler, as C11, C++17, and C23 (`status.nodiscard_check.*`); every function declared to return `el_status` is `EL_NODISCARD` (`headers.nodiscard`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | C++ interop, run | passed | passed | passed | not run | not run | not run | not run |
 | fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | passed (per module) | not run |
 | fmt: printf subset against glibc `snprintf`, every capacity and through a buffered writer stalling after every k; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
@@ -735,33 +749,34 @@ and exited successfully.
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
 
-The hosted presets run 416 GoogleTest tests, of which 31 are reported as
+The hosted presets run 430 GoogleTest tests, of which 31 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
-[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop,
-integration, and two format-attribute compile checks: 430 CTest tests in
-all. `sanitize` runs 435: its `variant_defconfig` adds `fmt.libc` and the
-libc option's violations, and the two Rust sketches are skipped under
+[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop
+and integration cases, two format-attribute and six must-use compile
+checks, and the `EL_NODISCARD` declaration check: 451 CTest tests in all.
+`sanitize` runs 456: its `variant_defconfig` adds `fmt.libc` and the libc
+option's violations, and the two Rust sketches are skipped under
 sanitizers because a plain `rustc` link has no sanitizer runtime.
-`assert-off` runs 379: 430 less the 51 tests of the `*.violations`
+`assert-off` runs 400: 451 less the 51 tests of the `*.violations`
 binaries, which are not built without assertions.
 
-The Zephyr tests are 284 of those GoogleTest tests: all but the POSIX and
+The Zephyr tests are 298 of those GoogleTest tests: all but the POSIX and
 C library backends', the death tests, and the host-only `fmt.oracle` and
-`bytes.portable`; 291 in the `variant` scenario, with `fmt.libc`. Twister
-(2026-11-13, M3a) reports 22 test configurations passed and
+`bytes.portable`; 306 in the `variant` scenario, with `fmt.libc`. Twister
+(2026-11-15, M3b) reports 22 test configurations passed and
 `elemental.symbols.armv6m` built, with no warnings:
 
 - `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
   `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
-  same on each board: `status` 5 and 0, `alloc` 55 and 3, `io` 126 and 17,
-  `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (284 together);
-- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 264 passed
-  and 20 skipped, `variant` 271 and 21 (`fmt.libc`'s float test skipped at
+  same on each board: `status` 17 and 0, `alloc` 55 and 3, `io` 128 and
+  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (298 together);
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 278 passed
+  and 20 skipped, `variant` 285 and 21 (`fmt.libc`'s float test skipped at
   picolibc's integer level);
 - the `fmt` image with `variant_defconfig` on `nucleo_g0b1re_renode`
   (`elemental.tests.fmt.variant`): 39 passed and 1 skipped, the same float
-  test. 292 704 B of flash, 17 616 B of static RAM, 15 996 B of peak heap.
+  test. 292 696 B of flash, 17 616 B of static RAM, 16 996 B of peak heap.
 
 Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
@@ -828,6 +843,20 @@ Additionally, each run once by hand and not part of the automated suite:
   first survived, because a null access crashes on the host anyway; the
   death tests of these modules now accept only a death by the check (a
   trap or an abort), not `SIGSEGV`.
+- Fifteen deliberately broken variants for M3b's status handling
+  (2026-11-15), fourteen caught: `EL_TRY` and `EL_TRY_GOTO` letting a
+  negative status through; `EL_TRY` evaluating its expression twice;
+  `EL_TRY_GOTO` not assigning on success; `EL_TRY_NEG` returning on zero,
+  and holding its value in an `el_status` (a wide count then reads as
+  negative); `EL_ENSURE` inverted, and evaluating its status when the
+  condition holds; `EL_NODISCARD` emptied in each of its three branches
+  (C11, C++17, C23), each caught by that language's compile check; a
+  declaration losing `EL_NODISCARD`, caught by `headers.nodiscard`; and
+  `el_read` and the buffered writer turning an application's negative
+  status into `EL_ERR_IO`. Not caught: a `(void)` cast in place of
+  `el_status_ignore()` in a C source. GCC warns about it, and only a build
+  with warnings as errors (every preset) fails; `mutant.sh` builds without
+  them.
 - Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in

@@ -135,17 +135,19 @@ extern "C" {
 #endif
 
 /* Append `format`, with its arguments, to `out`. */
-el_status el_fmt_printf(el_buf *out, const char *format, ...) EL_FMT_PRINTF_CHECK(2, 3);
+EL_NODISCARD el_status el_fmt_printf(el_buf *out, const char *format, ...)
+    EL_FMT_PRINTF_CHECK(2, 3);
 
 /* The same, for a caller that already has a va_list, such as a logging
  * function. As with vprintf(), `args` is indeterminate afterwards. */
-el_status el_fmt_vprintf(el_buf *out, const char *format, va_list args) EL_FMT_PRINTF_CHECK(2, 0);
+EL_NODISCARD el_status el_fmt_vprintf(el_buf *out, const char *format, va_list args)
+    EL_FMT_PRINTF_CHECK(2, 0);
 
 /* Format into a buffered writer, streaming through it. */
-el_status el_fmt_printf_buffered(el_buffered_writer *out, const char *format, ...)
+EL_NODISCARD el_status el_fmt_printf_buffered(el_buffered_writer *out, const char *format, ...)
     EL_FMT_PRINTF_CHECK(2, 3);
-el_status el_fmt_vprintf_buffered(el_buffered_writer *out, const char *format, va_list args)
-    EL_FMT_PRINTF_CHECK(2, 0);
+EL_NODISCARD el_status el_fmt_vprintf_buffered(el_buffered_writer *out, const char *format,
+                                               va_list args) EL_FMT_PRINTF_CHECK(2, 0);
 
 #ifdef __cplusplus
 }

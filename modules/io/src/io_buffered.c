@@ -156,7 +156,8 @@ static el_status buffered_write(void *ctx, const void *data, size_t len, size_t 
 
     /* 1. It fits: buffered, the inner writer is not called. */
     if (len <= b->cap - b->len) {
-        (void)el_buf_append(b, data, len);
+        const el_status fits = el_buf_append(b, data, len);
+        EL_ASSERT(fits == EL_OK);
         *n = len;
         return EL_OK;
     }
@@ -185,7 +186,9 @@ static el_status buffered_write(void *ctx, const void *data, size_t len, size_t 
     /* 4. Make room, then buffer what fits. */
     compact(w);
     if (len > b->cap - b->len) {
-        (void)el_buf_reserve(b, len);
+        /* Grown storage may give room for all of it; whatever room there
+         * is afterwards is used. */
+        el_status_ignore(el_buf_reserve(b, len));
     }
     const size_t room = b->cap - b->len;
     if (room == 0) {
@@ -194,7 +197,8 @@ static el_status buffered_write(void *ctx, const void *data, size_t len, size_t 
         return stalled ? EL_ERR_WOULD_BLOCK : EL_ERR_NO_SPACE;
     }
     const size_t count = len < room ? len : room;
-    (void)el_buf_append(b, data, count);
+    const el_status fits = el_buf_append(b, data, count);
+    EL_ASSERT(fits == EL_OK);
     *n = count;
     return EL_OK;
 }

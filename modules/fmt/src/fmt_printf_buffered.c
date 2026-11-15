@@ -37,10 +37,7 @@ el_status el_fmt_vprintf_buffered(el_buffered_writer *out, const char *format, v
 {
     EL_ASSERT(out != NULL);
     EL_ASSERT(format != NULL);
-    const el_status open = open_for_items(out);
-    if (open != EL_OK) {
-        return open;
-    }
+    EL_TRY(open_for_items(out));
     const el_fmt_target_ target = target_of(out);
     va_list copy;
     va_copy(copy, args);
@@ -53,10 +50,7 @@ el_status el_fmt_printf_buffered(el_buffered_writer *out, const char *format, ..
 {
     EL_ASSERT(out != NULL);
     EL_ASSERT(format != NULL);
-    const el_status open = open_for_items(out);
-    if (open != EL_OK) {
-        return open;
-    }
+    EL_TRY(open_for_items(out));
     const el_fmt_target_ target = target_of(out);
     va_list args;
     va_start(args, format);
