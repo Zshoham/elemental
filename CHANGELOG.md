@@ -128,3 +128,20 @@ First milestone: the project's foundation.
   is in no module's list stops the configure.
 - The identifier prefix is `el_` / `EL_`, and generated configuration is
   `EL_CONFIG_`; before release it was `elem_` / `ELEM_` / `ELEM_CONFIG_`.
+- `status` (M3b): `EL_NODISCARD`, now on every function that returns
+  `el_status` and on `el_alloc`. **A call that drops a status is a compiler
+  warning** under GCC and Clang, and in C23 and C++17 anywhere; with
+  `-Werror`, an error. Handle the status, pass it on, or discard it on
+  purpose with the new `el_status_ignore()`
+  ([ADR 0018](docs/adr/0018-must-use-and-propagation.md)).
+- `status` (M3b): `EL_TRY(expr)`, `EL_TRY_GOTO(expr, status, label)`,
+  `EL_TRY_NEG(expr)`, and `EL_ENSURE(condition, status)`, in
+  `elemental/status.h`, for passing a status on.
+- `status` (M3b): negative `el_status` values are the application's.
+  Elemental defines none and never returns one of its own; a function in
+  front of an interface returns one unchanged when the application's
+  implementation produced it
+  ([ADR 0017](docs/adr/0017-negative-statuses.md)).
+- `examples/consume_subdirectory`: a record too long for its length byte is
+  the example's own `RECORD_ERR_TOO_LONG` (-1), and a text buffer too small
+  is `EL_ERR_NO_SPACE`; both were `EL_ERR_IO`.

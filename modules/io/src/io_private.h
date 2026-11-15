@@ -14,7 +14,7 @@
  * memory endpoint's write: EL_OK with 1 <= *n <= len, or EL_ERR_NO_SPACE
  * with *n == 0. `len` is at least 1 and `data` is not in the buffer.
  */
-el_status el_buf_append_some_(el_buf *b, const void *data, size_t len, size_t *n);
+EL_NODISCARD el_status el_buf_append_some_(el_buf *b, const void *data, size_t len, size_t *n);
 
 /*
  * Remove the first `n` bytes (n <= len), moving the rest to the front with

@@ -108,10 +108,16 @@ question: is there a portable core beyond `frame`? The candidate is
 Sans-I/O request and response correlation with deadlines passed in. A
 likely answer is "framing only". *Risk:* async may revise `io`.
 
-**Status vocabulary growth.** There will be no diagnostics module and no
-richer result type of the `mresult` kind. The evidence
-[ADR 0003](adr/0003-status-and-progress.md) asks for has not appeared.
-Growth is codes only, each arriving with the first module that returns it:
+**Status vocabulary growth.** Growth is codes only, each arriving with the
+first module that returns it. All of them are positive: negative values
+are the application's ([ADR 0017](adr/0017-negative-statuses.md)). How a
+status is handled (must-use, `EL_TRY` and its relatives) came from the
+owner's `mresult` prototype in M3b
+([proposal](proposals/status-handling.md)). Whether a failure also carries
+context, as `mresult`'s does, was rejected here at first, for want of the
+evidence [ADR 0003](adr/0003-status-and-progress.md) asks for, and was
+reopened by the owner on 2026-11-15; it is
+[undecided](proposals/status-handling.md#context-open). The codes:
 
 | Code | Arrives with | Caller does |
 |---|---|---|
@@ -204,7 +210,7 @@ execution context, none of which `crc` has. `el_crc32_update` and
 | A slice or string type | (pointer, length) parameters already work. A by-value non-handle struct breaks ABI rule 8 ([conventions.md](conventions.md#abi)). String helpers were rejected for `status`, and nothing needs them elsewhere. | Several modules pass the same pair awkwardly |
 | Text parsing (`strtol` replacements) | No consumer. Bare `el_parse` is also a libedit symbol. | A shell or configuration example needs it |
 | Containers: lists, maps, pools | No consumer outside discovery. Pools belong in `alloc`. | Async discovery asks for an intrusive queue |
-| Diagnostics or rich error values (`mresult`) | Per [ADR 0003](adr/0003-status-and-progress.md), detail lives on the object, and no counter-example exists | Its revisit condition is met |
+| Diagnostics or rich error values (`mresult`) | Reopened by the owner on 2026-11-15, undecided: [status handling proposal](proposals/status-handling.md#context-open). Until then, detail lives on the object ([ADR 0003](adr/0003-status-and-progress.md)). `mresult`'s propagation syntax was taken in M3b. | The proposal's examples and measurements exist |
 | Runtime shim (`memcpy` and friends) | [ADR 0001](adr/0001-scope.md) | Ports carry identical shims |
 | A `contract` support module for the suites' check, skip, and report machinery | GoogleTest provides it ([ADR 0008](adr/0008-googletest.md)) | Suites must run where GoogleTest cannot |
 | Tokenised or binary logging | A domain of its own; an external-library candidate | Log size on a device is measured as a problem |

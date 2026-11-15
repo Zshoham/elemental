@@ -114,6 +114,32 @@ The rules:
    (`el_posix_fd_last_errno`). There is no global or thread-local error
    state, and `errno` is not part of any contract.
 7. **Statuses are for callers; assertions are for bugs.** See below.
+8. **A status must be used.** Every function whose result reports a
+   failure is declared `EL_NODISCARD`: each one that returns `el_status`,
+   and an allocation that returns `NULL`. A caller acts on the status,
+   passes it on, or discards it on purpose with `el_status_ignore()`; a
+   `(void)` cast does not satisfy every compiler. A status that cannot be
+   anything but `EL_OK` where the call is made is asserted, not ignored
+   ([ADR 0018](adr/0018-must-use-and-propagation.md)).
+9. **Passing a status on is spelled `EL_TRY(expr)`**, or
+   `EL_TRY_GOTO(expr, status, label)` in a function that has something to
+   release. A failure a function finds itself, in data it was given, is
+   `EL_ENSURE(condition, status)`. Each expands to the `if` it replaces,
+   which stays correct, and is what code that compares against a
+   particular status writes. A function that owns a resource calls one that
+   does the work, so that the work can leave from anywhere.
+10. **Negative statuses are the application's.** Elemental defines none and
+    never returns one of its own; a function in front of an interface
+    returns one unchanged when an operation the application implemented
+    produced it. A backend in this repository returns Elemental's codes
+    only ([ADR 0017](adr/0017-negative-statuses.md)).
+
+*Checked:* `headers.nodiscard` reads every header under `modules/` and
+`examples/` for a function that returns `el_status` without
+`EL_NODISCARD`. `status.nodiscard_check.*` compiles a call that drops a
+status and expects the compiler's diagnostic, as C11, C++17, and C23.
+`io.helpers` and `io.unit.buffered` show a negative status passing through
+unchanged.
 
 ## Arguments
 
@@ -129,7 +155,8 @@ The rules:
 
 The last row is the dividing line for the whole document: **can a correct
 program reach this with bad input?** If yes, it is a status. If only a bug
-can, it is an assertion.
+can, it is an assertion. The two have sibling spellings:
+`EL_ENSURE(condition, status)` and `EL_ASSERT(condition)`.
 
 ## Assertions and recoverable failures
 
@@ -208,8 +235,9 @@ The rules that keep a contract usable through a C ABI:
 5. **No variadic functions in a contract.** A variadic C convenience may sit
    on top of a non-variadic core, in a separate header.
 6. **Macros are for constants and for things only a macro can do**
-   (`EL_ASSERT` needs the call site's file and line). An interface is never
-   only reachable through a macro.
+   (`EL_ASSERT` needs the call site's file and line; `EL_TRY` leaves the
+   function it is written in). An interface is never only reachable
+   through a macro.
 7. **Nothing unwinds through Elemental.** Callbacks and operations must not
    throw, panic across the boundary, or `longjmp` out. The one exception is
    the assertion handler, which never returns to its caller by definition.

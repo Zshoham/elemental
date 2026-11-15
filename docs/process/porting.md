@@ -17,6 +17,13 @@ in its own, built against an installed Elemental. The steps are the same.
    elsewhere uses its own assertion mechanism for its own preconditions;
    most need none, because the front function has already checked the
    arguments.
+   Map the platform's failures onto the interface's statuses and keep the
+   platform's detail (an errno) on the object, behind an accessor. A
+   backend in this repository returns Elemental's codes only; negative
+   statuses are the application's
+   ([ADR 0017](../adr/0017-negative-statuses.md)), so a backend an
+   application keeps for itself may return its platform's negative errno
+   as it is.
 3. **Write a contract fixture** and run the shared suite. Leave a capability
    null if your platform cannot be put in that state. A fixture that fakes a
    capability makes the suite's result meaningless.

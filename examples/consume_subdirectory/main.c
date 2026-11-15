@@ -16,36 +16,29 @@
 
 /* A record is one length byte followed by that many bytes of text. */
 
-static el_status write_record(el_writer out, const char *text)
+/* The application's own failure. Negative statuses are the application's:
+ * Elemental defines none, so this cannot collide with a code added later. */
+enum { RECORD_ERR_TOO_LONG = -1 };
+
+EL_NODISCARD static el_status write_record(el_writer out, const char *text)
 {
     const size_t len = strlen(text);
-    if (len > UINT8_MAX) {
-        return EL_ERR_IO;
-    }
+    EL_ENSURE(len <= UINT8_MAX, RECORD_ERR_TOO_LONG);
 
     const uint8_t header = (uint8_t)len;
-    const el_status status = el_write_all(out, &header, 1, NULL);
-    if (status != EL_OK) {
-        return status;
-    }
+    EL_TRY(el_write_all(out, &header, 1, NULL));
     return el_write_all(out, text, len, NULL);
 }
 
-static el_status read_record(el_reader in, char *text, size_t text_cap)
+EL_NODISCARD static el_status read_record(el_reader in, char *text, size_t text_cap)
 {
     uint8_t len;
-    el_status status = el_read_exact(in, &len, 1, NULL);
-    if (status != EL_OK) {
-        return status; /* EL_ERR_END_OF_STREAM here means "no more records" */
-    }
-    if ((size_t)len + 1 > text_cap) {
-        return EL_ERR_IO;
-    }
+    /* EL_ERR_END_OF_STREAM here means "no more records". */
+    EL_TRY(el_read_exact(in, &len, 1, NULL));
+    EL_ENSURE((size_t)len + 1 <= text_cap, EL_ERR_NO_SPACE);
 
-    status = el_read_exact(in, text, len, NULL);
-    if (status != EL_OK) {
-        return status; /* a record cut short */
-    }
+    /* Any failure here is a record cut short. */
+    EL_TRY(el_read_exact(in, text, len, NULL));
     text[len] = '\0';
     return EL_OK;
 }

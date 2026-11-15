@@ -27,7 +27,8 @@ typedef struct el_fmt_target_ {
 
 /* The parser: format into `target` by the item rule (fmt_printf.h). `args`
  * is advanced past every argument that was read. */
-el_status el_fmt_format_(const el_fmt_target_ *target, const char *format, va_list *args);
+EL_NODISCARD el_status el_fmt_format_(const el_fmt_target_ *target, const char *format,
+                                      va_list *args);
 
 /* ---- One parsed specification ------------------------------------------- */
 
@@ -70,10 +71,10 @@ typedef struct el_fmt_spec_ {
  * cut at the last byte that fits. EL_OK, or the target's status with the
  * bytes that fit written.
  */
-el_status el_fmt_put_run_(const el_fmt_target_ *target, const char *s, size_t len);
+EL_NODISCARD el_status el_fmt_put_run_(const el_fmt_target_ *target, const char *s, size_t len);
 
 /* Room for `min` bytes, asking the target only when the buffer lacks it. */
-el_status el_fmt_need_(const el_fmt_target_ *target, size_t min);
+EL_NODISCARD el_status el_fmt_need_(const el_fmt_target_ *target, size_t min);
 
 #if defined(EL_CONFIG_FMT_PRINTF_LIBC)
 /*

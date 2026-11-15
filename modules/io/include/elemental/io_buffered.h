@@ -129,7 +129,7 @@ size_t el_buffered_writer_pending(const el_buffered_writer *w);
  *
  * Never grows, never moves bytes, never waits on its own.
  */
-el_status el_buffered_writer_flush(el_buffered_writer *w);
+EL_NODISCARD el_status el_buffered_writer_flush(el_buffered_writer *w);
 
 /*
  * Make at least `min` bytes of room at the tail of the buffer: pass bytes
@@ -151,7 +151,7 @@ el_status el_buffered_writer_flush(el_buffered_writer *w);
  * it reaching the inner writer before it is complete (the reserve-first
  * pattern).
  */
-el_status el_buffered_writer_reserve(el_buffered_writer *w, size_t min);
+EL_NODISCARD el_status el_buffered_writer_reserve(el_buffered_writer *w, size_t min);
 
 /* The buffered writer as an el_writer. See "Writes" above. */
 el_writer el_buffered_writer_as_writer(el_buffered_writer *w);

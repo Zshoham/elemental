@@ -119,7 +119,7 @@ el_layout el_layout_make(size_t size, size_t align);
  * helper on a CPU without a divide or a 64-bit multiply.
  * Contract violation: `out` is null; `elem.align` is not a power of two.
  */
-el_status el_layout_array(el_layout elem, size_t count, el_layout *out);
+EL_NODISCARD el_status el_layout_array(el_layout elem, size_t count, el_layout *out);
 
 /* ---- Interface ----------------------------------------------------------
  *
@@ -169,7 +169,7 @@ typedef struct el_allocator {
  * the request cannot be satisfied; see "Exhaustion" above. The contents are
  * unspecified. A layout of size 0 returns the zero-size pointer.
  */
-void *el_alloc(el_allocator allocator, el_layout layout);
+EL_NODISCARD void *el_alloc(el_allocator allocator, el_layout layout);
 
 /*
  * Give back `ptr`, which was allocated from `allocator` with exactly this

@@ -97,7 +97,8 @@ el_reader io_fixture_buffered_reader(void *ctx, const uint8_t *content, size_t l
 size_t io_fixture_buffered_take(void *ctx, uint8_t *out, size_t cap)
 {
     (void)ctx;
-    (void)el_buffered_writer_flush(&io_fixture_buffered_writer);
+    /* What the inner writer refused stays pending, and is not taken. */
+    el_status_ignore(el_buffered_writer_flush(&io_fixture_buffered_writer));
     const size_t available = io_fixture_sink.len - io_fixture_sink.taken;
     const size_t count = available < cap ? available : cap;
     for (size_t i = 0; i < count; i++) {

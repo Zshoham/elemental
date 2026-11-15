@@ -31,6 +31,9 @@
  *                           available again. From writers that store what
  *                           they take, such as a full memory buffer
  *                           (el_buf_as_writer, elemental/io_buf.h).
+ *   a negative status     *n == 0. The application's own, from a stream the
+ *                           application implemented; returned unchanged
+ *                           (elemental/status.h, "Application statuses").
  *
  * Blocking: the interface does not say whether a call may wait. That is a
  * property of the stream, fixed by whoever created it, and documented by
@@ -129,7 +132,7 @@ typedef struct el_writer {
  * any call. A `cap` of 0 returns EL_OK with *n == 0 without consulting the
  * stream, so it says nothing about whether the stream has ended.
  */
-el_status el_read(el_reader reader, void *buf, size_t cap, size_t *n);
+EL_NODISCARD el_status el_read(el_reader reader, void *buf, size_t cap, size_t *n);
 
 /*
  * Write up to `len` bytes from `data`. One attempt; see the table above.
@@ -137,7 +140,7 @@ el_status el_read(el_reader reader, void *buf, size_t cap, size_t *n);
  * `n` is required. `data` may be null only if `len` is 0. On EL_OK,
  * data[0..*n) was accepted and the remainder was not.
  */
-el_status el_write(el_writer writer, const void *data, size_t len, size_t *n);
+EL_NODISCARD el_status el_write(el_writer writer, const void *data, size_t len, size_t *n);
 
 /* ---- Until-done helpers --------------------------------------------------
  *
@@ -158,13 +161,13 @@ el_status el_write(el_writer writer, const void *data, size_t len, size_t *n);
  * Read exactly `len` bytes. Returns EL_OK with *n == len, or the first
  * other status with *n < len bytes read before it. `n` may be null.
  */
-el_status el_read_exact(el_reader reader, void *buf, size_t len, size_t *n);
+EL_NODISCARD el_status el_read_exact(el_reader reader, void *buf, size_t len, size_t *n);
 
 /*
  * Write all `len` bytes. Returns EL_OK with *n == len, or the first other
  * status with *n < len bytes written before it. `n` may be null.
  */
-el_status el_write_all(el_writer writer, const void *data, size_t len, size_t *n);
+EL_NODISCARD el_status el_write_all(el_writer writer, const void *data, size_t len, size_t *n);
 
 #ifdef __cplusplus
 }

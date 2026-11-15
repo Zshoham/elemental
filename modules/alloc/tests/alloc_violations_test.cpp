@@ -120,10 +120,10 @@ TEST_F(AllocViolations, CorrectUseDoesNotTripACheck)
 
 TEST_F(AllocViolationsDeathTest, CallerUsesAHandleThatWasNeverMade)
 {
-    EXPECT_VIOLATION(el_alloc(el_allocator{nullptr, nullptr}, el_layout_make(1, 1)));
+    EXPECT_VIOLATION((void)el_alloc(el_allocator{nullptr, nullptr}, el_layout_make(1, 1)));
     EXPECT_VIOLATION(el_free(el_allocator{nullptr, nullptr}, nullptr, el_layout_make(0, 1)));
-    EXPECT_VIOLATION(el_alloc(Broken(nullptr), el_layout_make(1, 1)));
-    EXPECT_VIOLATION(el_alloc(WithoutFree(), el_layout_make(1, 1)));
+    EXPECT_VIOLATION((void)el_alloc(Broken(nullptr), el_layout_make(1, 1)));
+    EXPECT_VIOLATION((void)el_alloc(WithoutFree(), el_layout_make(1, 1)));
 }
 
 TEST_F(AllocViolationsDeathTest, CallerBuildsALayoutWithAnAlignmentThatIsNotAPowerOfTwo)
@@ -137,9 +137,9 @@ TEST_F(AllocViolationsDeathTest, CallerBuildsALayoutWithAnAlignmentThatIsNotAPow
 TEST_F(AllocViolationsDeathTest, CallerPassesALayoutWithAnAlignmentThatIsNotAPowerOfTwo)
 {
     /* Written field by field, so el_layout_make() did not see it. */
-    EXPECT_VIOLATION(el_alloc(a, Raw(8, 0)));
-    EXPECT_VIOLATION(el_alloc(a, Raw(8, 3)));
-    EXPECT_VIOLATION(el_alloc(a, Raw(0, 12)));
+    EXPECT_VIOLATION((void)el_alloc(a, Raw(8, 0)));
+    EXPECT_VIOLATION((void)el_alloc(a, Raw(8, 3)));
+    EXPECT_VIOLATION((void)el_alloc(a, Raw(0, 12)));
     EXPECT_VIOLATION(el_free(a, nullptr, Raw(0, 5)));
     EXPECT_VIOLATION(el_free(a, el_alloc(a, el_layout_make(8, 8)), Raw(8, 6)));
 }
@@ -171,7 +171,7 @@ TEST_F(AllocViolationsDeathTest, CallerFreesARealPointerWithSizeZero)
 
 TEST_F(AllocViolationsDeathTest, AllocatorReturnsAMisalignedPointer)
 {
-    EXPECT_VIOLATION(el_alloc(Broken(AllocMisaligned), el_layout_make(4, 4)));
+    EXPECT_VIOLATION((void)el_alloc(Broken(AllocMisaligned), el_layout_make(4, 4)));
 }
 
 TEST_F(AllocViolationsDeathTest, ArenaIsGivenAPointerItDidNotHandOut)
@@ -274,7 +274,7 @@ TEST_F(AllocCheckerDeathTest, StopsWhenItRunsOutOfRecords)
     for (int i = 0; i < 4; i++) {
         ASSERT_NE(el_alloc(c, el_layout_make(1, 1)), nullptr);
     }
-    EXPECT_DEATH(el_alloc(c, el_layout_make(1, 1)), "out of records");
+    EXPECT_DEATH((void)el_alloc(c, el_layout_make(1, 1)), "out of records");
 }
 
 } // namespace

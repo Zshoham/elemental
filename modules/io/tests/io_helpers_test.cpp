@@ -326,4 +326,37 @@ TEST(IoWriteAll, TheCountIsOptional)
     EXPECT_EQ(el_write_all(s.writer(), "e", 1, nullptr), EL_ERR_IO);
 }
 
+/* ---- Application statuses ----------------------------------------------- */
+
+/*
+ * A negative status is the application's (elemental/status.h). A stream the
+ * application implemented may return one, and the functions in front of it
+ * return it unchanged, under the same rules as any other status.
+ */
+TEST(IoApplicationStatus, AnImplementationsNegativeStatusIsReturnedUnchanged)
+{
+    constexpr el_status kMine = -42;
+    uint8_t buf[8];
+
+    Script read{{kMine, 0}};
+    size_t n = kUnset;
+    EXPECT_EQ(el_read(read.reader(), buf, sizeof(buf), &n), kMine);
+    EXPECT_EQ(n, 0u);
+
+    Script write{{kMine, 0}};
+    n = kUnset;
+    EXPECT_EQ(el_write(write.writer(), "abcd", 4, &n), kMine);
+    EXPECT_EQ(n, 0u);
+
+    Script read_exact{{EL_OK, 3}, {kMine, 0}};
+    n = kUnset;
+    EXPECT_EQ(el_read_exact(read_exact.reader(), buf, sizeof(buf), &n), kMine);
+    EXPECT_EQ(n, 3u);
+
+    Script write_all{{EL_OK, 3}, {kMine, 0}};
+    n = kUnset;
+    EXPECT_EQ(el_write_all(write_all.writer(), "abcdefgh", 8, &n), kMine);
+    EXPECT_EQ(n, 3u);
+}
+
 } // namespace

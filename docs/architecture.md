@@ -197,10 +197,7 @@ The consumer's side, from
 static el_status write_record(el_writer out, const char *text)
 {
     const uint8_t header = (uint8_t)strlen(text);
-    const el_status status = el_write_all(out, &header, 1, NULL);
-    if (status != EL_OK) {
-        return status;
-    }
+    EL_TRY(el_write_all(out, &header, 1, NULL));
     return el_write_all(out, text, header, NULL);
 }
 ```
@@ -388,6 +385,17 @@ a law.
 from a small shared vocabulary; contract violations are assertions, not
 statuses ([ADR 0003](adr/0003-status-and-progress.md)).
 
+Handling one has spellings, since the
+[status handling proposal](proposals/status-handling.md) (2026-11-15). A
+status must be used: every fallible function is `EL_NODISCARD`, so the
+compiler reports a dropped one. Passing it on is `EL_TRY`, with
+`EL_TRY_GOTO`, `EL_TRY_NEG`, and `EL_ENSURE` beside it
+([ADR 0018](adr/0018-must-use-and-propagation.md)). Negative values belong
+to the application, which lets a Zephyr or kernel negative errno travel as
+a status unchanged ([ADR 0017](adr/0017-negative-statuses.md)). These came
+from the owner's `mresult` prototype; the proposal lists what was taken and
+what was left.
+
 The vocabulary has four codes because the slice returns four. Richer error
 values, carrying a message, a context chain, or a source location, were
 considered and left out of the shared vocabulary: they make every return
@@ -399,6 +407,12 @@ that failed (`el_posix_fd_last_errno`). *Source fact:* Zig's reader reports
 *Revisit if* callers repeatedly need to carry context across layers that have
 no object to hang it on. That would be a case for an optional diagnostics
 module that wraps a status, not for growing the status.
+
+*Reopened* by the owner on 2026-11-15: `examples/consume_installed` is such
+a caller, guessing which descriptor failed. No shape is chosen. The
+candidates (a caller-owned record, an error returned by value, a
+combination) and what a decision needs are in the
+[proposal](proposals/status-handling.md#context-open).
 
 ### 6.2 Allocation — proposed
 

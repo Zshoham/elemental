@@ -14,6 +14,7 @@ was rejected, and the decisions each one waits on are in
 | M2 | Allocation | M0 | Module |
 | M3 | Formatting, bytes, crc | M0 | Modules |
 | M3a | Buffers and formatting, second pass | M2, M3 | Module revision |
+| M3b | Status handling, first pass | M3a | Module revision |
 | M4 | Time and logging | M3a | Modules |
 | M5 | Ring and interrupt context | M4 | Module and decision |
 | M6 | Framing | M3 (`bytes`) | Module |
@@ -217,8 +218,46 @@ option moved to printf. Built in the proposal's four steps.
       test image, `FmtExample2.*`; also on `nucleo_g0b1re_renode` under
       Renode, in the `fmt` image.)
 
+## M3b — Status handling, first pass
+
+The [status handling proposal](proposals/status-handling.md), from the
+owner's review of the roadmap on 2026-11-15: improve error handling before
+going on, taking the core ideas of the earlier `mresult` prototype. The
+owner chose to start with the syntax and to give negative values to
+applications; context for a failure is left open.
+
+- [x] The `mresult` prototype is reviewed. The proposal lists what was
+      taken and what was left.
+- [x] The two decisions are recorded:
+      [ADR 0017](adr/0017-negative-statuses.md) (negative statuses, the
+      owner's) and [ADR 0018](adr/0018-must-use-and-propagation.md)
+      (must-use and the propagation macros).
+- [ ] The owner has reviewed ADR 0018 and the proposal's decisions 3 to 7:
+      the names (`EL_ENSURE` where `mresult` has `MR_CHECK`), what was left
+      out, and `EL_NODISCARD` on `el_alloc`.
+- [x] Every function that returns `el_status`, and `el_alloc`, is
+      `EL_NODISCARD`, and a check keeps it so (`headers.nodiscard`). A
+      dropped status is rejected by the compiler as C11, C++17, and C23
+      (`status.nodiscard_check.*`, host).
+- [x] `EL_TRY`, `EL_TRY_GOTO`, `EL_TRY_NEG`, `EL_ENSURE`, and
+      `el_status_ignore()` are tested as C on the host and on the Zephyr
+      Cortex-M3 and Cortex-M0+ boards, and used by `io`, `fmt`, and the
+      consumer examples.
+- [x] A negative status from an application's implementation passes
+      through `io` unchanged, tested.
+- [ ] **Context for a failure** is decided: the
+      [proposal's](proposals/status-handling.md#context-open) three
+      candidates written against the same examples and measured on the
+      Cortex-M0+ board, then an ADR. Best settled before M4's `log`, whose
+      writer sink is the first code that would print one.
+
+Not in this milestone: lowering a status to a negative errno, `goto` forms
+of `EL_TRY_NEG` and `EL_ENSURE`, a panic form. Each waits for a consumer.
+
 ## M4 — Time and logging
 
+- [ ] M3b's context decision is made, or the proposal says why `log` does
+      not need it.
 - [ ] An ADR fixing the time representation, before the log record is
       designed.
 - [ ] A `time` contract suite run against the manual clock and the POSIX

@@ -18,7 +18,7 @@ Version 0.1, first milestone. Everything is **experimental**.
 
 | Module | What | Freestanding |
 |---|---|---|
-| [`status`](modules/status/README.md) | Status codes and contract assertions | Yes |
+| [`status`](modules/status/README.md) | Status codes; must-use statuses and `EL_TRY` for passing one on; contract assertions | Yes |
 | [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; a reader over caller-provided memory; `el_buf`, a memory buffer a stream can end in, with fixed storage or storage that grows through an allocator (`IO_ALLOC`, needs `alloc`); a buffered writer; a contract test suite for backends | Yes, needs `memcpy`, `memmove` |
 | [`io_posix`](modules/io/backends/posix/PORT.md) | Reader and writer over a file descriptor | No |
 | [`alloc`](modules/alloc/README.md) | Allocator interface; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes |
