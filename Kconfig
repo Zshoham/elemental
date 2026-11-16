@@ -36,6 +36,12 @@ config PLATFORM_ZEPHYR_CRC
 	  cannot fail: CONFIG_CRC without CONFIG_CRC_HW_HANDLER. Probed by
 	  CMake.
 
+config PLATFORM_ZEPHYR
+	def_bool $(EL_PLATFORM_ZEPHYR)
+	help
+	  The build is a Zephyr application's: Zephyr's headers and kernel are
+	  there to build against. Probed by CMake.
+
 menu "Modules"
 
 rsource "modules/status/Kconfig"
@@ -44,5 +50,7 @@ rsource "modules/alloc/Kconfig"
 rsource "modules/bytes/Kconfig"
 rsource "modules/crc/Kconfig"
 rsource "modules/fmt/Kconfig"
+rsource "modules/time/Kconfig"
+rsource "modules/log/Kconfig"
 
 endmenu

@@ -61,7 +61,7 @@ error under `-Werror`.
 
 ## Revisit when
 
-The context decision ([proposal](../proposals/status-handling.md#context-open))
+The context decision ([proposal](../proposals/status-handling.md#context))
 is made: it may add a parameter or a `_CTX` family. Or a consumer needs the
 missing `goto` forms, or a hidden return is found to have leaked a resource
 in practice, which would argue for fewer macros, not more.

@@ -174,9 +174,15 @@ def case_installed(work):
                  "alloc.h", "alloc_arena.h", "alloc_libc.h", "io_alloc.h",
                  "alloc_contract.h", "alloc_contract.hpp",
                  "alloc_contract.cpp", "alloc_checker.c",
+                 "time.h", "time_manual.h", "time_posix.h",
+                 "time_contract.h", "time_contract.hpp", "time_contract.cpp",
+                 "log.h", "log_printf.h", "log_writer.h", "log_mem.h",
+                 "log_contract.h", "log_contract.hpp", "log_contract.cpp",
                  "libelemental_status.a", "libelemental_io.a",
                  "libelemental_io_posix.a", "libelemental_alloc.a",
                  "libelemental_alloc_libc.a",
+                 "libelemental_time.a", "libelemental_time_posix.a",
+                 "libelemental_log.a",
                  "ElementalConfig.cmake", "ElementalConfigVersion.cmake",
                  "ElementalTargets.cmake", "ElementalConfiguration.cmake",
                  "elemental.config"):
@@ -219,6 +225,20 @@ def case_installed(work):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     check(result.returncode == 0, "el_cat failed: " + result.stderr.decode())
     check(result.stdout == payload, "el_cat did not reproduce its input")
+    check(result.stderr == b"", "el_cat logged on a successful copy: " + result.stderr.decode())
+
+    # With its output closed it logs one line, through the installed log and
+    # time modules: a bracketed time, the level, its tag, the status.
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    result = subprocess.run([str(find_one(consumer, "el_cat"))], input=payload,
+                            stdout=write_end, stderr=subprocess.PIPE)
+    os.close(write_end)
+    check(result.returncode == 1, "el_cat succeeded with a closed output")
+    logged = result.stderr.decode()
+    check(logged.startswith("[") and logged.endswith("\n") and logged.count("\n") == 1
+          and "] E el_cat: stopped after " in logged and "end_of_stream" in logged,
+          "el_cat's log line: " + logged)
 
     # The out-of-tree backend, against the installed contract suite.
     output = run([find_one(consumer, "ring_pipe_contract")])
@@ -584,6 +604,15 @@ def load_kconfig(work):
     return kconfiglib, kconfiglib.Kconfig(str(ARGS.source / "Kconfig"), warn=False)
 
 
+def missing_facts(kconfiglib, symbol):
+    """The probed toolchain facts `symbol` depends on that are false here:
+    symbols without a prompt, which only CMake's probes set."""
+    return [item for item in kconfiglib.expr_items(symbol.direct_dep)
+            if isinstance(item, kconfiglib.Symbol)
+            and not any(node.prompt for node in item.nodes)
+            and item.tri_value == 0]
+
+
 def case_module_subsets(work):
     """Each module alone, with only what its Kconfig entry pulls in, builds and passes its tests."""
     kconfiglib, kconf = load_kconfig(work)
@@ -591,6 +620,16 @@ def case_module_subsets(work):
     for name in units:
         check(name in kconf.syms and kconf.syms[name].nodes,
               "modules/ layout names {} but no Kconfig symbol defines it".format(name))
+
+    # A backend for a platform this toolchain is not (time_zephyr on a host)
+    # cannot be built here. Only a probed fact may be the reason; its own
+    # platform's tests cover it (tests/zephyr).
+    unavailable = {}
+    for name in units:
+        facts = missing_facts(kconfiglib, kconf.syms[name])
+        if facts:
+            unavailable[name] = ", ".join(fact.name for fact in facts)
+    units = [name for name in units if name not in unavailable]
 
     def pulled_in(name):
         """`name`, and every module its Kconfig entry depends on or selects."""
@@ -634,6 +673,11 @@ def case_module_subsets(work):
         run(["ctest", "--test-dir", build_dir, "-LE", "integration",
              "--output-on-failure", "-j", str(os.cpu_count() or 2)])
 
+    print("built alone: " + ", ".join(units))
+    if unavailable:
+        print("not buildable with this toolchain: " + ", ".join(
+            "{} (needs {})".format(name, fact) for name, fact in sorted(unavailable.items())))
+
 
 def case_choices(work):
     """Every option of every Kconfig choice that this compiler can select builds and passes its module's tests."""
@@ -653,10 +697,7 @@ def case_choices(work):
             if option.visibility == 0:
                 # Only a probed toolchain fact may hide an option. Anything
                 # else would leave the option untested on every host.
-                facts = [item for item in kconfiglib.expr_items(option.direct_dep)
-                         if isinstance(item, kconfiglib.Symbol)
-                         and not any(node.prompt for node in item.nodes)
-                         and item.tri_value == 0]
+                facts = missing_facts(kconfiglib, option)
                 check(facts, "{} cannot be selected here, and no probed fact explains "
                       "why: {}".format(option.name,
                                        kconfiglib.expr_str(option.direct_dep)))

@@ -26,8 +26,12 @@ Version 0.1, first milestone. Everything is **experimental**.
 | [`fmt`](modules/fmt/README.md) | Integers to text; a printf subset into an `io` buffer or a buffered writer, numbers whole or absent (needs `io`) | Yes, needs `memcpy` |
 | [`bytes`](modules/bytes/README.md) | Little- and big-endian load and store at any alignment; byte swap; C23-style bit counting; rotate, bit fields, power-of-two alignment | Yes |
 | [`crc`](modules/crc/README.md) | CRC-32/ISO-HDLC and CRC-16/IBM-3740, incremental | Yes |
+| [`time`](modules/time/README.md) | Clock interface; time as a 64-bit count of the clock's own ticks; conversion to and from milliseconds and seconds; a clock tests advance by hand; a contract test suite for clocks | Yes |
+| [`time_posix`](modules/time/backends/posix/PORT.md) | The system's monotonic clock | No |
+| [`time_zephyr`](modules/time/backends/zephyr/PORT.md) | The Zephyr kernel's uptime as a clock | Zephyr only |
+| [`log`](modules/log/README.md) | Loggers with a level, a tag and a clock; a log sink interface; sinks that write lines to a writer and keep records in memory; printf-style call sites with a compile-time cut-off; a contract test suite for sinks (needs `io`, `fmt`, `time`) | Yes, needs `memcpy` |
 
-Logging, async, and IPC are designs or open questions, not code.
+Async and IPC are designs or open questions, not code.
 See the [roadmap](docs/roadmap.md).
 
 Licensed under the [Apache License 2.0](LICENSE).

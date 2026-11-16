@@ -410,9 +410,12 @@ module that wraps a status, not for growing the status.
 
 *Reopened* by the owner on 2026-11-15: `examples/consume_installed` is such
 a caller, guessing which descriptor failed. No shape is chosen. The
-candidates (a caller-owned record, an error returned by value, a
-combination) and what a decision needs are in the
-[proposal](proposals/status-handling.md#context-open).
+candidates (a caller-owned record, an error returned by value, a two-word
+value) were written against the same examples and measured on the
+Cortex-M0+ board on 2026-11-16, in the
+[proposal](proposals/status-handling.md#context); a caller-owned record is
+recommended ([ADR 0019](adr/0019-failure-context.md), proposed) and the
+owner left the choice open.
 
 ### 6.2 Allocation — proposed
 
@@ -511,6 +514,15 @@ are not coming to this interface at all: a deadline needs a clock, and the
 caller already has the means to stop calling.
 
 ### 6.4 Logging — proposed
+
+*Implemented in M4* as [modules/log](../modules/log/README.md), with the
+clock it takes in [modules/time](../modules/time/README.md); the accepted
+designs are the [log](proposals/log.md) and [time](proposals/time.md)
+proposals, the time representation is
+[ADR 0020](adr/0020-time-representation.md), and the compile-time cut-off
+is [ADR 0021](adr/0021-log-cutoff.md). The sketch below is where they
+started; in the module the function takes a logger by pointer and the
+macros are `EL_LOG_INFO` and its siblings.
 
 The interesting tension is between a good C call site and a contract other
 languages can use.

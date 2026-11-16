@@ -1,9 +1,13 @@
 # 0014. Flush is a function of the buffered writer, not an operation of `el_writer`
 
-Status: Accepted (2026-11-13), **provisional until M4's writer sink
-exists**. Decided by the project owner with the
+Status: Accepted (2026-11-13). Decided by the project owner with the
 [io buffers and fmt proposal](../proposals/io-buffers-fmt.md#flush-and-el_writer_ops)
-(decision 5).
+(decision 5), provisionally until M4's writer sink existed. **Confirmed by
+that sink on 2026-11-16**: `el_log_writer_sink` builds each line in its own
+storage and passes it on with one `el_write_all`, so it holds nothing
+between records and has nothing to flush
+([log](../../modules/log/README.md#choosing-a-sink)). M6's `frame` is the
+next to test it ([Revisit when](#revisit-when)).
 
 ## Context
 

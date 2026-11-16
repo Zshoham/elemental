@@ -74,6 +74,28 @@ tests:
       - native_sim
       - mps2/an385
       - nucleo_g0b1re_renode
+  elemental.tests.time:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=time
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  elemental.tests.log:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=log
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
   # The host presets' other configurations, on one Arm board, each as one
   # image with every test: one non-default option of each Kconfig choice,
   # and contract assertions compiled out.

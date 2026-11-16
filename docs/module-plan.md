@@ -63,7 +63,10 @@ object ([conventions.md](conventions.md#errors), rule 6). *Effects:* time,
 through a clock handle the caller supplies; interrupt context, in M5 only.
 *Open:* the compile-time cut-off
 ([section 3](#3-decisions-that-must-come-first)).
-*Risk:* importing every feature of `mlog` at once.
+*Risk:* importing every feature of `mlog` at once. *Built* in M4
+([module](../modules/log/README.md), [proposal](proposals/log.md) with the
+`mlog` review): the logger also has a tag, and the cut-off is a macro the
+consumer defines ([ADR 0021](adr/0021-log-cutoff.md)).
 
 **`io`, second iteration.** The buffer (`el_buf`, `el_grow_buf`) and the
 buffered writer with flush come first, in M3a, from the
@@ -117,7 +120,9 @@ owner's `mresult` prototype in M3b
 context, as `mresult`'s does, was rejected here at first, for want of the
 evidence [ADR 0003](adr/0003-status-and-progress.md) asks for, and was
 reopened by the owner on 2026-11-15; it is
-[undecided](proposals/status-handling.md#context-open). The codes:
+undecided: the candidates were
+[measured](proposals/status-handling.md#context) on 2026-11-16 and the owner
+left the choice open. The codes:
 
 | Code | Arrives with | Caller does |
 |---|---|---|
@@ -140,7 +145,10 @@ and the async echo-with-timeout workload all need that parameter. Without a
 shared definition, each would invent its own callback and unit. ISO C has
 no monotonic clock, and freestanding targets have none at all. *Open:*
 unit and width ([section 3](#3-decisions-that-must-come-first)). *Risk:*
-64-bit division on Cortex-M0 (`__aeabi_uldivmod`).
+64-bit division on Cortex-M0 (`__aeabi_uldivmod`). *Built* in M4
+([module](../modules/time/README.md), [proposal](proposals/time.md)): the
+conversions use no helper, and there is a Zephyr backend as well, by the
+owner's decision.
 
 **`ring`: single-producer, single-consumer byte ring.** A FIFO over caller
 storage. It is safe with one producer and one consumer in different
@@ -210,7 +218,7 @@ execution context, none of which `crc` has. `el_crc32_update` and
 | A slice or string type | (pointer, length) parameters already work. A by-value non-handle struct breaks ABI rule 8 ([conventions.md](conventions.md#abi)). String helpers were rejected for `status`, and nothing needs them elsewhere. | Several modules pass the same pair awkwardly |
 | Text parsing (`strtol` replacements) | No consumer. Bare `el_parse` is also a libedit symbol. | A shell or configuration example needs it |
 | Containers: lists, maps, pools | No consumer outside discovery. Pools belong in `alloc`. | Async discovery asks for an intrusive queue |
-| Diagnostics or rich error values (`mresult`) | Reopened by the owner on 2026-11-15, undecided: [status handling proposal](proposals/status-handling.md#context-open). Until then, detail lives on the object ([ADR 0003](adr/0003-status-and-progress.md)). `mresult`'s propagation syntax was taken in M3b. | The proposal's examples and measurements exist |
+| Diagnostics or rich error values (`mresult`) | Reopened by the owner on 2026-11-15. Three shapes were [written and measured](proposals/status-handling.md#context) on 2026-11-16, a caller-owned record is recommended ([ADR 0019](adr/0019-failure-context.md), proposed), and the owner left it open. Until then, detail lives on the object ([ADR 0003](adr/0003-status-and-progress.md)). `mresult`'s propagation syntax was taken in M3b. | The owner decides, or M4's `log` needs it |
 | Runtime shim (`memcpy` and friends) | [ADR 0001](adr/0001-scope.md) | Ports carry identical shims |
 | A `contract` support module for the suites' check, skip, and report machinery | GoogleTest provides it ([ADR 0008](adr/0008-googletest.md)) | Suites must run where GoogleTest cannot |
 | Tokenised or binary logging | A domain of its own; an external-library candidate | Log size on a device is measured as a problem |
@@ -321,13 +329,15 @@ across would-block is logic. `fmt` depends on `io` after all (owner,
 2026-11-13): its output targets are io buffers, and that glue holds real
 logic, fitting items and making room by flushing.
 
-**Time representation. Before the log record.** Recommended: a monotonic
+**Time representation. Before the log record.** *Decided in
+[ADR 0020](adr/0020-time-representation.md)*, as recommended here: a monotonic
 `uint64_t` tick count, with the frequency stated by the clock instance. Add
 and compare in ticks. Convert to and from seconds only in explicit helpers,
 so the 64-bit division is visible and stays out of hot paths. Deadlines are
 values compared by the caller. No module reads a clock it was not handed.
 
-**The compile-time log level. Before `log`.** Recommended: the cut-off is a
+**The compile-time log level. Before `log`.** *Decided in
+[ADR 0021](adr/0021-log-cutoff.md)*, as recommended here: the cut-off is a
 macro the consumer defines per target or per translation unit, like
 `NDEBUG`. It defaults to keeping everything. The library has runtime levels
 per logger and no compile-time level at all. With no configured value in

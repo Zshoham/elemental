@@ -194,18 +194,22 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC` | on | Build only the modules a product uses. |
+| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC`, `TIME`, `LOG` | on | Build only the modules a product uses. `LOG` selects `FMT`, `TIME` and `IO`. |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | built-in | What printf accepts. `FMT_PRINTF_LIBC` adds C's other numeric conversions (floats, `%p`, flags, precision, `*`) through the C library's `snprintf`, one at a time, whole or absent; the portable subset is built-in code under both ([modules/fmt](../modules/fmt/README.md#configuration), [ADR 0016](adr/0016-private-choices-that-widen.md)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `IO_ALLOC` | on where `ALLOC` is on | `el_grow_buf`, buffer storage that grows, part of `elemental::io`. Off, io builds and links no allocator. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
+| `TIME_POSIX` | on where `<unistd.h>` exists | The POSIX clock needs `clock_gettime`. |
+| `TIME_ZEPHYR` | on in a Zephyr build | The Zephyr clock needs the kernel. It cannot be selected anywhere else. |
+| `LOG_MESSAGE_MAX` | 128 | The longest message `el_log_printf` formats, 16 to 1024 bytes, which is also the stack it uses to do so: lower it for small stacks, raise it for long messages ([modules/log](../modules/log/README.md#configuration)). The compile-time log cut-off is not an option here: it is the consumer's macro `EL_LOG_CUTOFF` ([ADR 0021](adr/0021-log-cutoff.md)). |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
 | `PLATFORM_SNPRINTF` | probed | Not settable. A hosted C library's `snprintf`, or on Zephyr a picolibc printf level that converts `long long`. |
 | `COMPILER_GCC_CRC_BUILTINS` | probed | Not settable. CMake compiles a call to `__builtin_rev_crc32_data8` and `__builtin_crc16_data8`. |
 | `PLATFORM_ZEPHYR_CRC` | probed | Not settable. A Zephyr build with `CONFIG_CRC` and without `CONFIG_CRC_HW_HANDLER`, read from Zephyr's configuration. |
+| `PLATFORM_ZEPHYR` | probed | Not settable. The build is a Zephyr application's: Zephyr's `zephyr_library()` command exists. |
 
 An option needs a use case to be added
 ([new-module.md](process/new-module.md)). An option whose effect the linker
@@ -457,7 +461,7 @@ Twister builds that board's image and does not run it.
 
 | Scenario | Board | What it does |
 |---|---|---|
-| `elemental.tests.<module>`: `status`, `alloc`, `io`, `fmt`, `bytes`, `crc` | `native_sim` | One module's tests, in a 32-bit Linux process. |
+| `elemental.tests.<module>`: `status`, `alloc`, `io`, `fmt`, `bytes`, `crc`, `time`, `log` | `native_sim` | One module's tests, in a 32-bit Linux process. |
 | `elemental.tests.<module>` | `mps2/an385` | One module's tests, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
 | `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
 | `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
@@ -497,8 +501,11 @@ tests finish; Twister stops it.
   target cannot. `io.violations` is registered only where
   `ELEMENTAL_DEATH_TESTS` is on, which is the host. Contract violations are
   therefore checked on the host only.
-- **Not `io_posix` or `alloc_libc`.** The application's
+- **Not `io_posix`, `alloc_libc`, or `time_posix`.** The application's
   [defconfig](../tests/zephyr/elemental_defconfig) turns them off.
+- **`time_zephyr`, and its tests, only here.** It is the one backend a host
+  cannot build ([PORT.md](../modules/time/backends/zephyr/PORT.md)): its
+  contract fixture makes time pass with `k_sleep()`.
 - **GoogleTest** from the same pinned checkout as the host build, compiled
   into the image as one file with `GTEST_HAS_FILE_SYSTEM=0`: no death tests,
   no output redirection, no XML report. Exceptions and RTTI stay off, as
@@ -541,11 +548,12 @@ out of heap: the whole image needs 122 336 bytes of peak heap on
 `mps2/an385`), then as two and three module groups; the per-module images
 replaced those on the owner's decision.
 
-**M3b, 2026-11-15, measured in the repository's own checkout (a different
+**M4, 2026-11-16, measured in the repository's own checkout (a different
 path from M3a's worktree and from the M3 figures further below; the path
 moves the heap figures by several KB, as explained there).** Flash, static
 RAM and peak heap in bytes; main stack used of 4 096. Tests are
-GoogleTest's count, skipped included:
+GoogleTest's count, skipped included. The six images that existed in M3b
+(2026-11-15) measure exactly what they did then:
 
 | Image | Tests | `mps2/an385`: flash, RAM, heap, stack | `nucleo_g0b1re_renode`: flash (of 524 288), RAM, heap, stack |
 |---|---|---|---|
@@ -555,10 +563,18 @@ GoogleTest's count, skipped included:
 | `fmt` | 32 | 268 348, 19 656, 13 912, 1 772 | 279 216, 17 616, 14 584, 1 892 |
 | `bytes` | 38 | 283 220, 15 552, 12 888, 1 324 | 293 624, 13 512, 13 664, 1 364 |
 | `crc` | 8 | 230 728, 15 552, 3 680, 1 324 | 241 868, 13 512, 3 872, 1 364 |
-| All, `variant` | 306 | 519 592, 48 440, 116 432, 2 636 | not built |
+| `time` | 41 | 257 108, 15 720, 19 496, 1 796 | 268 680, 13 680, 20 692, 1 900 |
+| `log` | 85 | 303 272, 19 864, 32 704, 2 508 | 315 276, 17 824, 34 796, 2 712 |
+| All, `variant` | 432 | 628 824, 52 920, 160 824, 2 636 | not built |
 
 `io` is the largest: about 68 KB of heap of the about 131 KB its static RAM
 leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
+`log` uses the most stack after `io`, 2 712 of 4 096 bytes on the
+Cortex-M0+: a log call formats its message in `LOG_MESSAGE_MAX` bytes of
+stack (128 here) under the test and GoogleTest's own frames. The image
+with every test (`variant`, before M4 306 tests, 519 592 bytes of flash and
+116 432 of peak heap) no longer fits the Cortex-M0+ board's 147 456 bytes
+of RAM by a wide margin, which is what the per-module images are for.
 M3b added 12 tests to `status` and 2 to `io`. In M3a's worktree
 (2026-11-13) the `status` image, then 5 tests, took 224 984 bytes of flash
 and 3 024 of heap on `mps2/an385`, and `io`, then 143 tests, 348 092 and
@@ -567,7 +583,8 @@ and 3 024 of heap on `mps2/an385`, and `io`, then 143 tests, 348 092 and
 **Twister's run time** (`--integration -j 8`, this machine, fresh output
 directory each time): 170.6 s for M3a's first run with one image per
 board (7 configurations, the Cortex-M0+ image failing at start), 175.4 s
-for the per-module layout (22 configurations, all passing). The extra
+for the per-module layout (22 configurations, all passing), and 184.6 s
+for M4's 28 configurations. The extra
 builds cost little because each module image compiles only its own tests;
 both runs had Zephyr's build cache available, so read them as "about".
 
@@ -621,9 +638,13 @@ the configuration that asks the application to define it. A symbol that only
 one Kconfig choice needs is listed in `allowed-undefined.<SYMBOL>.txt`,
 which the build reads only when `EL_CONFIG_<SYMBOL>` is set: `snprintf`, in
 [allowed-undefined.FMT_PRINTF_LIBC.txt](../tests/zephyr/allowed-undefined.FMT_PRINTF_LIBC.txt),
-and Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
+Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
 [allowed-undefined.CRC_ZEPHYR.txt](../tests/zephyr/allowed-undefined.CRC_ZEPHYR.txt),
-so the other configurations still fail on them.
+and the kernel's `z_impl_k_uptime_ticks`, in
+[allowed-undefined.TIME_ZEPHYR.txt](../tests/zephyr/allowed-undefined.TIME_ZEPHYR.txt),
+so the other configurations still fail on them. `TIME_ZEPHYR` is on in
+every Zephyr build, so that last symbol is allowed in all of them, for the
+one library whose job is to call the kernel.
 
 It has caught one helper so far: GCC 14.3.0 for ARMv6-M at `-Os` compiles a
 dense `switch`, or an `if` chain it rebuilds into one, as a jump table that
@@ -634,9 +655,9 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
-| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
-| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
+| `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime |
+| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime |
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
@@ -644,7 +665,12 @@ Cortex-M0 first.
 `alloc` leaves no symbol undefined on either: `el_layout_array` checks
 `count * size` for overflow by splitting each operand into halves, without
 a division or a double-width multiply, which on the Cortex-M0 would be
-`__aeabi_uidiv` and `__aeabi_lmul`.
+`__aeabi_uidiv` and `__aeabi_lmul`. `time` converts ticks to and from
+seconds and milliseconds the same way, by shift and subtract and from
+16-bit halves: with `/` and `*` on its 64-bit values it would need
+`__aeabi_uldivmod` and `__aeabi_lmul`, 504 bytes of libgcc
+([time proposal](proposals/time.md#dependencies-and-cost)). `log` adds
+nothing: `memcpy`, in the memory sink.
 
 ### Verification levels
 
@@ -683,13 +709,21 @@ instead of dropping its status, and is unchanged with assertions off.
 `EL_TRY` in `io` and `fmt`, and `EL_NODISCARD` on every declaration, cost
 nothing: every other number here is what it was on 2026-11-13.
 
-The other libraries in the same build:
+The other libraries in the same build. `time` and `log` are M4's, measured
+2026-11-16; the rest are what they were on 2026-11-15:
 
-| Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` |
-|---|---|---|---|---|---|
-| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 |
-| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 |
-| Application handler | 798 | 93 | 1 921 | 1 642 | 255 |
+| Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `log` |
+|---|---|---|---|---|---|---|---|---|
+| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 | 296 | 32 | 887 |
+| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 | 370 | 32 | 1 031 |
+| Application handler | 798 | 93 | 1 921 | 1 642 | 255 | 502 | 32 | 1 295 |
+
+`time` is the front functions, the two conversions, and the manual clock,
+each its own object; the conversions are most of it, because they divide
+and multiply 64-bit values without the compiler's helpers. `log` is the
+logger, the printf call site, the writer sink, and the memory sink, each
+its own object, so a program that logs to one kind of sink links the
+other's code only if it uses it.
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -712,14 +746,14 @@ the application without tests in each configuration.
 
 ## What is verified
 
-On one x86-64 Linux machine, 2026-11-15. "Passed" means the command was run
+On one x86-64 Linux machine, 2026-11-16. "Passed" means the command was run
 and exited successfully.
 
 | Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
-| Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
+| Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`, `time.violations`, `log.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
 | io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | passed (per module) | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
 | io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed (per module) | not run |
@@ -743,36 +777,54 @@ and exited successfully.
 | crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
 | bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per module) | not run |
+| time: conversions at their edges and against division; the front functions; the manual clock | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Clock contract suite: manual clock; stepping clock example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Clock contract suite and platform tests: POSIX (`time_posix`) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| Clock contract suite and platform tests: the Zephyr kernel's uptime (`time_zephyr`) | n/a | n/a | n/a | passed, 100 ticks per second | passed, 100 ticks per second | passed (per module), 10 000 ticks per second | not run |
+| log: the logger and the printf call site; a file compiled with `EL_LOG_CUTOFF`; the writer sink's line and the memory sink's storage | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Log sink contract suite: memory sink, writer sink over an `el_buf`, tee example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| log: two sinks in one program, one of them a POSIX descriptor (`log.posix`); `el_cat` logging to standard error (`integration.installed`) | passed | passed | passed | n/a | n/a | n/a | n/a |
+| log: `EL_LOG_CUTOFF` removes the call and its format string from the object, C11 and C++17, `-O0` and `-Os` (`log.cutoff_check.*`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| log: `LOG_MESSAGE_MAX=48` (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
 
-The hosted presets run 430 GoogleTest tests, of which 31 are reported as
+The hosted presets run 577 GoogleTest tests, of which 35 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
-[alloc](../modules/alloc/README.md#the-contract-suite)), plus the interop
-and integration cases, two format-attribute and six must-use compile
-checks, and the `EL_NODISCARD` declaration check: 451 CTest tests in all.
-`sanitize` runs 456: its `variant_defconfig` adds `fmt.libc` and the libc
-option's violations, and the two Rust sketches are skipped under
-sanitizers because a plain `rustc` link has no sanitizer runtime.
-`assert-off` runs 400: 451 less the 51 tests of the `*.violations`
-binaries, which are not built without assertions.
+[alloc](../modules/alloc/README.md#the-contract-suite),
+[time](../modules/time/README.md#the-contract-suite),
+[log](../modules/log/README.md#the-contract-suite)), plus the interop
+and integration cases, two format-attribute, six must-use and twenty-four
+log cut-off compile checks, and the `EL_NODISCARD` declaration check: 622
+CTest tests in all. `sanitize` runs 627: its `variant_defconfig` adds
+`fmt.libc` and the libc option's violations, and the two Rust sketches are
+skipped under sanitizers because a plain `rustc` link has no sanitizer
+runtime. `assert-off` runs 552: 622 less the 70 tests of the
+`*.violations` binaries, which are not built without assertions.
 
-The Zephyr tests are 298 of those GoogleTest tests: all but the POSIX and
-C library backends', the death tests, and the host-only `fmt.oracle` and
-`bytes.portable`; 306 in the `variant` scenario, with `fmt.libc`. Twister
-(2026-11-15, M3b) reports 22 test configurations passed and
-`elemental.symbols.armv6m` built, with no warnings:
+`integration.module_subsets` builds each module and backend alone, except
+`time_zephyr`, which no host can build: it is left out because a probed
+fact (`PLATFORM_ZEPHYR`) hides it, the only reason the case accepts, and
+its own platform's tests cover it.
+
+The Zephyr tests are 424 GoogleTest tests: the hosted ones without the
+POSIX and C library backends', the death tests, and the host-only
+`fmt.oracle`, `bytes.portable` and `log.posix`, and with the nine of
+`time_zephyr`, which run only there; 432 in the `variant` scenario, with
+`fmt.libc`. Twister (2026-11-16, M4) reports 28 test configurations passed
+and `elemental.symbols.armv6m` built, with no warnings:
 
 - `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
   `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
   same on each board: `status` 17 and 0, `alloc` 55 and 3, `io` 128 and
-  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0 (298 together);
-- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 278 passed
-  and 20 skipped, `variant` 285 and 21 (`fmt.libc`'s float test skipped at
+  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0, `time` 39 and 2,
+  `log` 83 and 2 (424 together);
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 400 passed
+  and 24 skipped, `variant` 407 and 25 (`fmt.libc`'s float test skipped at
   picolibc's integer level);
 - the `fmt` image with `variant_defconfig` on `nucleo_g0b1re_renode`
   (`elemental.tests.fmt.variant`): 39 passed and 1 skipped, the same float
@@ -857,6 +909,36 @@ Additionally, each run once by hand and not part of the automated suite:
   `el_status_ignore()` in a C source. GCC warns about it, and only a build
   with warnings as errors (every preset) fails; `mutant.sh` builds without
   them.
+- Eighteen deliberately broken variants for M4's `time` (2026-11-16), all
+  caught in the end: a manual clock that goes back and one that does not
+  start at 0; a stepping clock whose frequency changes, that goes back,
+  and that wraps at the top; a POSIX clock reading `CLOCK_REALTIME`,
+  stating microseconds, and dropping the nanoseconds; `el_ticks_from_ms`
+  without its rounding; the divide without its carry, a multiply missing a
+  partial product, and microseconds scaled by the wrong power of ten; and
+  each assertion removed. Two removed null checks first survived, because
+  a null access crashes on the host anyway: `time.violations` and
+  `log.violations` now accept only a death by the check, as the M3 modules'
+  do.
+- Sixty-three deliberately broken variants for M4's `log` (2026-11-16).
+  Fifty-six were caught as written, among them: a logger letting its own minimum's level
+  be filtered, reading the clock's frequency per record, and stamping
+  nothing; `el_log_printf` formatting below the logger's level and logging
+  its whole buffer; the writer sink's padding, level letters, tag, lost
+  count, and newline, a writer's failure swallowed, and a line not started
+  afresh; a memory sink that keeps the caller's pointer, reorders, loses a
+  field, overruns its storage, reports `EL_OK` for a record it dropped, and
+  miscounts; a tee that starves its second sink or returns the wrong
+  status; the cut-off comparing against the wrong level (caught by
+  `log.cutoff_check.*` and by the file compiled with a cut-off); and each
+  assertion removed. The five that survived were all code that duplicated
+  a check made elsewhere, and were removed rather than tested: a level
+  check in `el_log_write` and in `el_log_vprintf` that `el_log_sink_write`
+  always makes, a status the newline step already sets when a message is
+  cut, a storage check `el_buf_init` makes, and a status for a sink with no
+  storage that its prefix already reports. Two more first survived for
+  want of a test, which was added: a null message through a sink that does
+  not read it, and a tee whose two sinks fail differently.
 - Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in
@@ -885,4 +967,18 @@ Not verified:
 - The CI `zephyr` job's Renode download and the `hal_stm32` fetch, which
   were done by hand here.
 - Contract violations on a target: death tests run on the host only.
+- **A clock on a real board.** `time_zephyr` was run under two emulators
+  and on `native_sim`, at 100 and 10 000 kernel ticks per second; an
+  emulator's timer shows that the port reads the kernel's uptime in the
+  right unit, not that a board keeps time. It was not read from an
+  interrupt handler.
+- Logging from an interrupt handler (M5), and the log cut-off with any
+  compiler but the host's GCC and Clang: `log.cutoff_check.*` is host
+  only, so that the Zephyr SDK's GCC 14.3.0 drops a cut call was not
+  checked on an object, only that such calls do not run
+  (`ElLogCutoff.*`, on every board).
+- The context prototype of M3b
+  ([status handling proposal](proposals/status-handling.md#context)) and
+  the `time` and `log` prototypes' measurements were made outside the
+  repository; their sources are not kept.
 - Anything executed in the Python sketch.

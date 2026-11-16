@@ -34,13 +34,15 @@ if(ELEMENTAL_ZEPHYR_TESTS)
   # its tests' elemental_add_test() name prefixes, an example with the
   # module it tests; a test in no module stops the configure. A new module
   # adds itself here and its scenario in testcase.yaml.
-  set(ELEMENTAL_TEST_MODULES status alloc io fmt bytes crc)
+  set(ELEMENTAL_TEST_MODULES status alloc io fmt bytes crc time log)
   set(ELEMENTAL_TEST_MODULE_status status)
   set(ELEMENTAL_TEST_MODULE_alloc alloc example.size_classes)
   set(ELEMENTAL_TEST_MODULE_io io example.ring_pipe)
   set(ELEMENTAL_TEST_MODULE_fmt fmt)
   set(ELEMENTAL_TEST_MODULE_bytes bytes)
   set(ELEMENTAL_TEST_MODULE_crc crc)
+  set(ELEMENTAL_TEST_MODULE_time time time_zephyr example.step_clock)
+  set(ELEMENTAL_TEST_MODULE_log log example.tee_sink)
   set(ELEMENTAL_TEST_MODULE "all" CACHE STRING
       "The module whose tests this image holds: all, or one of ${ELEMENTAL_TEST_MODULES}")
   if(NOT ELEMENTAL_TEST_MODULE STREQUAL "all" AND NOT ELEMENTAL_TEST_MODULE IN_LIST ELEMENTAL_TEST_MODULES)
