@@ -180,6 +180,14 @@ else()
   set(_elemental_platform_zephyr_crc n)
 endif()
 
+# A Zephyr application's build, for the backends that are written against
+# Zephyr's kernel (time_zephyr). Zephyr's CMake defines zephyr_library().
+if(COMMAND zephyr_library)
+  set(_elemental_platform_zephyr y)
+else()
+  set(_elemental_platform_zephyr n)
+endif()
+
 # Every probed fact, as Kconfig sees it. The integration tests read this to
 # know which options this toolchain can select, so a new probe is added here
 # and nowhere else.
@@ -188,6 +196,7 @@ set(ELEMENTAL_PROBED_FACTS
     "EL_PLATFORM_SNPRINTF=${_elemental_platform_snprintf}"
     "EL_COMPILER_GCC_CRC_BUILTINS=${_elemental_gcc_crc_builtins}"
     "EL_PLATFORM_ZEPHYR_CRC=${_elemental_platform_zephyr_crc}"
+    "EL_PLATFORM_ZEPHYR=${_elemental_platform_zephyr}"
     CACHE INTERNAL "Toolchain facts passed to Kconfig")
 
 # Kconfig symbols are written without a prefix (IO, ASSERT). Generated names

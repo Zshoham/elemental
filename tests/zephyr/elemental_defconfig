@@ -3,3 +3,5 @@
 # EL_CONFIG_IO_POSIX is not set
 # Nor is it the hosted C library the alloc_libc backend is written for.
 # EL_CONFIG_ALLOC_LIBC is not set
+# Its clock is the kernel's (time_zephyr), not clock_gettime().
+# EL_CONFIG_TIME_POSIX is not set

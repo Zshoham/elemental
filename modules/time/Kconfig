@@ -1,0 +1,27 @@
+config TIME
+	bool "time: clock interface, tick conversions, and a manual clock"
+	default y
+	select STATUS
+	help
+	  The el_clock interface: a monotonic reading in the clock's own
+	  ticks, and how many of them make a second. Conversion between
+	  ticks and milliseconds or seconds, a clock the caller advances for
+	  tests, and the contract test suite for clocks. Freestanding: needs
+	  no runtime symbol, and no compiler helper for its 64-bit
+	  arithmetic.
+
+config TIME_POSIX
+	bool "time_posix: the system's monotonic clock"
+	default y
+	depends on TIME && PLATFORM_POSIX
+	help
+	  An el_clock over clock_gettime(CLOCK_MONOTONIC), in nanoseconds.
+	  Available where the POSIX probe finds <unistd.h>.
+
+config TIME_ZEPHYR
+	bool "time_zephyr: the Zephyr kernel's uptime"
+	default y
+	depends on TIME && PLATFORM_ZEPHYR
+	help
+	  An el_clock over k_uptime_ticks(), in the kernel's ticks. Available
+	  in a Zephyr build, which is how Elemental reaches a microcontroller.

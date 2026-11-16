@@ -3,13 +3,18 @@
  *
  * copy_stream() is written against the io interfaces only. It handles the
  * three things a stream can do besides deliver bytes: end, stall, and fail.
+ * What goes wrong is logged: main() decides that log records are lines on
+ * standard error, timed by the system's clock.
  */
 #include <elemental/io.h>
 #include <elemental/io_posix.h>
+#include <elemental/log.h>
+#include <elemental/log_printf.h>
+#include <elemental/log_writer.h>
 #include <elemental/status.h>
+#include <elemental/time_posix.h>
 
 #include <signal.h>
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -46,8 +51,19 @@ int main(void)
     /* The application owns the descriptors; the backend only uses them. */
     el_posix_fd in;
     el_posix_fd out;
+    el_posix_fd err;
     el_posix_fd_init(&in, STDIN_FILENO);
     el_posix_fd_init(&out, STDOUT_FILENO);
+    el_posix_fd_init(&err, STDERR_FILENO);
+
+    /* Where log records go, how one becomes a line, and whose they are:
+     * each is the application's to decide, in storage it provides. */
+    char line[160];
+    el_log_writer_sink sink;
+    el_log_writer_sink_init(&sink, el_posix_fd_as_writer(&err), line, sizeof(line));
+    el_logger log;
+    el_logger_init(&log, el_log_writer_sink_as_sink(&sink), el_posix_clock(), "el_cat",
+                   EL_LOG_LEVEL_INFO);
 
     size_t copied;
     const el_status status =
@@ -57,14 +73,16 @@ int main(void)
         /* The detail lives with the object that failed. */
         const int error = el_posix_fd_last_errno(&in) != 0 ? el_posix_fd_last_errno(&in)
                                                            : el_posix_fd_last_errno(&out);
-        fprintf(stderr, "el_cat: %s\n", strerror(error));
+        EL_LOG_ERROR(&log, "%s", strerror(error));
         return 1;
     }
     if (status != EL_OK) {
         /* Blocking descriptors do not stall, so this is a closed output or
          * an interrupted call. */
-        fprintf(stderr, "el_cat: stopped after %zu bytes: %s\n", copied, el_status_name(status));
+        EL_LOG_ERROR(&log, "stopped after %zu bytes: %s", copied, el_status_name(status));
         return 1;
     }
+    /* Below this logger's level: nothing is formatted and nothing written. */
+    EL_LOG_DEBUG(&log, "copied %zu bytes", copied);
     return 0;
 }

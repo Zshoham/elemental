@@ -15,7 +15,7 @@ was rejected, and the decisions each one waits on are in
 | M3 | Formatting, bytes, crc | M0 | Modules |
 | M3a | Buffers and formatting, second pass | M2, M3 | Module revision |
 | M3b | Status handling, first pass | M3a | Module revision |
-| M4 | Time and logging | M3a | Modules |
+| M4 | Time and logging | M3a | Modules, **done** as experimental |
 | M5 | Ring and interrupt context | M4 | Module and decision |
 | M6 | Framing | M3 (`bytes`) | Module |
 | M7 | I/O, second iteration | M4, M6 | Module revision |
@@ -245,37 +245,69 @@ applications; context for a failure is left open.
       consumer examples.
 - [x] A negative status from an application's implementation passes
       through `io` unchanged, tested.
-- [ ] **Context for a failure** is decided: the
-      [proposal's](proposals/status-handling.md#context-open) three
-      candidates written against the same examples and measured on the
-      Cortex-M0+ board, then an ADR. Best settled before M4's `log`, whose
-      writer sink is the first code that would print one.
+- [x] **Context for a failure** has its evidence: the
+      [proposal's](proposals/status-handling.md#context) three candidates
+      written against the same three examples, built for
+      `nucleo_g0b1re_renode` and run on it under Renode (an emulator run of
+      a prototype kept outside the repository), and measured there: bytes
+      per site, storage, stack per frame. One finding corrects the first
+      pass: a two-word struct is returned through memory on 32-bit Arm,
+      not in registers.
+- [ ] **Context for a failure** is decided.
+      [ADR 0019](adr/0019-failure-context.md) proposes a caller-owned
+      record. The owner, on 2026-11-16: leave it open and go on to M4.
+      M4's `log` proposal says whether the writer sink needs it.
 
 Not in this milestone: lowering a status to a negative errno, `goto` forms
 of `EL_TRY_NEG` and `EL_ENSURE`, a panic form. Each waits for a consumer.
 
 ## M4 — Time and logging
 
-- [ ] M3b's context decision is made, or the proposal says why `log` does
-      not need it.
-- [ ] An ADR fixing the time representation, before the log record is
-      designed.
-- [ ] A `time` contract suite run against the manual clock and the POSIX
-      backend.
-- [ ] Two sinks coexist in one program: memory and a POSIX descriptor
-      through the writer sink.
-- [ ] The log sink contract suite exists, defined with
-      `elemental_add_contract_suite()` like `io_contract`.
-- [ ] The compile-time cut-off removes call sites, shown by a size or
-      symbol check. Its ADR is recorded as the first exception to
-      ADR 0004.
-- [ ] No clock is read except through the handle the caller passed.
-- [ ] The author's earlier `mlog` prototype is reviewed. The proposal lists
-      what was taken and what was left.
-- [ ] The writer sink confirms or reopens M3a's provisional decision to
-      keep flush out of `el_writer_ops`.
+The [time](proposals/time.md) and [log](proposals/log.md) proposals,
+accepted by the owner on 2026-11-16, with
+[ADR 0020](adr/0020-time-representation.md) and
+[ADR 0021](adr/0021-log-cutoff.md): [modules/time](../modules/time/README.md)
+and [modules/log](../modules/log/README.md). **Done** as experimental. What
+was run is in [build.md](build.md#what-is-verified).
 
-Not in this milestone: logging from an interrupt handler (M5).
+- [x] M3b's context decision is made, or the proposal says why `log` does
+      not need it. It does not: a failure with context reaches a log as
+      text in a message, and neither the sink interface nor the record
+      changes for it ([log proposal](proposals/log.md#context-for-a-failure)).
+- [x] An ADR fixing the time representation, before the log record is
+      designed: [ADR 0020](adr/0020-time-representation.md), 64-bit ticks
+      of the clock's own frequency, the owner's decision.
+- [x] A `time` contract suite run against the manual clock and the POSIX
+      backend (host presets). Also against the Zephyr backend, which the
+      owner added to this milestone, on `native_sim`, `mps2/an385` under
+      QEMU and `nucleo_g0b1re_renode` under Renode, and against the
+      stepping clock example everywhere.
+- [x] Two sinks coexist in one program: memory and a POSIX descriptor
+      through the writer sink (`log.posix`, host; and `el_cat` logs to
+      standard error in `integration.installed`).
+- [x] The log sink contract suite exists, defined with
+      `elemental_add_contract_suite()` like `io_contract`: `ElLogContract`,
+      run against the memory sink, the writer sink, and the tee example, on
+      the host and on the three Zephyr boards.
+- [x] The compile-time cut-off removes call sites, shown by a size or
+      symbol check: `log.cutoff_check.*` reads the object file for the
+      format strings and for `el_log_printf`, as C11 and C++17, at `-O0`
+      and `-Os`, GCC and Clang (host). Its ADR is recorded as the first
+      exception to ADR 0004: [ADR 0021](adr/0021-log-cutoff.md).
+- [x] No clock is read except through the handle the caller passed: the
+      logger reads it once per record it makes and its frequency once at
+      set-up, counted by a clock that counts its readers (`log.unit`);
+      sinks take the time from the record.
+- [x] The author's earlier `mlog` prototype is reviewed. The proposal lists
+      [what was taken and what was left](proposals/log.md#what-mlog-has-and-what-was-taken).
+- [x] The writer sink confirms or reopens M3a's provisional decision to
+      keep flush out of `el_writer_ops`. It
+      [confirms it](proposals/log.md#flush-adr-0014): the sink as built
+      holds nothing between records
+      ([ADR 0014](adr/0014-flush-on-the-concrete-type.md)).
+
+Not in this milestone: logging from an interrupt handler (M5). Not done:
+any run on hardware, as for every module (M1).
 
 ## M5 — Ring and interrupt context
 

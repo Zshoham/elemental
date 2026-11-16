@@ -145,3 +145,38 @@ First milestone: the project's foundation.
 - `examples/consume_subdirectory`: a record too long for its length byte is
   the example's own `RECORD_ERR_TOO_LONG` (-1), and a text buffer too small
   is `EL_ERR_NO_SPACE`; both were `EL_ERR_IO`.
+- `time` (M4, experimental): `el_ticks`, a 64-bit count of a clock's own
+  ticks; the `el_clock` interface with `el_clock_now` and
+  `el_clock_ticks_per_second`
+  ([ADR 0020](docs/adr/0020-time-representation.md)); the conversions
+  `el_ticks_from_ms` (rounds up) and `el_ticks_to_seconds` (seconds and
+  microseconds, rounds down), which need no compiler helper;
+  `el_manual_clock` (`elemental/time_manual.h`), a clock the caller
+  advances; and the clock contract suite `ElTimeContract`
+  (`elemental/time_contract.h`, `.hpp`).
+- `time_posix` (M4, experimental): `el_posix_clock()`, `CLOCK_MONOTONIC` in
+  nanoseconds.
+- `time_zephyr` (M4, experimental): `el_zephyr_clock()`, the kernel's
+  uptime in its ticks. The first backend only a Zephyr build can select:
+  the probed Kconfig symbol `PLATFORM_ZEPHYR` is new.
+- `log` (M4, experimental): `el_log_level` and four levels; `el_log_record`;
+  the `el_log_sink` interface and `el_log_sink_write`; `el_logger`,
+  `el_logger_init`, `el_logger_set_level`, and `el_log_write`, which is not
+  variadic and returns nothing (`elemental/log.h`). `el_log_printf`,
+  `el_log_vprintf`, and the macros `EL_LOG`, `EL_LOG_DEBUG`, `EL_LOG_INFO`,
+  `EL_LOG_WARN`, `EL_LOG_ERROR` (`elemental/log_printf.h`).
+  `el_log_writer_sink`, lines of text to an `el_writer`
+  (`elemental/log_writer.h`), and `el_log_mem_sink`, records kept in caller
+  memory (`elemental/log_mem.h`). The sink contract suite `ElLogContract`
+  (`elemental/log_contract.h`, `.hpp`). The Kconfig option
+  `LOG_MESSAGE_MAX` (128): the longest message `el_log_printf` formats, on
+  its own stack.
+- `log` (M4): `EL_LOG_CUTOFF`, a macro the **consumer** defines to remove
+  `EL_LOG_*` calls below a level at compile time. Elemental's configuration
+  never sets it. The first public macro whose expansion varies, and so the
+  first exception to ADR 0004
+  ([ADR 0021](docs/adr/0021-log-cutoff.md)).
+- `examples/consume_installed`: `el_cat` logs what goes wrong through `log`
+  to standard error, timed by `time_posix`, instead of calling `fprintf`.
+  It now needs the package's `log` and `time_posix` components.
+- `configs/variant_defconfig` also sets `LOG_MESSAGE_MAX=48`.

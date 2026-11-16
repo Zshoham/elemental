@@ -1,0 +1,8 @@
+# Read only when TIME_ZEPHYR is on (CMakeLists.txt): the Zephyr clock,
+# which exists to call the kernel.
+
+z_impl_k_uptime_ticks  # time_zephyr.c: what <zephyr/kernel.h>'s inline
+                       # k_uptime_ticks() calls in a build without
+                       # CONFIG_USERSPACE. The kernel's uptime is the whole
+                       # backend; PLATFORM_ZEPHYR is set only in a Zephyr
+                       # build, where the kernel defines it.

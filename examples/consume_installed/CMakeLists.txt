@@ -9,12 +9,13 @@ project(consume_installed LANGUAGES C CXX)
 
 # Components are module names. Asking for one the package was configured
 # without fails here, with a message naming it.
-find_package(Elemental 0.1 REQUIRED COMPONENTS io io_posix io_contract)
+find_package(Elemental 0.1 REQUIRED COMPONENTS io io_posix io_contract log time_posix)
 
-# The application author's view: copy standard input to standard output.
-# This part needs no C++ and no GoogleTest.
+# The application author's view: copy standard input to standard output,
+# and log what goes wrong to standard error. This part needs no C++ and no
+# GoogleTest.
 add_executable(el_cat main.c)
-target_link_libraries(el_cat PRIVATE elemental::io_posix)
+target_link_libraries(el_cat PRIVATE elemental::io_posix elemental::log elemental::time_posix)
 
 # The backend author's view: a backend kept outside Elemental's repository,
 # verified with the contract suite the package installs.

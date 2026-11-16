@@ -93,8 +93,10 @@ says why.
 
 Things that were considered and do not belong here: string helpers, byte
 order, a logging hook. Error values that carry messages or context were on
-this list; the owner reopened that question on 2026-11-15 and it is
-[undecided](../../docs/proposals/status-handling.md#context-open).
+this list; the owner reopened that question on 2026-11-15, and it is
+undecided: three shapes were
+[measured](../../docs/proposals/status-handling.md#context) and none is
+chosen.
 
 The spellings above pass the rule: they are macros and one empty inline
 function, so a program that does not use them carries nothing, and one that
