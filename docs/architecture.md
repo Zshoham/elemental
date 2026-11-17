@@ -203,29 +203,27 @@ static el_status write_record(el_writer out, const char *text)
 ```
 
 The implementer's side, from
-[examples/backend_ring/ring_pipe.c](../examples/backend_ring/ring_pipe.c):
+[modules/ring/src/ring_io.c](../modules/ring/src/ring_io.c), the writer in
+front of an `el_ring`:
 
 ```c
-static el_status ring_write(void *ctx, const void *data, size_t len, size_t *n)
+static el_status ring_write_op(void *ctx, const void *data, size_t len, size_t *n)
 {
-    ring_pipe *const pipe = ctx;
-    if (pipe->write_closed) {
+    el_ring *const ring = ctx;
+    /* The producer's own word. */
+    if (atomic_load_explicit(&ring->closed, memory_order_relaxed) != 0) {
         return EL_ERR_END_OF_STREAM;
     }
-    const size_t space = pipe->capacity - pipe->count;
-    if (space == 0) {
-        return EL_ERR_WOULD_BLOCK;
-    }
-    /* ... copy min(len, space) bytes ... */
-    *n = count;
-    return EL_OK;
+    *n = el_ring_write(ring, data, len);
+    return *n > 0 ? EL_OK : EL_ERR_WOULD_BLOCK;
 }
 
-static const el_writer_ops ring_writer_ops = {.write = ring_write};
+static const el_writer_ops ring_writer_ops = {.write = ring_write_op};
 
-el_writer ring_pipe_as_writer(ring_pipe *pipe)
+el_writer el_ring_as_writer(el_ring *ring)
 {
-    return (el_writer){.ctx = pipe, .ops = &ring_writer_ops};
+    EL_ASSERT(ring != NULL);
+    return (el_writer){.ctx = ring, .ops = &ring_writer_ops};
 }
 ```
 

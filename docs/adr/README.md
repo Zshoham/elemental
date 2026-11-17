@@ -29,6 +29,7 @@ by editing history.
 | [0020](0020-time-representation.md) | Time is a 64-bit count of a clock's own ticks | Accepted |
 | [0021](0021-log-cutoff.md) | The log cut-off is a macro the consumer defines | Accepted; the first exception to 0004 |
 | [0022](0022-log-sink-lends-the-buffer.md) | A log sink lends the buffer a record's message is written into | Proposed and implemented; awaiting the owner's review |
+| [0023](0023-atomics-and-interrupt-context.md) | Atomics are loads and stores of one word; an interrupt handler is one more context | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

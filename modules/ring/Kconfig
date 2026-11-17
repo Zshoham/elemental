@@ -1,0 +1,14 @@
+config RING
+	bool "ring: a byte FIFO between two contexts"
+	default y
+	depends on COMPILER_ATOMICS
+	select STATUS
+	select IO
+	help
+	  el_ring: a first-in, first-out buffer of bytes over caller-provided
+	  storage, filled by one context while another empties it, with no
+	  lock: an interrupt handler and a thread, or two threads. Its two
+	  sides are also an el_writer and an el_reader. Freestanding: needs
+	  only memcpy(). Needs a compiler that turns a load and a store of an
+	  atomic word into instructions (docs/adr/0023); CMake probes that
+	  the two compile.

@@ -45,6 +45,25 @@ el_log_sink recording_sink_as_sink(recording_sink *sink);
 el_log_sink recording_sink_without_begin(recording_sink *sink);
 el_log_sink recording_sink_without_end(recording_sink *sink);
 
+/*
+ * A sink that takes every record and, each time one ends, writes `again`
+ * to `echo`: a destination that logs while it is being drained into. It
+ * echoes `limit` times and no more, so that a drain that follows its own
+ * echoes still ends.
+ */
+typedef struct echoing_sink {
+    el_log_sink echo;
+    el_log_record again;
+    unsigned limit;
+    unsigned ends;
+    el_buf buf;
+    char storage[64];
+} echoing_sink;
+
+void echoing_sink_init(echoing_sink *sink, el_log_sink echo, const el_log_record *again,
+                       unsigned limit);
+el_log_sink echoing_sink_as_sink(echoing_sink *sink);
+
 /* A clock that reads what the test wrote into it and counts its readers. */
 typedef struct counting_clock {
     el_ticks reading;

@@ -146,7 +146,7 @@ def case_subdirectory(work):
     # As a subproject, Elemental adds libraries and nothing else: no tests,
     # no examples, and no short target names in the application's namespace.
     targets = target_names(build_dir)
-    for unwanted in ("test_status_unit", "example_ring_pipe", "menuconfig"):
+    for unwanted in ("test_status_unit", "example_size_classes", "menuconfig"):
         check(unwanted not in targets,
               "the subproject build defines the target '{}'".format(unwanted))
     check("elemental_config_menuconfig" in targets,
@@ -240,8 +240,9 @@ def case_installed(work):
           and "] E el_cat: stopped after " in logged and "end_of_stream" in logged,
           "el_cat's log line: " + logged)
 
-    # The out-of-tree backend, against the installed contract suite.
-    output = run([find_one(consumer, "ring_pipe_contract")])
+    # The installed contract suite, compiled by the consumer, against the
+    # installed ring.
+    output = run([find_one(consumer, "ring_contract")])
     check("[  PASSED  ] 10 tests." in output and "[  SKIPPED ] 2 tests" in output,
           "contract suite output:\n" + output)
 

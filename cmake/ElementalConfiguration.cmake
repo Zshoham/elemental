@@ -188,6 +188,27 @@ else()
   set(_elemental_platform_zephyr n)
 endif()
 
+# C11 atomics, for ring: an acquire load and a release store of one word,
+# and nothing else (docs/adr/0023). A compiler fact, so the same compile
+# check on a host and in a Zephyr build. It shows that the two compile, not
+# that they are instructions and not calls: that is the Zephyr symbol check
+# (tests/zephyr), which fails on an __atomic_* symbol.
+check_c_source_compiles("
+#include <stdatomic.h>
+#include <stddef.h>
+static _Atomic size_t word;
+int main(void)
+{
+    atomic_init(&word, 0);
+    atomic_store_explicit(&word, 1, memory_order_release);
+    return (int)atomic_load_explicit(&word, memory_order_acquire);
+}" ELEMENTAL_HAVE_ATOMICS)
+if(ELEMENTAL_HAVE_ATOMICS)
+  set(_elemental_compiler_atomics y)
+else()
+  set(_elemental_compiler_atomics n)
+endif()
+
 # Every probed fact, as Kconfig sees it. The integration tests read this to
 # know which options this toolchain can select, so a new probe is added here
 # and nowhere else.
@@ -197,6 +218,7 @@ set(ELEMENTAL_PROBED_FACTS
     "EL_COMPILER_GCC_CRC_BUILTINS=${_elemental_gcc_crc_builtins}"
     "EL_PLATFORM_ZEPHYR_CRC=${_elemental_platform_zephyr_crc}"
     "EL_PLATFORM_ZEPHYR=${_elemental_platform_zephyr}"
+    "EL_COMPILER_ATOMICS=${_elemental_compiler_atomics}"
     CACHE INTERNAL "Toolchain facts passed to Kconfig")
 
 # Kconfig symbols are written without a prefix (IO, ASSERT). Generated names

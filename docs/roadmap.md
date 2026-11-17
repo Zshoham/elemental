@@ -16,7 +16,7 @@ was rejected, and the decisions each one waits on are in
 | M3a | Buffers and formatting, second pass | M2, M3 | Module revision |
 | M3b | Status handling, first pass | M3a | Module revision |
 | M4 | Time and logging | M3a | Modules, **done** as experimental |
-| M5 | Ring and interrupt context | M4 | Module and decision |
+| M5 | Ring and interrupt context | M4 | Module and decision, **done** as experimental |
 | M6 | Framing | M3 (`bytes`) | Module |
 | M7 | I/O, second iteration | M4, M6 | Module revision |
 | M8 | IPC discovery | M6 | Discovery |
@@ -306,24 +306,54 @@ was run is in [build.md](build.md#what-is-verified).
       holds nothing between records
       ([ADR 0014](adr/0014-flush-on-the-concrete-type.md)).
 
-Not in this milestone: logging from an interrupt handler (M5). Not done:
+Not in this milestone: logging from an interrupt handler (done in M5). Not done:
 any run on hardware, as for every module (M1).
 
 ## M5 — Ring and interrupt context
 
-- [ ] An ADR on atomics and interrupt context
-      ([module-plan.md](module-plan.md#3-decisions-that-must-come-first)).
-- [ ] `ring` passes the io contract suite through its adapters. The ring
-      pipe example is retired or rebased onto it.
-- [ ] On a Zephyr Cortex-M target under QEMU, an interrupt-driven UART
-      example fills a ring from its interrupt handler. A task reads it as
-      an `el_reader`. The deferred log sink is used from an interrupt
-      handler on the same image.
-- [ ] A stress test on the host: a producer thread and a consumer thread,
-      under ThreadSanitizer.
-- [ ] No `__atomic_*` symbol on Cortex-M0.
-- [ ] Recorded honestly: the emulator shows ordering on one core, not
-      timing, and not multi-core memory ordering.
+The [ring proposal](proposals/ring.md), accepted by the owner on
+2026-11-17 with [ADR 0023](adr/0023-atomics-and-interrupt-context.md):
+[modules/ring](../modules/ring/README.md), and the deferred sink in
+[modules/log](../modules/log/README.md#logging-from-an-interrupt-handler).
+**Done** as experimental. What was run is in
+[build.md](build.md#what-is-verified).
+
+- [x] An ADR on atomics and interrupt context:
+      [ADR 0023](adr/0023-atomics-and-interrupt-context.md), C11 loads and
+      stores of one word, each written by one context, the owner's
+      decision. A full ring's writer stalls with `EL_ERR_WOULD_BLOCK`, also
+      the owner's ([ADR 0009](adr/0009-capacity-status.md), amended).
+- [x] `ring` passes the io contract suite through its adapters, on the
+      host and on the three Zephyr boards (10 run, 2 skipped). The ring
+      pipe example is retired, by the owner's decision: `ring` replaces it,
+      and `examples/consume_installed` runs the installed suite against
+      the installed `ring`.
+- [x] On `mps2/an385` (Cortex-M3) under QEMU, an interrupt-driven UART
+      example, [examples/uart_ring](../examples/uart_ring), fills a ring
+      from its receive interrupt, and a thread reads it as an `el_reader`.
+      The handler logs through the deferred sink, which the thread drains,
+      in the same image (`elemental.tests.ring.uart`).
+- [x] A stress test on the host: a producer thread and a consumer thread,
+      for the ring (`ring.stress`) and for the deferred sink
+      (`log.deferred.stress`), in every hosted preset and under
+      ThreadSanitizer (the new `tsan` preset).
+- [x] No `__atomic_*` symbol on Cortex-M0: the symbol check on
+      `qemu_cortex_m0`, and on the Cortex-M0+ and Cortex-M3 boards.
+- [x] Recorded honestly: the emulator shows ordering on one core, not
+      timing, and not multi-core memory ordering
+      ([ring's README](../modules/ring/README.md#what-the-tests-show-and-what-they-do-not),
+      [build.md](build.md#what-is-verified)).
+
+ADR 0022's revisit condition, whether the deferred sink needs a record's
+message as one contiguous buffer in the ring, is not met: it builds the
+record in storage of its own and copies it in, and the drain reads a
+message from the ring straight into the destination's lent buffer
+([proposal](proposals/ring.md#the-deferred-sink-and-adr-0022s-question)).
+ADR 0022 itself still awaits the owner's review.
+
+Not done: any run on hardware, as for every module (M1); an interrupt run
+on the Cortex-M0+ board, which Renode could join two UARTs for
+([proposal](proposals/ring.md#open-questions)).
 
 ## M6 — Framing
 
@@ -335,7 +365,7 @@ examples cannot settle.
       the maximum.
 - [ ] Tested as plain function calls, including every split of the input
       across calls.
-- [ ] The glue runs over the ring pipe, over a Unix socket via `io_posix`,
+- [ ] The glue runs over a ring (`el_ring`), over a Unix socket via `io_posix`,
       and over the M5 UART example on a Zephyr target with a `crc` trailer.
 - [ ] The buffered reader, sketched in the
       [io buffers and fmt proposal](proposals/io-buffers-fmt.md), is

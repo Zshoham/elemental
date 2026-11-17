@@ -36,6 +36,15 @@ same thing: supply more storage, or give up.
   module, because `alloc` and `fmt` are built in parallel and must share
   one value. If neither lands, it is removed before release.
 
+Amended (2026-11-17, decided by the project owner with the
+[ring proposal](../proposals/ring.md#decisions), decision 2): a full ring
+is not one of these. The writer of an `el_ring` reports
+`EL_ERR_WOULD_BLOCK` when the ring is full: its caller cannot give the
+ring more storage, and the room comes back when the other side reads,
+which is what `io` calls a stream that stalls. The Context above names "a
+full ring" as it was planned then. `EL_ERR_NO_SPACE` is the status of the
+deferred log sink that is built on a ring: a container that is full.
+
 ## Cost
 
 A caller cannot tell from the code alone whether it was the heap or a

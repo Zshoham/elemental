@@ -11,3 +11,15 @@ config LOG
 	  that writes text lines to an el_writer, and one that keeps records
 	  in caller-provided memory; and the contract test suite for sinks.
 	  Elemental's own modules never log.
+
+config LOG_DEFERRED
+	bool "log_deferred: a sink that hands records to another context"
+	default y
+	depends on LOG && RING
+	help
+	  el_log_deferred_sink: a sink that copies each record into an
+	  el_ring and returns, for an interrupt handler or any code that must
+	  not wait for where its records are written; another context drains
+	  the ring into the sink that writes. It is the one part of log that
+	  needs ring: turn it off and log builds and links no ring.
+	  Freestanding: needs memcpy().

@@ -203,3 +203,28 @@ First milestone: the project's foundation.
   line in `configs/variant_defconfig`. `el_log_mem_sink` and
   `el_log_writer_sink` have new fields; the tee example's
   `tee_sink_init` takes a message buffer.
+- `ring` (experimental, M5): `el_ring`, a byte FIFO over caller storage
+  between one context that writes and one that reads, with no lock
+  (`elemental/ring.h`): `el_ring_init`; the producer's `el_ring_write`,
+  `el_ring_room`, `el_ring_close`, `el_ring_as_writer`; the consumer's
+  `el_ring_read`, `el_ring_len`, `el_ring_as_reader`. A full ring's writer
+  and an empty ring's reader report `EL_ERR_WOULD_BLOCK`
+  ([ADR 0009](docs/adr/0009-capacity-status.md), amended). The Kconfig
+  option `RING`, which depends on the new probed symbol
+  `COMPILER_ATOMICS`. The only atomic operations are a load and a store of
+  one word ([ADR 0023](docs/adr/0023-atomics-and-interrupt-context.md)).
+- `log` (experimental, M5): `el_log_deferred_sink`
+  (`elemental/log_deferred.h`), a sink that copies each record into an
+  `el_ring` for another context to write:
+  `el_log_deferred_sink_init`, `el_log_deferred_sink_as_sink`,
+  `el_log_deferred_sink_drain`, `el_log_deferred_sink_lost`,
+  `el_log_deferred_sink_record_size`. Part of `elemental::log` when the
+  new Kconfig option `LOG_DEFERRED` is on (the default where `RING` is),
+  which makes `elemental::log` link `elemental::ring`.
+- The ring pipe example, `examples/backend_ring`, is removed: `ring`
+  replaces it. `examples/consume_installed` runs the installed io contract
+  suite against the installed `ring` and needs the package's `ring`
+  component. `examples/uart_ring` is new: a Zephyr UART's receive
+  interrupt behind an `el_reader`, logging through the deferred sink.
+- A `tsan` preset: Clang with ThreadSanitizer, running the tests of `ring`
+  and of the deferred sink, two of which use two threads.

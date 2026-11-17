@@ -41,6 +41,32 @@ tests:
       - native_sim
       - mps2/an385
       - nucleo_g0b1re_renode
+  elemental.tests.ring:
+    harness: gtest
+    extra_args: ELEMENTAL_TEST_MODULE=ring
+    platform_allow:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+    integration_platforms:
+      - native_sim
+      - mps2/an385
+      - nucleo_g0b1re_renode
+  # The ring's image again, with the UART example's test: a receive
+  # interrupt fills a ring and logs through the deferred sink
+  # (examples/uart_ring). QEMU joins two of the board's UARTs
+  # (CMakeLists.txt, ELEMENTAL_ZEPHYR_UART_WIRE), so on this board only.
+  elemental.tests.ring.uart:
+    harness: gtest
+    extra_args:
+      - ELEMENTAL_TEST_MODULE=ring
+      - ELEMENTAL_ZEPHYR_UART_WIRE=ON
+    extra_configs:
+      - CONFIG_UART_INTERRUPT_DRIVEN=y
+    platform_allow:
+      - mps2/an385
+    integration_platforms:
+      - mps2/an385
   elemental.tests.fmt:
     harness: gtest
     extra_args: ELEMENTAL_TEST_MODULE=fmt
