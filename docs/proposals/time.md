@@ -165,7 +165,10 @@ no wrap to handle: at one tick per nanosecond the count lasts 584 years.
 **Friction found.** `el_clock_ticks_per_second(clock)` appears wherever a
 duration meets a human unit. A function that converts often reads it once.
 That is the price of a frequency the clock states at run time, and it is
-what [ADR 0020](../adr/0020-time-representation.md) weighs.
+what [ADR 0020](../adr/0020-time-representation.md) weighs. *Later
+(2026-11-17):* `el_clock_ticks_from_ms(clock, ms)` and
+`el_clock_ticks_to_seconds(clock, ticks, &us)` read the frequency for the
+caller; the forms above remain for a value that has left its clock.
 
 ## Backend example
 

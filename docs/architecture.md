@@ -520,8 +520,10 @@ clock it takes in [modules/time](../modules/time/README.md); the accepted
 designs are the [log](proposals/log.md) and [time](proposals/time.md)
 proposals, the time representation is
 [ADR 0020](adr/0020-time-representation.md), and the compile-time cut-off
-is [ADR 0021](adr/0021-log-cutoff.md). The sketch below is where they
-started; in the module the function takes a logger by pointer and the
+is [ADR 0021](adr/0021-log-cutoff.md); a message is formatted into a
+buffer the sink lends, not on the stack
+([ADR 0022](adr/0022-log-sink-lends-the-buffer.md)). The sketch below is
+where they started; in the module the function takes a logger by pointer and the
 macros are `EL_LOG_INFO` and its siblings.
 
 The interesting tension is between a good C call site and a contract other

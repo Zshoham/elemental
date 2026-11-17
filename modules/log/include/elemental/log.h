@@ -8,9 +8,16 @@
  * minimum level, the clock their time comes from, and the sink they go to.
  * A sink decides what happens to a record: it becomes a line on a stream
  * (elemental/log_writer.h), is kept in memory (elemental/log_mem.h), or
- * whatever an implementation of the one operation below does with it.
+ * whatever an implementation of the two operations below does with it.
  * Several loggers and sinks coexist; there is no default logger and no
  * global state.
+ *
+ * A record's message is written into memory the sink lends, not into the
+ * caller's: a sink begins a record by lending an el_buf, the message is
+ * appended to it (formatted there, by elemental/log_printf.h), and the sink
+ * ends the record. So a log call needs no buffer of its own, and how long
+ * a message may be is the sink's buffer's to say, fixed or grown
+ * (docs/adr/0022-log-sink-lends-the-buffer.md).
  *
  * This header is the contract: not variadic, usable from any language. The
  * printf-style call site and the compile-time cut-off are a C convenience
@@ -19,14 +26,14 @@
  * STATUS: experimental. See docs/process/api-stability.md.
  *
  * A log call cannot fail. el_log_write() returns nothing: a call site that
- * had to handle a status would not be written. A sink's operation can fail,
- * and returns a status; when a logger's sink does not take a record, the
- * record is lost, and the sink counts it. That count lives with the sink
- * object, as every detail beyond a status does.
+ * had to handle a status would not be written. A sink's operations can
+ * fail, and return a status; when a logger's sink does not take a record,
+ * the record is lost, and the sink counts it. That count lives with the
+ * sink object, as every detail beyond a status does.
  *
- * Time: a logger reads its clock once for each record it makes, in
- * el_log_write(), and nowhere else. A sink never reads a clock: the record
- * carries the reading and the clock's frequency
+ * Time: a logger reads its clock once for each record it makes, before the
+ * sink is given it, and nowhere else. A sink never reads a clock: the
+ * record carries the reading and the clock's frequency
  * (docs/adr/0020-time-representation.md).
  *
  * Ownership and lifetime:
@@ -34,24 +41,30 @@
  *   - The application owns the sink objects, the clock, the logger, and
  *     every buffer. A logger borrows its sink, its clock and its tag for as
  *     long as it is used. Nothing here has anything to release.
- *   - A record is borrowed for the call. A sink copies the message bytes it
- *     keeps. The tag is the one field it may keep by pointer: a logger's
- *     tag must stay valid for as long as any sink keeps records made from
- *     it. In practice it is a string literal.
+ *   - A record is borrowed for the call. Its message is in the buffer the
+ *     sink lent, and valid until the sink's end operation returns: a sink
+ *     that keeps it either keeps it there or copies it. The tag is the one
+ *     field it may keep by pointer: a logger's tag must stay valid for as
+ *     long as any sink keeps records made from it. In practice it is a
+ *     string literal.
  *   - el_log_sink is a handle: two pointers, passed by value, owning
  *     nothing.
  *
  * Concurrency and execution context: el_log_write() keeps no state and takes
  * a const logger, so one logger may be used from several contexts exactly
  * when its sink and its clock may. Sinks follow the default: one object,
- * one context at a time. A log call blocks only if the sink does. Use from
- * an interrupt handler needs a sink and a clock that allow it. A sink's
- * operation must not log through a logger that leads back to the same sink.
+ * one context at a time; a record's begin and end are made from the same
+ * context, with nothing else given to that sink between them. A log call
+ * blocks only if the sink does. Use from an interrupt handler needs a sink
+ * and a clock that allow it, and a sink's buffer that does: a grown one
+ * allocates. A sink's operations must not log through a logger that leads
+ * back to the same sink.
  *
  * Contract violations, checked by assertions when the library is built with
- * them: a null logger, record, or tag; a handle that was never made; a null
- * message with a nonzero length; a record's level of EL_LOG_LEVEL_OFF or
- * above; a minimum level above EL_LOG_LEVEL_OFF.
+ * them: a null logger, record, or tag; a handle that was never made, or one
+ * with an operation missing; a null message with a nonzero length; a
+ * record's level of EL_LOG_LEVEL_OFF or above; a minimum level above
+ * EL_LOG_LEVEL_OFF; a sink that begins a record without lending a buffer.
  */
 #ifndef ELEMENTAL_LOG_H
 #define ELEMENTAL_LOG_H
@@ -59,6 +72,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <elemental/io_buf.h>
 #include <elemental/status.h>
 #include <elemental/time.h>
 
@@ -101,29 +115,57 @@ typedef struct el_log_record {
 } el_log_record;
 
 /*
- * To implement a sink, define the operation below over your own state and
- * hand out a handle that pairs the two. el_log_sink_write() validates the
- * record before your operation runs, so an implementation may rely on the
- * "called with" guarantees. Operations are called through C and must not
- * unwind.
+ * To implement a sink, define the two operations below over your own state
+ * and hand out a handle that pairs them with it. A record reaches a sink in
+ * three steps:
+ *
+ *   1. begin: the sink is given the record without its message, and lends
+ *      the el_buf the message goes into. The buffer may already hold bytes
+ *      of the sink's own, such as the start of a line.
+ *   2. The caller appends the message to that buffer, and does nothing
+ *      else with it: el_buf_append(), el_fmt_printf(), or el_buf_reserve()
+ *      and el_buf_commit(). A message the buffer cannot take whole is cut,
+ *      by printf's item rule or at a byte.
+ *   3. end: the sink is given the whole record, its message being the bytes
+ *      appended, and says whether it took it.
+ *
+ * el_log_sink_write() and the logger make these calls, and validate the
+ * record before `begin`, so an implementation may rely on the "called with"
+ * guarantees. Operations are called through C and must not unwind.
  */
 typedef struct el_log_sink_ops {
     /*
-     * Take one record.
+     * Start a record.
      *
-     * Called with: record not null, and its fields as described above;
-     *       message not null unless len is 0.
-     * Must: return EL_OK having taken the whole record; or return another
-     *       status, and then the record is lost. Copy what it keeps of
-     *       `message`, which is not valid after the call. `tag` stays valid
-     *       for as long as the logger it came from is used.
+     * Called with: record not null, its fields as described above except
+     *       that message is null and len is 0; message not null.
+     * Must: return EL_OK and set *message to the buffer the caller appends
+     *       the message to, after which `end` is called; or return another
+     *       status, and then the record is lost, `end` is not called, and
+     *       *message is not read.
      */
-    el_status (*write)(void *ctx, const el_log_record *record);
+    el_status (*begin)(void *ctx, const el_log_record *record, el_buf **message);
+
+    /*
+     * Finish the record the last `begin` started.
+     *
+     * Called with: record not null, with the fields `begin` was given, and
+     *       its message: the `len` bytes appended to the lent buffer since
+     *       `begin` returned, in that buffer (null if len is 0). `fit` is
+     *       EL_OK if the message is whole, EL_ERR_NO_SPACE if the buffer
+     *       could not take all of it and it is cut.
+     * Must: return EL_OK having taken the whole record, which a cut message
+     *       is not; or return another status, and then the record is lost.
+     *       The message is not valid after the call, unless the sink keeps
+     *       it in the buffer it lent. `tag` stays valid for as long as the
+     *       logger it came from is used.
+     */
+    el_status (*end)(void *ctx, const el_log_record *record, el_status fit);
 } el_log_sink_ops;
 
 /*
  * `ops` must outlive every handle that uses it; make it static const.
- * `ctx` is passed back to the operation unchanged and may be null if the
+ * `ctx` is passed back to the operations unchanged and may be null if the
  * implementation has no state.
  */
 typedef struct el_log_sink {
@@ -132,12 +174,16 @@ typedef struct el_log_sink {
 } el_log_sink;
 
 /*
- * Give `record` to `sink`. For code that drives a sink itself: a sink that
- * passes records on to others, or one that hands on records it kept.
+ * Give `record` to `sink`: begin it, append its message to the buffer the
+ * sink lends, and end it. A message the buffer cannot take whole is cut at
+ * a byte, and the sink is told. For code that drives a sink itself: a sink
+ * that passes records on to others, or one that hands on records it kept.
+ * `record->message` must not be in the buffer the sink lends.
  *
  *   EL_OK     The sink took the whole record.
- *   other     The sink's own status. The record is lost; a sink that writes
- *             text may already have passed part of a line on.
+ *   other     The sink's own status, from begin or end. The record is lost;
+ *             a sink that writes text may already have passed part of a
+ *             line on.
  */
 EL_NODISCARD el_status el_log_sink_write(el_log_sink sink, const el_log_record *record);
 
@@ -176,8 +222,9 @@ void el_logger_set_level(el_logger *logger, el_log_level level_min);
  *
  * If `level` is below the logger's minimum, nothing happens: the clock is
  * not read and the sink is not called. Otherwise the clock is read once,
- * and the sink is given the record. A record the sink does not take is
- * lost, and the sink counts it.
+ * and the record is given to the sink as el_log_sink_write() gives it: the
+ * message is copied into the sink's buffer, and cut if it does not fit. A
+ * record the sink does not take whole is lost, and the sink counts it.
  *
  * `message` may be null only if `len` is 0; an empty message is a record.
  * It is borrowed for the call.

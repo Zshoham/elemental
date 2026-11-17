@@ -24,11 +24,28 @@ size_t el_log_mem_sink_record_size(size_t message_len)
     return sizeof(mem_entry) + message_len;
 }
 
-static el_status mem_sink_write(void *ctx, const el_log_record *record)
+static el_status mem_sink_begin(void *ctx, const el_log_record *record, el_buf **message)
 {
+    (void)record;
     el_log_mem_sink *const sink = ctx;
     const size_t room = sink->cap - sink->len;
-    if (room < sizeof(mem_entry) || room - sizeof(mem_entry) < record->len) {
+    if (room < sizeof(mem_entry)) {
+        sink->lost++;
+        return EL_ERR_NO_SPACE;
+    }
+    /* The message goes where it is kept: after the entry, which end writes
+     * once the length is known. */
+    el_buf_init(&sink->message, sink->storage + sink->len + sizeof(mem_entry),
+                room - sizeof(mem_entry));
+    *message = &sink->message;
+    return EL_OK;
+}
+
+static el_status mem_sink_end(void *ctx, const el_log_record *record, el_status fit)
+{
+    el_log_mem_sink *const sink = ctx;
+    if (fit != EL_OK) {
+        /* Whole or not at all: the cut message's bytes are left unused. */
         sink->lost++;
         return EL_ERR_NO_SPACE;
     }
@@ -39,18 +56,15 @@ static el_status mem_sink_write(void *ctx, const el_log_record *record)
     entry.len = record->len;
     entry.ticks_per_second = record->ticks_per_second;
     entry.level = record->level;
-    uint8_t *const at = sink->storage + sink->len;
-    memcpy(at, &entry, sizeof(entry));
-    if (record->len > 0) {
-        memcpy(at + sizeof(entry), record->message, record->len);
-    }
+    memcpy(sink->storage + sink->len, &entry, sizeof(entry));
     sink->len += sizeof(entry) + record->len;
     sink->count++;
     return EL_OK;
 }
 
 static const el_log_sink_ops mem_sink_ops = {
-    .write = mem_sink_write,
+    .begin = mem_sink_begin,
+    .end = mem_sink_end,
 };
 
 void el_log_mem_sink_init(el_log_mem_sink *sink, void *storage, size_t cap)

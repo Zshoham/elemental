@@ -4,13 +4,30 @@
 
 /* ---- recording_sink ------------------------------------------------------ */
 
-static el_status recording_write(void *ctx, const el_log_record *record)
+static el_status recording_begin(void *ctx, const el_log_record *record, el_buf **message)
+{
+    recording_sink *const sink = ctx;
+    sink->begins++;
+    sink->last_ctx = ctx;
+    sink->begun = *record;
+    if (sink->begin_answer != EL_OK) {
+        return sink->begin_answer;
+    }
+    if (sink->lend == &sink->buf) {
+        el_buf_truncate(&sink->buf, 0);
+    }
+    *message = sink->lend;
+    return EL_OK;
+}
+
+static el_status recording_end(void *ctx, const el_log_record *record, el_status fit)
 {
     recording_sink *const sink = ctx;
     sink->calls++;
     sink->last_ctx = ctx;
     sink->last = *record;
     sink->last_message_pointer = record->message;
+    sink->last_fit = fit;
     const size_t kept = record->len < sizeof(sink->message) ? record->len : sizeof(sink->message);
     if (kept > 0) {
         memcpy(sink->message, record->message, kept);
@@ -20,14 +37,18 @@ static el_status recording_write(void *ctx, const el_log_record *record)
     return sink->answer;
 }
 
-static const el_log_sink_ops recording_ops = {.write = recording_write};
-static const el_log_sink_ops ops_without_write = {.write = NULL};
+static const el_log_sink_ops recording_ops = {.begin = recording_begin, .end = recording_end};
+static const el_log_sink_ops ops_without_begin = {.begin = NULL, .end = recording_end};
+static const el_log_sink_ops ops_without_end = {.begin = recording_begin, .end = NULL};
 
 void recording_sink_init(recording_sink *sink)
 {
+    sink->begin_answer = EL_OK;
     sink->answer = EL_OK;
+    sink->begins = 0;
     sink->calls = 0;
     sink->last_message_pointer = NULL;
+    sink->last_fit = EL_OK;
     sink->last_ctx = NULL;
     sink->last.len = 0;
     sink->last.message = sink->message;
@@ -35,6 +56,14 @@ void recording_sink_init(recording_sink *sink)
     sink->last.level = EL_LOG_LEVEL_OFF;
     sink->last.timestamp = 0;
     sink->last.ticks_per_second = 0;
+    sink->begun = sink->last;
+    sink->lend = &sink->buf;
+    recording_sink_set_capacity(sink, sizeof(sink->storage));
+}
+
+void recording_sink_set_capacity(recording_sink *sink, size_t cap)
+{
+    el_buf_init(&sink->buf, sink->storage, cap);
 }
 
 el_log_sink recording_sink_as_sink(recording_sink *sink)
@@ -42,9 +71,14 @@ el_log_sink recording_sink_as_sink(recording_sink *sink)
     return (el_log_sink){.ctx = sink, .ops = &recording_ops};
 }
 
-el_log_sink recording_sink_without_write(recording_sink *sink)
+el_log_sink recording_sink_without_begin(recording_sink *sink)
 {
-    return (el_log_sink){.ctx = sink, .ops = &ops_without_write};
+    return (el_log_sink){.ctx = sink, .ops = &ops_without_begin};
+}
+
+el_log_sink recording_sink_without_end(recording_sink *sink)
+{
+    return (el_log_sink){.ctx = sink, .ops = &ops_without_end};
 }
 
 /* ---- counting_clock ------------------------------------------------------ */

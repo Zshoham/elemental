@@ -66,3 +66,13 @@ uint64_t el_ticks_to_seconds(el_ticks ticks, uint32_t ticks_per_second, uint32_t
     *us = (uint32_t)divide(multiply(rest, 1000000u), ticks_per_second, &unused);
     return seconds;
 }
+
+el_ticks el_clock_ticks_from_ms(el_clock clock, uint32_t ms)
+{
+    return el_ticks_from_ms(ms, el_clock_ticks_per_second(clock));
+}
+
+uint64_t el_clock_ticks_to_seconds(el_clock clock, el_ticks ticks, uint32_t *us)
+{
+    return el_ticks_to_seconds(ticks, el_clock_ticks_per_second(clock), us);
+}

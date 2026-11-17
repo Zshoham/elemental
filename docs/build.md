@@ -194,7 +194,7 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC`, `TIME`, `LOG` | on | Build only the modules a product uses. `LOG` selects `FMT`, `TIME` and `IO`. |
+| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC`, `TIME`, `LOG` | on | Build only the modules a product uses. `LOG` selects `FMT`, `TIME` and `IO`. The compile-time log cut-off is not an option here: it is the consumer's macro `EL_LOG_CUTOFF` ([ADR 0021](adr/0021-log-cutoff.md)). |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | built-in | What printf accepts. `FMT_PRINTF_LIBC` adds C's other numeric conversions (floats, `%p`, flags, precision, `*`) through the C library's `snprintf`, one at a time, whole or absent; the portable subset is built-in code under both ([modules/fmt](../modules/fmt/README.md#configuration), [ADR 0016](adr/0016-private-choices-that-widen.md)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
@@ -202,7 +202,6 @@ can sit side by side.
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `TIME_POSIX` | on where `<unistd.h>` exists | The POSIX clock needs `clock_gettime`. |
 | `TIME_ZEPHYR` | on in a Zephyr build | The Zephyr clock needs the kernel. It cannot be selected anywhere else. |
-| `LOG_MESSAGE_MAX` | 128 | The longest message `el_log_printf` formats, 16 to 1024 bytes, which is also the stack it uses to do so: lower it for small stacks, raise it for long messages ([modules/log](../modules/log/README.md#configuration)). The compile-time log cut-off is not an option here: it is the consumer's macro `EL_LOG_CUTOFF` ([ADR 0021](adr/0021-log-cutoff.md)). |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
@@ -563,15 +562,36 @@ GoogleTest's count, skipped included. The six images that existed in M3b
 | `fmt` | 32 | 268 348, 19 656, 13 912, 1 772 | 279 216, 17 616, 14 584, 1 892 |
 | `bytes` | 38 | 283 220, 15 552, 12 888, 1 324 | 293 624, 13 512, 13 664, 1 364 |
 | `crc` | 8 | 230 728, 15 552, 3 680, 1 324 | 241 868, 13 512, 3 872, 1 364 |
-| `time` | 41 | 257 108, 15 720, 19 496, 1 796 | 268 680, 13 680, 20 692, 1 900 |
-| `log` | 85 | 303 272, 19 864, 32 704, 2 508 | 315 276, 17 824, 34 796, 2 712 |
-| All, `variant` | 432 | 628 824, 52 920, 160 824, 2 636 | not built |
+| `time` | 42 | 258 352, 15 728, 20 000, 1 796 | 269 892, 13 688, 21 228, 1 900 |
+| `log` | 108 | 326 436, 31 344, 40 232, 2 100 | 338 624, 29 304, 42 700, 2 188 |
+| All, `variant` | 456 | 652 076, 64 392, 168 288, 2 636 | not built |
+
+The `log` and `variant` rows were measured again on 2026-11-17, after the
+writer sink's three grown-buffer tests (`log.sinks.grown`) were added:
+their arena, output and message are 11 241 bytes of static storage, most
+of the 11 272 bytes of static RAM the `log` image gained (85 tests, 19 864
+bytes of static RAM and 32 704 of heap on `mps2/an385` before). The other
+images were unchanged.
+
+The `time`, `log` and `variant` rows were measured again later on
+2026-11-17, after the clock-taking conversions (one test) and a sink that
+lends its buffer ([ADR 0022](adr/0022-log-sink-lends-the-buffer.md), 20
+more tests in the image) were added. Before, `time` was 41 tests,
+257 108, 15 720, 19 496, 1 796 and 268 680, 13 680, 20 692, 1 900; `log`
+88 tests, 308 812, 31 136, 34 352, 2 508 and 320 752, 29 096, 36 452,
+2 712; `variant` 435 tests, 633 756, 64 176, 161 976, 2 636.
 
 `io` is the largest: about 68 KB of heap of the about 131 KB its static RAM
 leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
-`log` uses the most stack after `io`, 2 712 of 4 096 bytes on the
-Cortex-M0+: a log call formats its message in `LOG_MESSAGE_MAX` bytes of
-stack (128 here) under the test and GoogleTest's own frames. The image
+`log` uses the most stack after `io`, 2 188 of 4 096 bytes on the
+Cortex-M0+, most of it the tests' and GoogleTest's own frames. A log call
+has no message buffer of its own: summed by GCC's `-fstack-usage` for the
+Cortex-M0+ at `-Os`, the frames from `el_log_printf` down to the writer
+sink's operation are 160 bytes, against 296 when the message was
+formatted in 128 bytes of `el_log_printf`'s stack (2 712 bytes for the
+image then). `el_log_write`'s path grew instead, from 112 bytes to 192,
+because the message is copied into the sink's buffer in a frame of its
+own. The image
 with every test (`variant`, before M4 306 tests, 519 592 bytes of flash and
 116 432 of peak heap) no longer fits the Cortex-M0+ board's 147 456 bytes
 of RAM by a wide margin, which is what the per-module images are for.
@@ -714,16 +734,32 @@ The other libraries in the same build. `time` and `log` are M4's, measured
 
 | Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `log` |
 |---|---|---|---|---|---|---|---|---|
-| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 | 296 | 32 | 887 |
-| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 | 370 | 32 | 1 031 |
-| Application handler | 798 | 93 | 1 921 | 1 642 | 255 | 502 | 32 | 1 295 |
+| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 | 364 | 32 | 1 181 |
+| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 | 438 | 32 | 1 361 |
+| Application handler | 798 | 93 | 1 921 | 1 642 | 255 | 570 | 32 | 1 651 |
 
 `time` is the front functions, the two conversions, and the manual clock,
 each its own object; the conversions are most of it, because they divide
 and multiply 64-bit values without the compiler's helpers. `log` is the
 logger, the printf call site, the writer sink, and the memory sink, each
 its own object, so a program that logs to one kind of sink links the
-other's code only if it uses it.
+other's code only if it uses it. Measured again on 2026-11-17, when the
+writer sink came to borrow its line buffer: 2 bytes larger with
+assertions off, 6 with the trap and 8 with the handler (887, 1 031 and
+1 295 before), for the check of the borrowed pointer and a newline that
+is now appended before it is cut to fit. The other libraries measured the
+same.
+
+Measured again later on 2026-11-17, after the clock-taking conversions
+and a sink that lends its buffer
+([ADR 0022](adr/0022-log-sink-lends-the-buffer.md)). `time` grew by 68
+bytes in every configuration (296, 370 and 502 before), for the two
+conversions in a clock's own unit. `log` grew by 292, 324 and 348 bytes
+(889, 1 037 and 1 303 before): each sink has two operations, the writer sink keeps
+where its line's start ends, the memory sink lends its storage through
+an `el_buf`, and the begin, append and end steps are shared by
+`el_log_write`, `el_log_sink_write` and `el_log_vprintf`. The other
+libraries measured the same.
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
@@ -746,7 +782,7 @@ the application without tests in each configuration.
 
 ## What is verified
 
-On one x86-64 Linux machine, 2026-11-16. "Passed" means the command was run
+On one x86-64 Linux machine, 2026-11-17. "Passed" means the command was run
 and exited successfully.
 
 | Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
@@ -777,33 +813,32 @@ and exited successfully.
 | crc, fmt: every option the compiler can select (`integration.choices`) | passed: 4-bit, 8-bit, builtin; both printf options | passed: 4-bit, 8-bit; both printf options | passed: 4-bit, 8-bit; both printf options | n/a | n/a | n/a | n/a |
 | crc: Zephyr's `sys/crc.h` (`CRC_ZEPHYR`) | n/a | n/a | n/a | not run | passed, `elemental.tests.crc_zephyr` | not run | n/a |
 | bytes: byte swap, bit counting, rotate, bit fields, and alignment, builtins and portable code | passed | passed | passed | passed (portable: 32-bit x86) | passed (CLZ builtin, portable popcount) | passed (per module) | not run |
-| time: conversions at their edges and against division; the front functions; the manual clock | passed | passed | passed | passed | passed | passed (per module) | not run |
+| time: conversions at their edges and against division, and in a clock's own unit; the front functions; the manual clock | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Clock contract suite: manual clock; stepping clock example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Clock contract suite and platform tests: POSIX (`time_posix`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Clock contract suite and platform tests: the Zephyr kernel's uptime (`time_zephyr`) | n/a | n/a | n/a | passed, 100 ticks per second | passed, 100 ticks per second | passed (per module), 10 000 ticks per second | not run |
-| log: the logger and the printf call site; a file compiled with `EL_LOG_CUTOFF`; the writer sink's line and the memory sink's storage | passed | passed | passed | passed | passed | passed (per module) | not run |
+| log: the logger and the printf call site, formatting into the buffer the sink lends; a file compiled with `EL_LOG_CUTOFF`; the writer sink's line, over fixed and grown buffers, and the memory sink's storage | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Log sink contract suite: memory sink, writer sink over an `el_buf`, tee example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | log: two sinks in one program, one of them a POSIX descriptor (`log.posix`); `el_cat` logging to standard error (`integration.installed`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | log: `EL_LOG_CUTOFF` removes the call and its format string from the object, C11 and C++17, `-O0` and `-Os` (`log.cutoff_check.*`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
-| log: `LOG_MESSAGE_MAX=48` (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
 | Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
 
-The hosted presets run 577 GoogleTest tests, of which 35 are reported as
+The hosted presets run 603 GoogleTest tests, of which 35 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite),
 [time](../modules/time/README.md#the-contract-suite),
 [log](../modules/log/README.md#the-contract-suite)), plus the interop
 and integration cases, two format-attribute, six must-use and twenty-four
-log cut-off compile checks, and the `EL_NODISCARD` declaration check: 622
-CTest tests in all. `sanitize` runs 627: its `variant_defconfig` adds
+log cut-off compile checks, and the `EL_NODISCARD` declaration check: 648
+CTest tests in all. `sanitize` runs 653: its `variant_defconfig` adds
 `fmt.libc` and the libc option's violations, and the two Rust sketches are
 skipped under sanitizers because a plain `rustc` link has no sanitizer
-runtime. `assert-off` runs 552: 622 less the 70 tests of the
+runtime. `assert-off` runs 576: 648 less the 72 tests of the
 `*.violations` binaries, which are not built without assertions.
 
 `integration.module_subsets` builds each module and backend alone, except
@@ -811,20 +846,20 @@ runtime. `assert-off` runs 552: 622 less the 70 tests of the
 fact (`PLATFORM_ZEPHYR`) hides it, the only reason the case accepts, and
 its own platform's tests cover it.
 
-The Zephyr tests are 424 GoogleTest tests: the hosted ones without the
+The Zephyr tests are 448 GoogleTest tests: the hosted ones without the
 POSIX and C library backends', the death tests, and the host-only
 `fmt.oracle`, `bytes.portable` and `log.posix`, and with the nine of
-`time_zephyr`, which run only there; 432 in the `variant` scenario, with
-`fmt.libc`. Twister (2026-11-16, M4) reports 28 test configurations passed
+`time_zephyr`, which run only there; 456 in the `variant` scenario, with
+`fmt.libc`. Twister (2026-11-17) reports 28 test configurations passed
 and `elemental.symbols.armv6m` built, with no warnings:
 
 - `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
   `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
   same on each board: `status` 17 and 0, `alloc` 55 and 3, `io` 128 and
-  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0, `time` 39 and 2,
-  `log` 83 and 2 (424 together);
-- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 400 passed
-  and 24 skipped, `variant` 407 and 25 (`fmt.libc`'s float test skipped at
+  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0, `time` 40 and 2,
+  `log` 106 and 2 (448 together);
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 424 passed
+  and 24 skipped, `variant` 431 and 25 (`fmt.libc`'s float test skipped at
   picolibc's integer level);
 - the `fmt` image with `variant_defconfig` on `nucleo_g0b1re_renode`
   (`elemental.tests.fmt.variant`): 39 passed and 1 skipped, the same float
@@ -939,6 +974,29 @@ Additionally, each run once by hand and not part of the automated suite:
   storage that its prefix already reports. Two more first survived for
   want of a test, which was added: a null message through a sink that does
   not read it, and a tee whose two sinks fail differently.
+- Five deliberately broken variants of the writer sink once it borrowed
+  its line buffer (2026-11-17), all caught: the message cut to the room
+  before the buffer is asked to grow, the old newline rule (no room left
+  means a line too long), a newline appended without dropping the last
+  byte, no check of a null line buffer, and a message cut for want of an
+  allocator reported as `EL_OK`. The last is caught only by
+  `log.sinks.grown`: over fixed storage a cut message leaves no room for
+  the newline, which reports the cut anyway.
+- Sixteen deliberately broken variants once a sink lent the buffer for a
+  record's message ([ADR 0022](adr/0022-log-sink-lends-the-buffer.md),
+  2026-11-17), fifteen caught by a test: `el_log_vprintf` reporting a cut
+  message as whole, and formatting when the sink did not begin the
+  record; a message taken from the start of the lent buffer instead of
+  after the sink's own bytes; `el_log_sink_write` without its cut at a
+  byte, and reporting a cut message as whole; a memory sink that keeps a
+  cut message, and one that does not count a record it could not begin;
+  a writer sink that ignores a cut message, keeps a message after a cut
+  start of the line, and does not empty its line when it begins; no check
+  for a missing `end` operation; a tee that reports a cut message as
+  taken; and the two clock-taking conversions using a fixed frequency.
+  The one that survived, no check that a sink lent a buffer, duplicated
+  `el_buf_len()`'s own null check, which still stops such a sink, and was
+  removed rather than tested.
 - Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in

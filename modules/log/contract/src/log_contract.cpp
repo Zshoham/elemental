@@ -5,6 +5,8 @@
  */
 #include <elemental/log_contract.hpp>
 
+#include <elemental/log_printf.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <ostream>
@@ -44,6 +46,21 @@ el_log_record Record(const char *message, size_t len)
     record.len = len;
     return record;
 }
+
+/* A clock that always reads 1.5 s: for a logger in front of the sink. */
+el_ticks FixedNow(void *ctx)
+{
+    (void)ctx;
+    return 1500;
+}
+
+uint32_t FixedTicksPerSecond(void *ctx)
+{
+    (void)ctx;
+    return 1000;
+}
+
+const el_clock_ops kFixedClockOps = {FixedNow, FixedTicksPerSecond};
 
 /* One test's view of the sink under test. */
 class Harness
@@ -316,4 +333,27 @@ TEST_P(ElLogContract, RefusesARecordItCannotTakeAndKeepsTheOnesItTook)
                 << "record " << i << " of a sink with room for " << room;
         }
     }
+}
+
+TEST_P(ElLogContract, DeliversAMessageFormattedIntoItsBuffer)
+{
+    Harness h(GetParam());
+    const el_log_sink sink = h.Open();
+    el_logger log;
+    el_logger_init(&log, sink, el_clock{nullptr, &kFixedClockOps}, EL_LOG_CONTRACT_TAG,
+                   EL_LOG_LEVEL_DEBUG);
+
+    /* Through the logger's printf, which formats the message straight into
+     * the buffer the sink lends: in pieces, a record after another. */
+    const std::string word = Message(kMessageMax / 2, 7);
+    el_log_printf(&log, EL_LOG_LEVEL_INFO, "%s", word.c_str());
+    el_log_printf(&log, EL_LOG_LEVEL_WARN, "%s-%d-%s", "a", 42, "b");
+    el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s", "");
+    el_log_write(&log, EL_LOG_LEVEL_DEBUG, word.data(), 3);
+
+    ASSERT_EQ(h.Delivered(), 4u);
+    EXPECT_EQ(h.DeliveredMessage(0), word);
+    EXPECT_EQ(h.DeliveredMessage(1), "a-42-b");
+    EXPECT_EQ(h.DeliveredMessage(2), "");
+    EXPECT_EQ(h.DeliveredMessage(3), word.substr(0, 3));
 }

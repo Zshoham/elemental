@@ -11,17 +11,3 @@ config LOG
 	  that writes text lines to an el_writer, and one that keeps records
 	  in caller-provided memory; and the contract test suite for sinks.
 	  Elemental's own modules never log.
-
-config LOG_MESSAGE_MAX
-	int "Longest message el_log_printf() formats, in bytes"
-	default 128
-	range 16 1024
-	depends on LOG
-	help
-	  el_log_printf() and the EL_LOG_* macros format a message into this
-	  many bytes on their own stack before the sink sees it, and cut a
-	  longer one. Lower it for threads with small stacks; raise it for an
-	  application that logs long lines. It changes how long a message
-	  may be and how much stack a log call uses, never a type or a
-	  signature. A message given to el_log_write() directly is not
-	  limited by it.

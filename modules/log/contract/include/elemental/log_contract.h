@@ -47,7 +47,7 @@ extern "C" {
  * The suite uses one sink at a time. Before asking for a new one it calls
  * `reset`, which must release whatever the previous request created and
  * forget what was delivered. `ctx` is passed back to every function
- * unchanged. A record counts as delivered once the sink's write returned
+ * unchanged. A record counts as delivered once the sink's end returned
  * EL_OK for it; `index` 0 is the first one delivered.
  */
 typedef struct el_log_contract_fixture {
@@ -60,7 +60,8 @@ typedef struct el_log_contract_fixture {
 
     /*
      * Required. A sink that takes at least EL_LOG_CONTRACT_RECORDS_MAX
-     * records of up to EL_LOG_CONTRACT_MESSAGE_MAX bytes each.
+     * records of up to EL_LOG_CONTRACT_MESSAGE_MAX bytes each, and lends a
+     * buffer that holds such a message whole.
      */
     el_log_sink (*sink)(void *ctx);
 

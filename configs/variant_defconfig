@@ -9,6 +9,3 @@ EL_CONFIG_ASSERT_HANDLER_APPLICATION=y
 EL_CONFIG_CRC_TABLE_8BIT=y
 # printf accepts the C library's conversions beyond the portable subset.
 EL_CONFIG_FMT_PRINTF_LIBC=y
-# Not a choice, but a number with one default: log messages are cut at 48
-# bytes instead of 128, so the limit that is tested is the configured one.
-EL_CONFIG_LOG_MESSAGE_MAX=48

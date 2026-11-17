@@ -4,17 +4,7 @@ elemental_add_test(log.contract.sinks
   LIBRARIES elemental::log_contract)
 
 # The logger and the printf call site: when a record is made, what it
-# holds, when the clock is read. The printf tests are told the configured
-# message limit; on Zephyr the sources are compiled into the image's target,
-# which is defined in another directory.
-set(log_unit_properties COMPILE_DEFINITIONS "EL_TEST_LOG_MESSAGE_MAX=${EL_CONFIG_LOG_MESSAGE_MAX}")
-if(ELEMENTAL_TEST_IMAGE)
-  set_source_files_properties(log_unit_test.cpp
-    TARGET_DIRECTORY ${ELEMENTAL_TEST_IMAGE}
-    PROPERTIES ${log_unit_properties})
-else()
-  set_source_files_properties(log_unit_test.cpp PROPERTIES ${log_unit_properties})
-endif()
+# holds, when the clock is read, how a message reaches the sink's buffer.
 elemental_add_test(log.unit
   SOURCES log_unit_test.cpp log_cutoff_test.cpp log_support.c
   LIBRARIES elemental::log)
@@ -23,6 +13,14 @@ elemental_add_test(log.unit
 elemental_add_test(log.sinks
   SOURCES log_sinks_test.cpp log_support.c
   LIBRARIES elemental::log)
+
+# The writer sink over grown storage: a line as long as the allocator
+# allows.
+if(EL_CONFIG_IO_ALLOC)
+  elemental_add_test(log.sinks.grown
+    SOURCES log_writer_grown_test.cpp
+    LIBRARIES elemental::log elemental::alloc)
+endif()
 
 # Two sinks in one program, one of them a POSIX descriptor.
 if(EL_CONFIG_IO_POSIX AND EL_CONFIG_TIME_POSIX)

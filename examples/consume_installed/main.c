@@ -58,9 +58,11 @@ int main(void)
 
     /* Where log records go, how one becomes a line, and whose they are:
      * each is the application's to decide, in storage it provides. */
-    char line[160];
+    char line_storage[160];
+    el_buf line;
+    el_buf_init(&line, line_storage, sizeof(line_storage));
     el_log_writer_sink sink;
-    el_log_writer_sink_init(&sink, el_posix_fd_as_writer(&err), line, sizeof(line));
+    el_log_writer_sink_init(&sink, el_posix_fd_as_writer(&err), &line);
     el_logger log;
     el_logger_init(&log, el_log_writer_sink_as_sink(&sink), el_posix_clock(), "el_cat",
                    EL_LOG_LEVEL_INFO);

@@ -26,13 +26,14 @@
 static char text_storage[EL_LOG_CONTRACT_RECORDS_MAX * LINE_MAX_LEN];
 static el_buf text;
 static char line_storage[LINE_MAX_LEN + 8u];
+static el_buf line_buf;
 static el_log_writer_sink writer_sink;
 
 static el_log_sink open_sink(size_t text_cap)
 {
     el_buf_init(&text, text_storage, text_cap);
-    el_log_writer_sink_init(&writer_sink, el_buf_as_writer(&text), line_storage,
-                            sizeof(line_storage));
+    el_buf_init(&line_buf, line_storage, sizeof(line_storage));
+    el_log_writer_sink_init(&writer_sink, el_buf_as_writer(&text), &line_buf);
     return el_log_writer_sink_as_sink(&writer_sink);
 }
 
