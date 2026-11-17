@@ -1,10 +1,12 @@
 /*
  * The logger, el_log_sink_write(), and the printf call site: what
  * elemental/log.h and elemental/log_printf.h promise about when a record is
- * made, what it holds, and when the clock is read.
+ * made, what it holds, when the clock is read, and how its message reaches
+ * the buffer the sink lends.
  */
 #include <gtest/gtest.h>
 
+#include <elemental/io_buf.h>
 #include <elemental/log.h>
 #include <elemental/log_printf.h>
 
@@ -94,7 +96,7 @@ TEST_F(ElLogger, ARecordCarriesTheLevelTheTagTheTimeAndTheMessage)
     EXPECT_EQ(sink.last_ctx, &sink);
 }
 
-TEST_F(ElLogger, TheTagIsPassedByPointerAndTheMessageAsGiven)
+TEST_F(ElLogger, TheTagIsPassedByPointerAndTheMessageIsCopiedIntoTheSinksBuffer)
 {
     static const char tag[] = "storage";
     el_logger_init(&log, recording_sink_as_sink(&sink), counting_clock_as_clock(&clock), tag,
@@ -103,9 +105,61 @@ TEST_F(ElLogger, TheTagIsPassedByPointerAndTheMessageAsGiven)
     el_log_write(&log, EL_LOG_LEVEL_DEBUG, message, 4);
 
     EXPECT_EQ(sink.last.tag, tag);
-    EXPECT_EQ(sink.last_message_pointer, message);
+    EXPECT_EQ(sink.last_message_pointer, sink.storage);
     /* A length, not a terminator, says where the message ends. */
     EXPECT_EQ(LastMessage(), "only");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ARecordIsBegunWithoutItsMessageAndEndedWithIt)
+{
+    clock.reading = 77;
+    el_log_write(&log, EL_LOG_LEVEL_WARN, "late", 4);
+
+    ASSERT_EQ(sink.begins, 1u);
+    EXPECT_EQ(sink.begun.message, nullptr);
+    EXPECT_EQ(sink.begun.len, 0u);
+    EXPECT_EQ(sink.begun.timestamp, 77u);
+    EXPECT_EQ(sink.begun.ticks_per_second, 1000u);
+    EXPECT_EQ(sink.begun.level, EL_LOG_LEVEL_WARN);
+    EXPECT_STREQ(sink.begun.tag, "net");
+
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(sink.last.timestamp, 77u);
+    EXPECT_EQ(sink.last.level, EL_LOG_LEVEL_WARN);
+    EXPECT_EQ(LastMessage(), "late");
+}
+
+TEST_F(ElLogger, AMessageLongerThanTheSinksBufferIsCutAtAByteAndTheSinkIsTold)
+{
+    recording_sink_set_capacity(&sink, 5);
+    el_log_write(&log, EL_LOG_LEVEL_ERROR, "0123456789", 10);
+
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(LastMessage(), "01234");
+    EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE);
+}
+
+TEST_F(ElLogger, AMessageThatFillsTheSinksBufferExactlyIsWhole)
+{
+    recording_sink_set_capacity(&sink, 5);
+    el_log_write(&log, EL_LOG_LEVEL_ERROR, "01234", 5);
+
+    EXPECT_EQ(LastMessage(), "01234");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ARecordTheSinkDoesNotBeginIsLostAndNotEnded)
+{
+    sink.begin_answer = EL_ERR_IO;
+    el_log_write(&log, EL_LOG_LEVEL_ERROR, "lost", 4);
+    EXPECT_EQ(sink.begins, 1u);
+    EXPECT_EQ(sink.calls, 0u);
+
+    sink.begin_answer = EL_OK;
+    el_log_write(&log, EL_LOG_LEVEL_ERROR, "kept", 4);
+    EXPECT_EQ(sink.calls, 1u);
+    EXPECT_EQ(LastMessage(), "kept");
 }
 
 TEST_F(ElLogger, BelowItsMinimumNothingHappens)
@@ -240,12 +294,47 @@ TEST(ElLogSinkWrite, PassesTheRecordOnAndReturnsTheSinksStatus)
     EXPECT_STREQ(sink.last.tag, "tag");
     EXPECT_EQ(std::string(sink.message, sink.last.len), "bytes");
 
-    /* Elemental's codes and an application's own come back unchanged. */
+    /* The record is begun without its message, which goes into the
+     * sink's buffer. */
+    EXPECT_EQ(sink.begins, 1u);
+    EXPECT_EQ(sink.begun.message, nullptr);
+    EXPECT_EQ(sink.begun.len, 0u);
+    EXPECT_EQ(sink.begun.timestamp, UINT64_MAX);
+    EXPECT_EQ(sink.last_message_pointer, sink.storage);
+    EXPECT_EQ(sink.last_fit, EL_OK);
+
+    /* Elemental's codes and an application's own come back unchanged, from
+     * either operation. */
     const el_status statuses[] = {EL_ERR_WOULD_BLOCK, EL_ERR_IO, EL_ERR_NO_SPACE, -7};
     for (const el_status status : statuses) {
         sink.answer = status;
         EXPECT_EQ(el_log_sink_write(recording_sink_as_sink(&sink), &record), status);
+        sink.answer = EL_OK;
+        sink.begin_answer = status;
+        const unsigned ended = sink.calls;
+        EXPECT_EQ(el_log_sink_write(recording_sink_as_sink(&sink), &record), status);
+        EXPECT_EQ(sink.calls, ended) << "a record that was not begun is not ended";
+        sink.begin_answer = EL_OK;
     }
+}
+
+TEST(ElLogSinkWrite, AMessageTheBufferCannotTakeIsCutAndTheSinkIsTold)
+{
+    recording_sink sink;
+    recording_sink_init(&sink);
+    recording_sink_set_capacity(&sink, 3);
+    el_log_record record;
+    record.timestamp = 0;
+    record.ticks_per_second = 1;
+    record.level = EL_LOG_LEVEL_INFO;
+    record.tag = "";
+    record.message = "bytes";
+    record.len = 5;
+
+    EXPECT_EQ(el_log_sink_write(recording_sink_as_sink(&sink), &record), EL_OK)
+        << "the sink's own answer";
+    EXPECT_EQ(std::string(sink.message, sink.last.len), "byt");
+    EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE);
 }
 
 /* ---- The printf call site -------------------------------------------------- */
@@ -311,34 +400,88 @@ TEST_F(ElLogPrintf, BelowTheLoggersMinimumNothingIsFormatted)
     EXPECT_EQ(clock.now_calls, 0u);
 }
 
-TEST_F(ElLogPrintf, AMessageLongerThanTheLimitIsCutAndStillLogged)
+TEST_F(ElLogPrintf, IsFormattedStraightIntoTheSinksBuffer)
 {
-    const std::string filler(EL_TEST_LOG_MESSAGE_MAX + 100, 'x');
+    el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%d-%d", 1, 2);
+
+    EXPECT_EQ(sink.last_message_pointer, sink.storage) << "no copy on the way";
+    EXPECT_EQ(LastMessage(), "1-2");
+}
+
+TEST_F(ElLogPrintf, TheMessageFollowsWhatTheSinkAlreadyHasInItsBuffer)
+{
+    /* A sink that starts each record with bytes of its own, as the writer
+     * sink starts a line. */
+    char storage[32];
+    el_buf lent;
+    el_buf_init(&lent, storage, sizeof(storage));
+    ASSERT_EQ(el_buf_append(&lent, "pre:", 4), EL_OK);
+    sink.lend = &lent;
+
+    el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s", "msg");
+
+    EXPECT_EQ(sink.last_message_pointer, storage + 4);
+    EXPECT_EQ(LastMessage(), "msg");
+    EXPECT_EQ(std::string(storage, el_buf_len(&lent)), "pre:msg");
+}
+
+TEST_F(ElLogPrintf, AMessageLongerThanTheSinksBufferIsCutAndTheSinkIsTold)
+{
+    recording_sink_set_capacity(&sink, 16);
+    const std::string filler(100, 'x');
     el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s", filler.c_str());
 
     ASSERT_EQ(sink.calls, 1u);
-    EXPECT_EQ(sink.last.len, static_cast<size_t>(EL_TEST_LOG_MESSAGE_MAX));
-    EXPECT_EQ(LastMessage(), filler.substr(0, EL_TEST_LOG_MESSAGE_MAX));
+    EXPECT_EQ(LastMessage(), filler.substr(0, 16));
+    EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE);
 }
 
-TEST_F(ElLogPrintf, AMessageOfExactlyTheLimitIsWhole)
+TEST_F(ElLogPrintf, AMessageThatFillsTheSinksBufferExactlyIsWhole)
 {
-    const std::string filler(EL_TEST_LOG_MESSAGE_MAX, 'y');
+    recording_sink_set_capacity(&sink, 16);
+    const std::string filler(16, 'y');
     el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s", filler.c_str());
 
     ASSERT_EQ(sink.calls, 1u);
     EXPECT_EQ(LastMessage(), filler);
+    EXPECT_EQ(sink.last_fit, EL_OK);
 }
 
 TEST_F(ElLogPrintf, ANumberThatDoesNotFitIsLeftOutNotCut)
 {
     /* Two bytes of room for a five-digit number: by printf's item rule the
      * number is absent, and nothing follows it. */
-    const std::string filler(EL_TEST_LOG_MESSAGE_MAX - 2, 'z');
+    recording_sink_set_capacity(&sink, 16);
+    const std::string filler(14, 'z');
     el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s%d!", filler.c_str(), 12345);
 
     ASSERT_EQ(sink.calls, 1u);
     EXPECT_EQ(LastMessage(), filler);
+    EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE);
+}
+
+TEST_F(ElLogPrintf, NothingIsFormattedWhenTheSinkDoesNotBeginTheRecord)
+{
+    sink.begin_answer = EL_ERR_NO_SPACE;
+    /* A null %s is a contract violation if printf ever reads it. */
+    const char *volatile never_read = nullptr;
+    el_log_printf(&log, EL_LOG_LEVEL_ERROR, "%s", never_read);
+
+    EXPECT_EQ(sink.begins, 1u);
+    EXPECT_EQ(sink.calls, 0u);
+    EXPECT_EQ(clock.now_calls, 1u) << "the record was made, and is lost";
+}
+
+TEST_F(ElLogPrintf, ARecordIsBegunBeforeItsMessageIsFormatted)
+{
+    clock.reading = 9;
+    el_log_printf(&log, EL_LOG_LEVEL_WARN, "%u", 5u);
+
+    EXPECT_EQ(sink.begun.message, nullptr);
+    EXPECT_EQ(sink.begun.len, 0u);
+    EXPECT_EQ(sink.begun.timestamp, 9u);
+    EXPECT_EQ(sink.begun.level, EL_LOG_LEVEL_WARN);
+    EXPECT_EQ(LastMessage(), "5");
 }
 
 TEST_F(ElLogPrintf, AVaListWrapperLogsTheSame)

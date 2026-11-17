@@ -25,7 +25,9 @@
  *     wraps. A deadline is a reading, and it has passed when
  *     el_clock_now(clock) >= deadline.
  *   - Converting to or from a human unit is a function call, below, and is
- *     where the division is.
+ *     where the division is. With the clock at hand, the el_clock_ forms
+ *     read its frequency for you; a value that has left its clock, such as
+ *     a log record's timestamp, is converted with the frequency it carries.
  *
  * What is not here: wall time, calendars, time zones, and sleeping. Nothing
  * in this module waits.
@@ -111,8 +113,7 @@ uint32_t el_clock_ticks_per_second(el_clock clock);
  * The number of ticks that covers `ms` milliseconds, rounded up, so that a
  * timeout made from it never ends early:
  *
- *     const el_ticks deadline = el_clock_now(clock) +
- *         el_ticks_from_ms(250, el_clock_ticks_per_second(clock));
+ *     const el_ticks deadline = el_clock_now(clock) + el_clock_ticks_from_ms(clock, 250);
  *
  * `ticks_per_second` is at least 1. The result cannot overflow.
  */
@@ -128,6 +129,18 @@ el_ticks el_ticks_from_ms(uint32_t ms, uint32_t ticks_per_second);
  * `ticks_per_second` is at least 1. `us` is required and always written.
  */
 uint64_t el_ticks_to_seconds(el_ticks ticks, uint32_t ticks_per_second, uint32_t *us);
+
+/*
+ * The same two conversions in the unit of `clock`, whose frequency they
+ * read: el_ticks_from_ms(ms, el_clock_ticks_per_second(clock)), and the
+ * same for el_ticks_to_seconds(). Only a convenience; the frequency is
+ * read on every call, which costs one call through the clock's operations.
+ *
+ *     uint32_t us;
+ *     const uint64_t seconds = el_clock_ticks_to_seconds(clock, took, &us);
+ */
+el_ticks el_clock_ticks_from_ms(el_clock clock, uint32_t ms);
+uint64_t el_clock_ticks_to_seconds(el_clock clock, el_ticks ticks, uint32_t *us);
 
 #ifdef __cplusplus
 }

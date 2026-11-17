@@ -28,7 +28,8 @@ class ElLogPosix : public testing::Test
     {
         ASSERT_EQ(pipe(ends), 0);
         el_posix_fd_init(&out, ends[1]);
-        el_log_writer_sink_init(&shown, el_posix_fd_as_writer(&out), line, sizeof(line));
+        el_buf_init(&line, line_storage, sizeof(line_storage));
+        el_log_writer_sink_init(&shown, el_posix_fd_as_writer(&out), &line);
         el_log_mem_sink_init(&kept, storage, sizeof(storage));
         el_logger_init(&to_descriptor, el_log_writer_sink_as_sink(&shown), el_posix_clock(), "fd",
                        EL_LOG_LEVEL_INFO);
@@ -61,7 +62,8 @@ class ElLogPosix : public testing::Test
 
     int ends[2] = {-1, -1};
     el_posix_fd out;
-    char line[160];
+    char line_storage[160];
+    el_buf line;
     el_log_writer_sink shown;
     uint8_t storage[2048];
     el_log_mem_sink kept;

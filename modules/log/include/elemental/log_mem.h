@@ -8,8 +8,10 @@
  * and for looking at what was logged after the fact. (Lines of text in
  * memory are the writer sink over an el_buf: elemental/log_writer.h.)
  *
- * Records are kept until the sink is cleared. One that does not fit in the
- * storage that is left is not kept, in whole, and is counted as lost;
+ * Records are kept until the sink is cleared. A message is written
+ * straight into the storage, where it is kept (el_log_printf() formats it
+ * there), so the storage that is left is the only limit on its length. A
+ * record that does not fit is not kept, in whole, and is counted as lost;
  * nothing already kept is overwritten.
  *
  * Storage and ownership: the caller provides the object and the storage,
@@ -26,6 +28,7 @@
 #ifndef ELEMENTAL_LOG_MEM_H
 #define ELEMENTAL_LOG_MEM_H
 
+#include <elemental/io_buf.h>
 #include <elemental/log.h>
 
 #ifdef __cplusplus
@@ -37,6 +40,7 @@ typedef struct el_log_mem_sink {
     size_t cap;
     size_t len;
     size_t count;
+    el_buf message; /* lent for the record begun: the storage after its entry */
     uint32_t lost;
 } el_log_mem_sink;
 
@@ -54,11 +58,15 @@ size_t el_log_mem_sink_record_size(size_t message_len);
 void el_log_mem_sink_init(el_log_mem_sink *sink, void *storage, size_t cap);
 
 /*
- * A sink handle for `sink`. Its write returns:
+ * A sink handle for `sink`. Its begin lends the storage that is left after
+ * the record's own fields, and returns EL_ERR_NO_SPACE if not even those
+ * fit. Its end returns:
  *
  *   EL_OK             The record is kept.
- *   EL_ERR_NO_SPACE   It does not fit in what is left of the storage. It is
- *                     not kept, and counted as lost.
+ *   EL_ERR_NO_SPACE   Its message did not fit in what is left of the
+ *                     storage. It is not kept.
+ *
+ * Either EL_ERR_NO_SPACE counts the record as lost.
  */
 el_log_sink el_log_mem_sink_as_sink(el_log_mem_sink *sink);
 

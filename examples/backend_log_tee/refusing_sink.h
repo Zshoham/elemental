@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 /*
- * A sink whose write returns `status` for every record: EL_ERR_IO or
- * EL_ERR_END_OF_STREAM. It has no state.
+ * A sink that refuses every record when it begins, with `status`:
+ * EL_ERR_IO or EL_ERR_END_OF_STREAM. It has no state.
  */
 el_log_sink refusing_sink(el_status status);
 

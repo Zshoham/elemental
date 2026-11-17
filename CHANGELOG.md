@@ -180,3 +180,26 @@ First milestone: the project's foundation.
   to standard error, timed by `time_posix`, instead of calling `fprintf`.
   It now needs the package's `log` and `time_posix` components.
 - `configs/variant_defconfig` also sets `LOG_MESSAGE_MAX=48`.
+- `log`: `el_log_writer_sink_init(sink, out, line)` borrows the line buffer
+  as an `el_buf *`, fixed (`el_buf_init`) or grown (`el_grow_buf_init`),
+  in place of `(void *line_storage, size_t line_cap)`. The struct's `line`
+  field is now that pointer, and the sink is 16 bytes on a 32-bit target
+  instead of 28. A grown buffer lets a line be as long as its allocator
+  allows; `EL_ERR_NO_SPACE` now means fixed storage too small or an
+  allocator that refused. A null `line` is a contract violation; a sink
+  that loses every record is one over an `el_buf` with no storage.
+- `time`: `el_clock_ticks_from_ms(clock, ms)` and
+  `el_clock_ticks_to_seconds(clock, ticks, &us)`, the two conversions in a
+  clock's own unit, reading its frequency for the caller.
+- `log` (experimental, [ADR 0022](docs/adr/0022-log-sink-lends-the-buffer.md)):
+  a sink lends the buffer a record's message is written into.
+  `el_log_sink_ops` has two operations in place of `write`: `begin(ctx,
+  record, &message)` lends an `el_buf`, and `end(ctx, record, fit)` takes
+  the record with its message in that buffer and whether it was cut.
+  `el_log_printf` formats straight into the sink's buffer, with no buffer
+  of its own; a message the buffer cannot take whole is cut, and both
+  sinks count that record as lost (the writer sink still writes the cut
+  line). The Kconfig option `LOG_MESSAGE_MAX` is removed, and with it the
+  line in `configs/variant_defconfig`. `el_log_mem_sink` and
+  `el_log_writer_sink` have new fields; the tee example's
+  `tee_sink_init` takes a message buffer.

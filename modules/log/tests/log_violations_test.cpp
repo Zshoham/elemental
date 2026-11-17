@@ -81,8 +81,8 @@ class LogViolations : public testing::Test
         record.len = 1;
         el_log_mem_sink_init(&mem, storage, sizeof(storage));
         scripted_writer_init(&writer);
-        el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), line,
-                                sizeof(line));
+        el_buf_init(&line, line_storage, sizeof(line_storage));
+        el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), &line);
     }
 
     recording_sink recording;
@@ -94,7 +94,8 @@ class LogViolations : public testing::Test
     uint8_t storage[128];
     el_log_mem_sink mem;
     scripted_writer writer;
-    char line[64];
+    char line_storage[64];
+    el_buf line;
     el_log_writer_sink writer_sink;
 };
 
@@ -116,7 +117,8 @@ TEST_F(LogViolations, CorrectUseDoesNotTripACheck)
     EXPECT_EQ(el_log_sink_write(sink, &record), EL_OK);
     el_log_mem_sink_init(&mem, nullptr, 0);
     EXPECT_EQ(el_log_mem_sink_record_size(0) + 1, el_log_mem_sink_record_size(1));
-    el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), nullptr, 0);
+    el_buf_init(&line, nullptr, 0);
+    el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), &line);
     EXPECT_EQ(recording.calls, 3u);
 }
 
@@ -162,7 +164,19 @@ TEST_F(LogViolationsDeathTest, CallerSetsALoggerUpWithAClockThatWasNeverMade)
 TEST_F(LogViolationsDeathTest, CallerGivesASinkHandleThatWasNeverMade)
 {
     EXPECT_VIOLATION((void)el_log_sink_write(el_log_sink{nullptr, nullptr}, &record));
-    EXPECT_VIOLATION((void)el_log_sink_write(recording_sink_without_write(&recording), &record));
+    EXPECT_VIOLATION((void)el_log_sink_write(recording_sink_without_begin(&recording), &record));
+    EXPECT_VIOLATION((void)el_log_sink_write(recording_sink_without_end(&recording), &record));
+    EXPECT_VIOLATION(el_logger_init(&log, recording_sink_without_end(&recording), clock, "tag",
+                                    EL_LOG_LEVEL_INFO);
+                     el_log_write(&log, EL_LOG_LEVEL_INFO, "m", 1));
+}
+
+TEST_F(LogViolationsDeathTest, SinkBeginsARecordWithoutLendingABuffer)
+{
+    recording.lend = nullptr;
+    EXPECT_VIOLATION((void)el_log_sink_write(sink, &record));
+    EXPECT_VIOLATION(el_log_write(&log, EL_LOG_LEVEL_INFO, "m", 1));
+    EXPECT_VIOLATION(el_log_printf(&log, EL_LOG_LEVEL_INFO, "m"));
 }
 
 TEST_F(LogViolationsDeathTest, CallerGivesASinkARecordThatBreaksTheRecordsRules)
@@ -213,12 +227,17 @@ TEST_F(LogViolationsDeathTest, CallerReadsAMemorySinkRecordThatIsNotThere)
 TEST_F(LogViolationsDeathTest, CallerMisusesTheWriterSink)
 {
     const el_writer out = scripted_writer_as_writer(&writer);
-    EXPECT_VIOLATION(el_log_writer_sink_init(nullptr, out, line, sizeof(line)));
-    EXPECT_VIOLATION(
-        el_log_writer_sink_init(&writer_sink, el_writer{nullptr, nullptr}, line, sizeof(line)));
-    EXPECT_VIOLATION(el_log_writer_sink_init(&writer_sink, out, nullptr, 1));
+    EXPECT_VIOLATION(el_log_writer_sink_init(nullptr, out, &line));
+    EXPECT_VIOLATION(el_log_writer_sink_init(&writer_sink, el_writer{nullptr, nullptr}, &line));
     EXPECT_VIOLATION((void)el_log_writer_sink_as_sink(nullptr));
     EXPECT_VIOLATION((void)el_log_writer_sink_lost(nullptr));
+}
+
+TEST_F(LogViolationsDeathTest, CallerGivesTheWriterSinkNoLineBuffer)
+{
+    /* A sink with no storage is an el_buf with none, never a null one. */
+    EXPECT_VIOLATION(
+        el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), nullptr));
 }
 
 } // namespace

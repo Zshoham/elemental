@@ -7,6 +7,7 @@
 
 #include <elemental/log.h>
 #include <elemental/log_mem.h>
+#include <elemental/log_printf.h>
 #include <elemental/log_writer.h>
 
 #include <cstddef>
@@ -38,13 +39,15 @@ class ElLogWriterSink : public testing::Test
     void SetUp() override
     {
         scripted_writer_init(&writer);
-        Open(sizeof(line));
+        Open(sizeof(line_storage));
     }
 
-    /* A sink over the scripted writer with `line_cap` bytes of line storage. */
+    /* A sink over the scripted writer, its line in `line_cap` bytes of
+     * fixed storage. */
     void Open(size_t line_cap)
     {
-        el_log_writer_sink_init(&sink, scripted_writer_as_writer(&writer), line, line_cap);
+        el_buf_init(&line, line_storage, line_cap);
+        el_log_writer_sink_init(&sink, scripted_writer_as_writer(&writer), &line);
         handle = el_log_writer_sink_as_sink(&sink);
     }
 
@@ -57,13 +60,14 @@ class ElLogWriterSink : public testing::Test
     std::string LineOf(const el_log_record &record)
     {
         scripted_writer_init(&writer);
-        Open(sizeof(line));
+        Open(sizeof(line_storage));
         EXPECT_EQ(el_log_sink_write(handle, &record), EL_OK);
         return Written();
     }
 
     scripted_writer writer;
-    char line[200];
+    char line_storage[200];
+    el_buf line;
     el_log_writer_sink sink;
     el_log_sink handle;
 };
@@ -223,7 +227,8 @@ TEST_F(ElLogWriterSink, StorageTooSmallForThePrefixStillEndsEachLine)
 
 TEST_F(ElLogWriterSink, WithNoStorageEveryRecordIsLostAndNothingIsWritten)
 {
-    el_log_writer_sink_init(&sink, scripted_writer_as_writer(&writer), nullptr, 0);
+    el_buf_init(&line, nullptr, 0);
+    el_log_writer_sink_init(&sink, scripted_writer_as_writer(&writer), &line);
     handle = el_log_writer_sink_as_sink(&sink);
     const el_log_record record = Record(1, 1, EL_LOG_LEVEL_WARN, "t", "m");
 
@@ -241,7 +246,7 @@ TEST_F(ElLogWriterSink, AFailingWritersStatusComesBackAndTheRecordCountsAsLost)
     const el_status failures[] = {EL_ERR_IO, EL_ERR_END_OF_STREAM, EL_ERR_NO_SPACE, -5};
     for (const el_status failure : failures) {
         scripted_writer_init(&writer);
-        Open(sizeof(line));
+        Open(sizeof(line_storage));
         writer.fail_after = 5;
         writer.failure = failure;
 
@@ -285,6 +290,56 @@ TEST_F(ElLogWriterSink, LostCountsEveryRecordThatDidNotGoOutWhole)
     /* Setting the sink up again starts the count over. */
     Open(32);
     EXPECT_EQ(el_log_writer_sink_lost(&sink), 0u);
+}
+
+TEST_F(ElLogWriterSink, APrintfMessageIsFormattedIntoTheLineAfterItsStart)
+{
+    counting_clock clock;
+    counting_clock_init(&clock, 1000);
+    clock.reading = 1500;
+    el_logger log;
+    el_logger_init(&log, handle, counting_clock_as_clock(&clock), "net", EL_LOG_LEVEL_DEBUG);
+
+    EL_LOG_WARN(&log, "%s did not answer, attempt %d of %d", "10.0.0.7", 2, 3);
+    EXPECT_EQ(Written(), "[     1.500000] W net: 10.0.0.7 did not answer, attempt 2 of 3\n");
+    EXPECT_EQ(writer.calls, 1u);
+    EXPECT_EQ(el_log_writer_sink_lost(&sink), 0u);
+}
+
+TEST_F(ElLogWriterSink, APrintfMessageCutByTheLineGoesOutCutAndCountsAsLost)
+{
+    counting_clock clock;
+    counting_clock_init(&clock, 1);
+    el_logger log;
+    el_logger_init(&log, handle, counting_clock_as_clock(&clock), "t", EL_LOG_LEVEL_DEBUG);
+    const std::string whole = "[     0.000000] I t: 0123456789\n";
+
+    Open(whole.size() - 4);
+    EL_LOG_INFO(&log, "%s", "0123456789");
+    EXPECT_EQ(Written(), whole.substr(0, whole.size() - 5) + "\n");
+    EXPECT_EQ(el_log_writer_sink_lost(&sink), 1u);
+
+    /* A number that does not fit is left out, not cut. */
+    scripted_writer_init(&writer);
+    Open(whole.size() - 4);
+    EL_LOG_INFO(&log, "%s%d", "012345", 6789);
+    EXPECT_EQ(Written(), "[     0.000000] I t: 012345\n");
+    EXPECT_EQ(el_log_writer_sink_lost(&sink), 1u);
+}
+
+TEST_F(ElLogWriterSink, APrintfMessageAfterACutStartOfTheLineIsLeftOut)
+{
+    counting_clock clock;
+    counting_clock_init(&clock, 1);
+    el_logger log;
+    el_logger_init(&log, handle, counting_clock_as_clock(&clock), "", EL_LOG_LEVEL_DEBUG);
+
+    /* Room for "[" and three bytes, not for the seconds: the message would
+     * fit in what is left, but nothing follows a cut item. */
+    Open(4);
+    EL_LOG_INFO(&log, "%s", "ab");
+    EXPECT_EQ(Written(), "[\n");
+    EXPECT_EQ(el_log_writer_sink_lost(&sink), 1u);
 }
 
 /* ---- The memory sink ------------------------------------------------------ */
@@ -406,6 +461,49 @@ TEST_F(ElLogMemSink, ClearForgetsTheRecordsAndTheLostCountAndKeepsTheStorage)
 
     EXPECT_EQ(Write("abcd"), EL_OK);
     EXPECT_EQ(MessageAt(0), "abcd");
+}
+
+TEST_F(ElLogMemSink, APrintfMessageIsFormattedWhereItIsKept)
+{
+    counting_clock clock;
+    counting_clock_init(&clock, 1000);
+    clock.reading = 3;
+    el_logger log;
+    el_logger_init(&log, handle, counting_clock_as_clock(&clock), "mem", EL_LOG_LEVEL_DEBUG);
+
+    EL_LOG_ERROR(&log, "%d of %d", 1, 2);
+    EL_LOG_INFO(&log, "%s", "second");
+
+    ASSERT_EQ(el_log_mem_sink_count(&sink), 2u);
+    el_log_record record;
+    el_log_mem_sink_get(&sink, 0, &record);
+    EXPECT_EQ(std::string(record.message, record.len), "1 of 2");
+    EXPECT_EQ(record.level, EL_LOG_LEVEL_ERROR);
+    EXPECT_EQ(record.timestamp, 3u);
+    /* Right after its own fields: kept where it was formatted. */
+    EXPECT_EQ(reinterpret_cast<const uint8_t *>(record.message),
+              storage + el_log_mem_sink_record_size(0));
+    EXPECT_EQ(MessageAt(1), "second");
+}
+
+TEST_F(ElLogMemSink, APrintfMessageThatDoesNotFitIsLostWhole)
+{
+    Open(storage, el_log_mem_sink_record_size(4) + el_log_mem_sink_record_size(6) - 1);
+    counting_clock clock;
+    counting_clock_init(&clock, 1000);
+    el_logger log;
+    el_logger_init(&log, handle, counting_clock_as_clock(&clock), "mem", EL_LOG_LEVEL_DEBUG);
+
+    EL_LOG_INFO(&log, "%d", 1234);
+    EL_LOG_INFO(&log, "%d", 123456);
+    EXPECT_EQ(el_log_mem_sink_count(&sink), 1u);
+    EXPECT_EQ(el_log_mem_sink_lost(&sink), 1u);
+
+    /* Nothing was used up by the one that was lost. */
+    EL_LOG_INFO(&log, "%d", 12345);
+    ASSERT_EQ(el_log_mem_sink_count(&sink), 2u);
+    EXPECT_EQ(MessageAt(0), "1234");
+    EXPECT_EQ(MessageAt(1), "12345");
 }
 
 TEST_F(ElLogMemSink, WorksInStorageOfAnyAlignment)

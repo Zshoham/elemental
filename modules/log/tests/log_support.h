@@ -14,23 +14,36 @@ extern "C" {
 
 /*
  * A sink that answers what the test tells it to and remembers how it was
- * called: the last record, a copy of its message, and what pointer the
- * message was.
+ * called: the record as begin saw it, the last record ended, a copy of its
+ * message, where the message was, and whether it came cut. It lends `lend`,
+ * which is its own buffer unless the test changes it; the buffer's
+ * capacity is the test's to set.
  */
 typedef struct recording_sink {
+    el_status begin_answer;
     el_status answer;
-    unsigned calls;
+    unsigned begins;
+    unsigned calls; /* ends */
+    el_log_record begun;
     el_log_record last;
     const char *last_message_pointer;
-    char message[1200];
+    el_status last_fit;
+    char message[256];
     void *last_ctx;
+    el_buf buf;
+    el_buf *lend;
+    char storage[256];
 } recording_sink;
 
+/* Its buffer is all of `storage`. */
 void recording_sink_init(recording_sink *sink);
+/* Its buffer is the first `cap` bytes of `storage`, emptied. */
+void recording_sink_set_capacity(recording_sink *sink, size_t cap);
 el_log_sink recording_sink_as_sink(recording_sink *sink);
 
-/* Handles that were not made properly. */
-el_log_sink recording_sink_without_write(recording_sink *sink);
+/* Handles that were not made properly: an operation missing. */
+el_log_sink recording_sink_without_begin(recording_sink *sink);
+el_log_sink recording_sink_without_end(recording_sink *sink);
 
 /* A clock that reads what the test wrote into it and counts its readers. */
 typedef struct counting_clock {

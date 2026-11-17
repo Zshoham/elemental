@@ -4,6 +4,8 @@
 #include <elemental/io_buf.h>
 #include <elemental/log_printf.h>
 
+#include "log_private.h"
+
 void el_log_vprintf(const el_logger *logger, el_log_level level, const char *format, va_list args)
 {
     EL_ASSERT(logger != NULL);
@@ -13,12 +15,19 @@ void el_log_vprintf(const el_logger *logger, el_log_level level, const char *for
         return;
     }
 
-    char storage[EL_CONFIG_LOG_MESSAGE_MAX];
-    el_buf message;
-    el_buf_init(&message, storage, sizeof(storage));
-    /* EL_ERR_NO_SPACE: the message was cut to fit, and is logged cut. */
-    el_status_ignore(el_fmt_vprintf(&message, format, args));
-    el_log_write(logger, level, storage, el_buf_len(&message));
+    el_log_record record;
+    el_log_record_start_(logger, level, &record);
+    el_buf *message;
+    size_t start;
+    if (el_log_sink_begin_(logger->sink, &record, &message, &start) != EL_OK) {
+        /* Lost, and counted by the sink: nothing is formatted. */
+        return;
+    }
+    /* Straight into the sink's buffer. EL_ERR_NO_SPACE: it did not fit, and
+     * the sink is told that the message is cut. */
+    const el_status fit = el_fmt_vprintf(message, format, args);
+    /* A record the sink does not take is lost, and the sink counts it. */
+    el_status_ignore(el_log_sink_end_(logger->sink, &record, message, start, fit));
 }
 
 void el_log_printf(const el_logger *logger, el_log_level level, const char *format, ...)

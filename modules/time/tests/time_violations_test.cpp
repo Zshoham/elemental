@@ -83,6 +83,8 @@ TEST_F(TimeViolations, CorrectUseDoesNotTripACheck)
     EXPECT_EQ(el_ticks_from_ms(0, 1), 0u);
     EXPECT_EQ(el_ticks_to_seconds(0, 1, &us), 0u);
     EXPECT_EQ(el_ticks_to_seconds(UINT64_MAX, UINT32_MAX, &us), UINT64_MAX / UINT32_MAX);
+    EXPECT_EQ(el_clock_ticks_from_ms(scripted_clock_as_clock(&scripted), 1), 1u);
+    EXPECT_EQ(el_clock_ticks_to_seconds(scripted_clock_as_clock(&scripted), 1000, &us), 1u);
     scripted.ticks_per_second = 1;
     EXPECT_EQ(el_clock_ticks_per_second(scripted_clock_as_clock(&scripted)), 1u);
     el_manual_clock_init(&manual, 1);
@@ -98,6 +100,9 @@ TEST_F(TimeViolationsDeathTest, CallerUsesAHandleThatWasNeverMade)
     EXPECT_VIOLATION((void)el_clock_now(scripted_clock_without_now(&scripted)));
     EXPECT_VIOLATION(
         (void)el_clock_ticks_per_second(scripted_clock_without_ticks_per_second(&scripted)));
+    uint32_t us;
+    EXPECT_VIOLATION((void)el_clock_ticks_from_ms(el_clock{nullptr, nullptr}, 1));
+    EXPECT_VIOLATION((void)el_clock_ticks_to_seconds(el_clock{nullptr, nullptr}, 1, &us));
 }
 
 TEST_F(TimeViolationsDeathTest, ClockStatesAFrequencyOfZero)
@@ -116,6 +121,8 @@ TEST_F(TimeViolationsDeathTest, CallerConvertsWithAFrequencyOfZero)
 TEST_F(TimeViolationsDeathTest, CallerPassesANullOutputParameter)
 {
     EXPECT_VIOLATION((void)el_ticks_to_seconds(1, 1000, nullptr));
+    EXPECT_VIOLATION(
+        (void)el_clock_ticks_to_seconds(scripted_clock_as_clock(&scripted), 1, nullptr));
 }
 
 TEST_F(TimeViolationsDeathTest, CallerPassesANullManualClock)

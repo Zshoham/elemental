@@ -2,8 +2,9 @@
  * elemental/log_printf.h - the C call site: printf-style logging, and the
  * compile-time cut-off.
  *
- * A convenience for C and C++ callers, layered on el_log_write()
- * (elemental/log.h) and el_fmt_vprintf() (elemental/fmt_printf.h). Bindings
+ * A convenience for C and C++ callers, layered on the logger and its
+ * sink's operations (elemental/log.h) and el_fmt_vprintf()
+ * (elemental/fmt_printf.h). Bindings
  * to other languages call el_log_write() instead: a variadic function
  * cannot be called portably through a C ABI (docs/conventions.md, "ABI",
  * rule 5).
@@ -16,12 +17,15 @@
  * Formats: what el_fmt_printf() accepts in this build, checked by the
  * compiler where it can check a format.
  *
- * Message length: a message is formatted on the stack of el_log_vprintf(),
- * in LOG_MESSAGE_MAX bytes (a Kconfig option of the library, 128 by
- * default), and one that is longer is cut by printf's item rule
+ * Message length: a message is formatted straight into the buffer the
+ * logger's sink lends (elemental/log.h), after whatever the sink put there
+ * first. A log call has no buffer of its own and adds no limit: a sink over
+ * a grown buffer takes a message as long as its allocator allows. One that
+ * does not fit is cut by printf's item rule
  * (docs/adr/0015-formatting-into-io-buffers.md): a number is whole or
- * absent, text is cut at a byte. The cut message is logged. That buffer is
- * also the stack a log call needs beyond the sink's own.
+ * absent, text is cut at a byte. The sink is told it is cut, and decides:
+ * the writer sink writes the cut line, the memory sink keeps nothing, and
+ * both count the record as lost.
  *
  * The cut-off (docs/adr/0021-log-cutoff.md). EL_LOG_CUTOFF is a macro the
  * consumer may define, for a target or for one file, before this header is
@@ -62,9 +66,10 @@ extern "C" {
 #endif
 
 /*
- * Format a message as el_fmt_printf() does, and log it at `level` (below
- * EL_LOG_LEVEL_OFF). If `level` is below the logger's minimum, nothing is
- * formatted and no argument is read.
+ * Format a message as el_fmt_printf() does, into the buffer the logger's
+ * sink lends, and log it at `level` (below EL_LOG_LEVEL_OFF). If `level` is
+ * below the logger's minimum, or the sink does not begin the record,
+ * nothing is formatted and no argument is read.
  */
 void el_log_printf(const el_logger *logger, el_log_level level, const char *format, ...)
     EL_FMT_PRINTF_CHECK(3, 4);

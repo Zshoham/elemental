@@ -18,6 +18,7 @@ POSIX and Zephyr, and a contract suite for clocks.
 |---|---|---|
 | `el_ticks`, `el_clock`, `el_clock_now`, `el_clock_ticks_per_second` | Interface contract | [`elemental/time.h`](include/elemental/time.h) |
 | `el_ticks_from_ms`, `el_ticks_to_seconds` | Pure functions | the same |
+| `el_clock_ticks_from_ms`, `el_clock_ticks_to_seconds` | The same conversions, in a clock's own unit | the same |
 | `el_manual_clock` | Portable implementation | [`elemental/time_manual.h`](include/elemental/time_manual.h) |
 | The clock contract suite | GoogleTest tests, shipped as source | [`elemental/time_contract.hpp`](contract/include/elemental/time_contract.hpp), fixture in [`elemental/time_contract.h`](contract/include/elemental/time_contract.h) |
 | `el_posix_clock` | Platform backend | [`elemental/time_posix.h`](backends/posix/include/elemental/time_posix.h), [PORT.md](backends/posix/PORT.md) |
@@ -40,7 +41,7 @@ const el_ticks start = el_clock_now(clock);
 const el_ticks took = el_clock_now(clock) - start;
 
 uint32_t us;
-const uint64_t seconds = el_ticks_to_seconds(took, el_clock_ticks_per_second(clock), &us);
+const uint64_t seconds = el_clock_ticks_to_seconds(clock, took, &us);
 ```
 
 A reading is a 64-bit count of the clock's ticks. Readings of one clock
@@ -48,8 +49,7 @@ compare and subtract as plain integers: the clock never goes back and the
 count does not wrap. A deadline is a reading:
 
 ```c
-const el_ticks deadline =
-    el_clock_now(clock) + el_ticks_from_ms(250, el_clock_ticks_per_second(clock));
+const el_ticks deadline = el_clock_now(clock) + el_clock_ticks_from_ms(clock, 250);
 /* ... */
 if (el_clock_now(clock) >= deadline) {
     /* timed out */
@@ -66,7 +66,10 @@ Three things to keep in mind:
 - **Converting is a function call.** `el_ticks_from_ms` rounds up, so a
   timeout never ends early; `el_ticks_to_seconds` rounds down, so a
   printed time has passed. They are for setting a timeout up and for
-  printing, not for a loop that runs per tick.
+  printing, not for a loop that runs per tick. The `el_clock_` forms
+  read the clock's frequency for you; a value that has left its clock,
+  such as a log record's timestamp, is converted with the frequency it
+  carries.
 
 There is no wall time, no calendar, and no sleep here. Nothing in this
 module waits.
@@ -172,7 +175,7 @@ results are in [docs/build.md](../../docs/build.md#what-is-verified).
 | Test | What it checks |
 |---|---|
 | `time.contract.manual.*` | The contract suite against the manual clock. |
-| `time.unit.*` | The front functions pass the implementation's answers and context through; both conversions at their edges (no time, one tick either side of a second, the largest count, frequencies from 1 to 2³²−1), their rounding, and agreement with the compiler's division for random values at thirteen frequencies; the manual clock. |
+| `time.unit.*` | The front functions pass the implementation's answers and context through; both conversions at their edges (no time, one tick either side of a second, the largest count, frequencies from 1 to 2³²−1), their rounding, and agreement with the compiler's division for random values at thirteen frequencies; that the clock-taking forms use the clock's own frequency and read no time; the manual clock. |
 | `time.violations.*` | Each documented contract violation stops the program. Death tests, host only. |
 | `time_posix.contract.*`, `time_posix.platform.*` | See [PORT.md](backends/posix/PORT.md). |
 | `time_zephyr.contract.*`, `time_zephyr.platform.*` | See [PORT.md](backends/zephyr/PORT.md). Zephyr only. |

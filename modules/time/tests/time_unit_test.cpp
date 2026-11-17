@@ -223,6 +223,29 @@ TEST(ElTicks, ConvertingMillisecondsToTicksAndBackLosesLessThanATick)
     }
 }
 
+TEST(ElClockConvert, UsesTheClocksOwnFrequency)
+{
+    for (const uint32_t rate : kRates) {
+        scripted_clock clock = {};
+        clock.ticks_per_second = rate;
+        const el_clock handle = scripted_clock_as_clock(&clock);
+
+        EXPECT_EQ(el_clock_ticks_from_ms(handle, 2500), el_ticks_from_ms(2500, rate)) << rate;
+
+        uint32_t us = UINT32_MAX;
+        uint32_t expected_us = UINT32_MAX;
+        const el_ticks ticks = 123456789012345u;
+        EXPECT_EQ(el_clock_ticks_to_seconds(handle, ticks, &us),
+                  el_ticks_to_seconds(ticks, rate, &expected_us))
+            << rate;
+        EXPECT_EQ(us, expected_us) << rate;
+
+        /* The frequency is asked for, the time is not. */
+        EXPECT_EQ(clock.ticks_per_second_calls, 2u) << rate;
+        EXPECT_EQ(clock.now_calls, 0u) << rate;
+    }
+}
+
 /* ---- The manual clock ---------------------------------------------------- */
 
 TEST(ElManualClock, ReadsZeroUntilItIsAdvanced)

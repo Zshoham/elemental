@@ -3,7 +3,8 @@
  * delivers is read from the second of them, the one a tee that stopped
  * early would starve.
  *
- * A tee has no storage of its own to fill, so `sink_full_after` is left
+ * The tee's own buffer holds the suite's longest message and no more. It
+ * has no storage that fills up with records, so `sink_full_after` is left
  * null and the suite reports that test as skipped. A fixture never fakes a
  * capability.
  */
@@ -21,6 +22,8 @@ static uint8_t first_storage[STORAGE_SIZE];
 static uint8_t second_storage[STORAGE_SIZE];
 static el_log_mem_sink first;
 static el_log_mem_sink second;
+static char message_storage[EL_LOG_CONTRACT_MESSAGE_MAX];
+static el_buf message_buf;
 static tee_sink tee;
 
 static void reset(void *ctx)
@@ -35,7 +38,9 @@ static el_log_sink sink(void *ctx)
     (void)ctx;
     el_log_mem_sink_init(&first, first_storage, sizeof(first_storage));
     el_log_mem_sink_init(&second, second_storage, sizeof(second_storage));
-    tee_sink_init(&tee, el_log_mem_sink_as_sink(&first), el_log_mem_sink_as_sink(&second));
+    el_buf_init(&message_buf, message_storage, sizeof(message_storage));
+    tee_sink_init(&tee, el_log_mem_sink_as_sink(&first), el_log_mem_sink_as_sink(&second),
+                  &message_buf);
     return tee_sink_as_sink(&tee);
 }
 

@@ -55,6 +55,14 @@ and [modules/log](../../modules/log/README.md):
 - **`configs/variant_defconfig` sets `LOG_MESSAGE_MAX=48`**, so the
   `sanitize` preset and the Zephyr `variant` scenario test a limit other
   than the default.
+- *Later (2026-11-17):* **the sink lends the buffer the message is written
+  into** ([ADR 0022](../adr/0022-log-sink-lends-the-buffer.md)), reversing
+  decision 3. `el_log_sink_ops` has `begin` and `end` in place of `write`,
+  `el_log_printf` formats into the sink's buffer, and `LOG_MESSAGE_MAX` is
+  gone, with its line in `variant_defconfig`. The writer sink takes its
+  line as an `el_buf *`, fixed or grown. The code below, the tee sink's
+  included, is the design as it was proposed; the headers are the current
+  contract.
 
 ## Problem
 
@@ -124,9 +132,11 @@ int main(void)
     el_posix_fd err;
     el_posix_fd_init(&err, STDERR_FILENO);
 
-    char line[160];
+    char line_storage[160];
+    el_buf line;
+    el_buf_init(&line, line_storage, sizeof(line_storage));
     el_log_writer_sink sink;
-    el_log_writer_sink_init(&sink, el_posix_fd_as_writer(&err), line, sizeof(line));
+    el_log_writer_sink_init(&sink, el_posix_fd_as_writer(&err), &line);
 
     el_logger log;
     el_logger_init(&log, el_log_writer_sink_as_sink(&sink), el_posix_clock(), "link",
@@ -182,9 +192,11 @@ int main(void)
     /* Sink two: lines on standard error, for whoever runs the test. */
     el_posix_fd err;
     el_posix_fd_init(&err, STDERR_FILENO);
-    char line[96];
+    char line_storage[96];
+    el_buf line;
+    el_buf_init(&line, line_storage, sizeof(line_storage));
     el_log_writer_sink shown;
-    el_log_writer_sink_init(&shown, el_posix_fd_as_writer(&err), line, sizeof(line));
+    el_log_writer_sink_init(&shown, el_posix_fd_as_writer(&err), &line);
 
     /* Both, behind one logger. */
     tee_sink both;
@@ -284,7 +296,7 @@ does not: a sink that drives other sinks needs to know what they did.
 | Elemental modules | `status`, `io`, `fmt`, `time`. `ring` from M5, for the deferred sink |
 | Runtime symbols (freestanding) | `memcpy` (the memory sink). *Measured* |
 | Allocation | None |
-| Per-object storage | 32-bit: `el_logger` 28 bytes; `el_log_writer_sink` 28 and the caller's line storage; `el_log_mem_sink` 20 and the caller's storage, 24 bytes per record kept plus its message |
+| Per-object storage | 32-bit: `el_logger` 28 bytes; `el_log_writer_sink` 16 and the caller's line buffer, an `el_buf` (16) with its storage; `el_log_mem_sink` 20 and the caller's storage, 24 bytes per record kept plus its message. *Measured* on 2026-11-17 for the Cortex-M0+ by the Zephyr SDK 1.0.1's GCC 14.3.0 (the writer sink was 28 while it held its `el_buf` itself) |
 | Stack | `LOG_MESSAGE_MAX` bytes (128 by default) in `el_log_printf`, where the message is formatted. *Measured:* 296 bytes from `el_log_printf` to the writer sink's operation, before `fmt` and the writer |
 | New status codes | None |
 
@@ -330,10 +342,11 @@ an **emulator run** on the modified model:
 - **A sink's write can fail**, and returns `el_status`. `EL_OK` means the
   whole record was taken. Anything else means it was lost; a sink that
   produces text may already have passed part of a line on.
-- **The writer sink** builds each line in storage the caller gave it and
-  passes it on with one `el_write_all`: `EL_OK`; `EL_ERR_NO_SPACE` when
-  the line was cut to fit, and the cut line, still ending in a newline,
-  went out; or the writer's status, with the stream possibly mid-line.
+- **The writer sink** builds each line in an `el_buf` the caller lends
+  it, fixed or grown, and passes it on with one `el_write_all`: `EL_OK`;
+  `EL_ERR_NO_SPACE` when the line was cut because the buffer could not
+  hold it, fixed storage too small or an allocator that refused, and the
+  cut line, still ending in a newline, went out; or the writer's status, with the stream possibly mid-line.
   It is for a writer that does not stall, such as a blocking descriptor.
   A stream that can stall wants the deferred sink of M5.
 - **The memory sink** keeps a record whole or not at all:
@@ -426,8 +439,7 @@ void el_log_vprintf(const el_logger *logger, el_log_level level, const char *for
 EL_LOG_DEBUG(logger, format, ...)   EL_LOG_INFO(...)   EL_LOG_WARN(...)   EL_LOG_ERROR(...)
 
 /* elemental/log_writer.h */
-void el_log_writer_sink_init(el_log_writer_sink *sink, el_writer out, void *line_storage,
-                             size_t line_cap);
+void el_log_writer_sink_init(el_log_writer_sink *sink, el_writer out, el_buf *line);
 el_log_sink el_log_writer_sink_as_sink(el_log_writer_sink *sink);
 uint32_t el_log_writer_sink_lost(const el_log_writer_sink *sink);
 
@@ -543,8 +555,8 @@ logged as one record per hop or with a longer limit.
 The roadmap asks that the writer sink confirm or reopen the provisional
 decision to keep flush out of `el_writer_ops`.
 
-On this design it confirms it. The writer sink builds a line in its own
-storage and passes it on with one `el_write_all`: it holds nothing between
+On this design it confirms it. The writer sink builds a line in the
+buffer it borrows and passes it on with one `el_write_all`: it holds nothing between
 records, so it has nothing to flush. A program that wants fewer system
 calls puts an `el_buffered_writer` under the sink; it created that writer,
 and flushes it through the concrete type. No code here holds a bare
@@ -625,7 +637,9 @@ experimental.
    record. The plan's sketch of a record had only level, time, and bytes.
 3. **A message is formatted on `el_log_printf`'s stack**, at most
    `LOG_MESSAGE_MAX` bytes, a private Kconfig option. *Owner, 2026-11-16*,
-   against scratch storage the caller gives the logger.
+   against scratch storage the caller gives the logger. *Reversed
+   2026-11-17* by [ADR 0022](../adr/0022-log-sink-lends-the-buffer.md): the
+   sink lends the buffer.
 4. **Four levels**: debug, info, warn, error. `mlog` has trace and fatal
    as well.
 5. **Left out of `mlog`**: the default logger, source location in the
