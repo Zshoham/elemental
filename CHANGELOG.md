@@ -7,10 +7,6 @@ level. See [docs/process/api-stability.md](docs/process/api-stability.md).
 
 First milestone: the project's foundation.
 
-- `fmt` and `log` consumers can opt into `elemental_check_formats(target)`
-  to reject nonportable printf literals at build time. It works from an
-  installed package or a CMake subproject, with an option for targets that
-  require `FMT_PRINTF_LIBC`.
 - Licensed under Apache-2.0.
 - `configs/assert_application_defconfig` is now `configs/variant_defconfig`,
   which also selects 256-entry CRC tables; `configs/assert_off_defconfig` and
@@ -232,3 +228,7 @@ First milestone: the project's foundation.
   interrupt behind an `el_reader`, logging through the deferred sink.
 - A `tsan` preset: Clang with ThreadSanitizer, running the tests of `ring`
   and of the deferred sink, two of which use two threads.
+- `fmt` and `log` consumers can opt into `elemental_check_formats(target)`
+  to reject nonportable printf literals at build time. It works from an
+  installed package or a CMake subproject, with an option for targets that
+  require `FMT_PRINTF_LIBC`.
