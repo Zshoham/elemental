@@ -458,8 +458,9 @@ makes, and the record storage. The alternative is a ring that can lend a
 contiguous region, which either wastes the bytes before the storage's end
 or makes the ring one of records, not bytes. No consumer needs that.
 
-This bears on ADR 0022, which awaits the owner's review, only as evidence:
+This bore on ADR 0022, then awaiting the owner's review, only as evidence:
 the pair of operations fits the one sink it was most likely not to fit.
+The owner accepted ADR 0022 on 2026-11-18.
 
 **The record in the ring** is the memory sink's: time, tag pointer,
 length, frequency, level, then the message. The tag is kept as a pointer,

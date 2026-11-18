@@ -1,8 +1,11 @@
 # 0022. A log sink lends the buffer a record's message is written into
 
-Status: Proposed and implemented (2026-11-17); awaiting the owner's
-review. The project owner asked to try it, of three alternatives put to
-them after M4 shipped. It reverses decision 3 of the
+Status: Accepted (2026-11-18). Decided by the project owner, after M5's
+deferred sink, which the last revisit condition below was about, was
+built on it without needing that condition
+([ring proposal](../proposals/ring.md#the-deferred-sink-and-adr-0022s-question)).
+Implemented 2026-11-17: the project owner asked to try it, of three
+alternatives put to them after M4 shipped. It reverses decision 3 of the
 [log proposal](../proposals/log.md), which put the message on
 `el_log_printf`'s stack.
 
@@ -73,4 +76,5 @@ would make a logger one context at a time even over a sink that is not.
 - A message that does not fit should be logged short rather than counted
   lost.
 - M5's deferred sink needs a record's message in a ring it does not own as
-  one contiguous buffer.
+  one contiguous buffer. (Checked in M5: it does not. It builds a record
+  in storage of its own and copies it into the ring whole.)

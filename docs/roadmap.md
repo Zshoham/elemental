@@ -349,7 +349,7 @@ message as one contiguous buffer in the ring, is not met: it builds the
 record in storage of its own and copies it in, and the drain reads a
 message from the ring straight into the destination's lent buffer
 ([proposal](proposals/ring.md#the-deferred-sink-and-adr-0022s-question)).
-ADR 0022 itself still awaits the owner's review.
+The owner accepted ADR 0022 on 2026-11-18, with M5.
 
 Not done: any run on hardware, as for every module (M1); an interrupt run
 on the Cortex-M0+ board, which Renode could join two UARTs for

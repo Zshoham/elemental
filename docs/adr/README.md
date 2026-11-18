@@ -28,7 +28,7 @@ by editing history.
 | [0019](0019-failure-context.md) | Context for a failure lives in a record the caller owns | Proposed; left open by the owner, not implemented |
 | [0020](0020-time-representation.md) | Time is a 64-bit count of a clock's own ticks | Accepted |
 | [0021](0021-log-cutoff.md) | The log cut-off is a macro the consumer defines | Accepted; the first exception to 0004 |
-| [0022](0022-log-sink-lends-the-buffer.md) | A log sink lends the buffer a record's message is written into | Proposed and implemented; awaiting the owner's review |
+| [0022](0022-log-sink-lends-the-buffer.md) | A log sink lends the buffer a record's message is written into | Accepted |
 | [0023](0023-atomics-and-interrupt-context.md) | Atomics are loads and stores of one word; an interrupt handler is one more context | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
