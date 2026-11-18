@@ -80,7 +80,7 @@ descriptor, or a backend of your own.
 
 | | You need | Start at |
 |---|---|---|
-| An installed package: `find_package(Elemental)` | CMake and a C compiler. No Kconfig, no Python, no GoogleTest. | [examples/consume_installed](examples/consume_installed) |
+| An installed package: `find_package(Elemental)` | CMake and a C compiler. Python ≥ 3.9 for the optional format check. | [examples/consume_installed](examples/consume_installed) |
 | A subproject: `add_subdirectory()` | Also Python and the provisioned Kconfig tool | [examples/consume_subdirectory](examples/consume_subdirectory) |
 | Copied sources, no CMake | A C compiler and a four-line config header | [docs/build.md](docs/build.md#source-drop) |
 

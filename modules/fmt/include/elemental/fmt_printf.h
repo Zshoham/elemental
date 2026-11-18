@@ -67,6 +67,8 @@
  *                               the signed type of size_t's width on
  *                               every target Elemental builds for
  *
+ * A bare dot has precision zero. Write a literal percent as %%.
+ *
  * The length modifiers are there so that <inttypes.h> works: PRIu64 is "llu"
  * on 32-bit Arm and "lu" on x86-64, and PRIu8 may be "hhu". %.*s prints a
  * string that comes with a length:
@@ -93,8 +95,11 @@
  * further arguments, and the call returns EL_OK with what came before it.
  *
  * Checking: EL_FMT_PRINTF_CHECK asks GCC and Clang to check argument types
- * against the format (-Wformat). It checks types, not the subset: %f is
- * valid printf, so only the run-time check above catches it.
+ * against the format (-Wformat). Use elemental_check_formats(target) in
+ * CMake to check literal formats against the portable subset at build time.
+ * It checks expanded macros and adjacent literals too. Pass LIBC when the
+ * target requires FMT_PRINTF_LIBC. Formats computed at run time are checked
+ * by the formatter. See docs/build.md, "Checking printf formats".
  *
  * Concurrency: as the target allows; nothing here adds state. Formatting
  * the portable subset into a fixed el_buf is interrupt-safe under both

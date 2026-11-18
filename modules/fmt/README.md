@@ -102,6 +102,15 @@ without the probe fails configuration. The option replaced M3's
 `snprintf`; it was renamed so that an old defconfig naming `FMT_LIBC` gets
 the default and a Kconfig warning, not silently wider semantics.
 
+### Checking formats
+
+Add `elemental_check_formats(app)` to check literals at build time. It
+catches formats such as `%f` that pass `-Wformat` but would violate the
+default formatter's contract. It uses the target's compiler to expand
+macros such as `PRIu64`. Use `LIBC` for a target that requires
+`FMT_PRINTF_LIBC`. See [build.md](../../docs/build.md#checking-printf-formats)
+for the options and requirements.
+
 ## Tests
 
 | Test | What it checks | Where |
@@ -112,8 +121,9 @@ the default and a Kconfig warning, not silently wider semantics.
 | `fmt.libc.*` | `FMT_PRINTF_LIBC` only: the extended conversions against the platform's `snprintf` (glibc on the host, picolibc on Zephyr) at every capacity by the item rule, the 32-byte edge, `*` values read in order, `-` and `*` on `%s` and `%c`, and an extended number through a stalling buffered writer. Float cases run where the C library formats floats. | Host and Zephyr (`variant`) |
 | `fmt.violations.*` | Each documented contract violation stops the program: under the default, every conversion, flag, and modifier outside the subset; under `FMT_PRINTF_LIBC`, `%n`, `%lc`, `%ls` and modifiers C gives no meaning. | Host only (death tests) |
 | `fmt.format_check.accepts`, `.rejects` | `EL_FMT_PRINTF_CHECK` lets correct calls compile with `-Werror=format` and rejects a mismatched argument with a format diagnostic. | Host only |
+| `fmt.portable_check.*` | The literal checker accepts and rejects preprocessed C and C++ calls, checks both subsets, and fails a CMake build on a violation. Under `FMT_PRINTF_BUILTIN`, the same checked literals are formatted by Elemental and `snprintf` and compared. | Host only |
 
-All of them run with either option: `gcc` and `clang` build
+The `gcc` and `clang` presets build
 `FMT_PRINTF_BUILTIN`, `sanitize` and the Zephyr `variant` scenario build
 `FMT_PRINTF_LIBC` (`configs/variant_defconfig`).
 

@@ -36,6 +36,7 @@ if(ELEMENTAL_INSTALL)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalConfiguration.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalModule.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalCheckFormats.cmake")
 
 # Elemental is C. Its tests are GoogleTest, so building them needs a C++17
 # compiler and the pinned GoogleTest; building the libraries needs neither.

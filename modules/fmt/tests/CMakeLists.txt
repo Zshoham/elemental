@@ -57,3 +57,33 @@ if(NOT ELEMENTAL_TEST_IMAGE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
               -P "${CMAKE_CURRENT_SOURCE_DIR}/format_check.cmake")
   endforeach()
 endif()
+
+# Literal formats through the target's preprocessor. The oracle runs the
+# checked calls against the builtin parser and snprintf.
+if(NOT ELEMENTAL_TEST_IMAGE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  set(check_cases accepts rejects libc cxx build)
+  set(oracle_arg "")
+  if(NOT EL_CONFIG_FMT_PRINTF_LIBC)
+    add_executable(test_fmt_portable_builtin portable_check_oracle.c)
+    target_link_libraries(test_fmt_portable_builtin PRIVATE elemental::fmt)
+    elemental_target_c_standard(test_fmt_portable_builtin)
+    elemental_target_warnings(test_fmt_portable_builtin)
+    if(EL_CONFIG_ASSERT_HANDLER_APPLICATION)
+      target_sources(test_fmt_portable_builtin PRIVATE
+        "${PROJECT_SOURCE_DIR}/tests/support/assert_handler_abort.c")
+    endif()
+    list(APPEND check_cases oracle)
+    set(oracle_arg --oracle "$<TARGET_FILE:test_fmt_portable_builtin>")
+  endif()
+  foreach(check IN LISTS check_cases)
+    add_test(NAME fmt.portable_check.${check}
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/portable_check.py" ${check}
+              --source "${PROJECT_SOURCE_DIR}"
+              --compiler "${CMAKE_C_COMPILER}"
+              --cxx-compiler "${CMAKE_CXX_COMPILER}"
+              --generator "${CMAKE_GENERATOR}"
+              --build "${CMAKE_CURRENT_BINARY_DIR}/portable_check_build"
+              --kconfiglib "${ELEMENTAL_KCONFIGLIB_DIR}"
+              ${oracle_arg})
+  endforeach()
+endif()

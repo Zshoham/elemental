@@ -43,4 +43,6 @@ write_basic_package_version_file(
 install(FILES
   "${PROJECT_BINARY_DIR}/ElementalConfig.cmake"
   "${PROJECT_BINARY_DIR}/ElementalConfigVersion.cmake"
+  "${CMAKE_CURRENT_LIST_DIR}/ElementalCheckFormats.cmake"
+  "${PROJECT_SOURCE_DIR}/tools/check_formats.py"
   DESTINATION "${_elemental_package_dir}")
