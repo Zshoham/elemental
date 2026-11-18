@@ -46,6 +46,18 @@
       }
     },
     {
+      "name": "tsan",
+      "displayName": "Clang with ThreadSanitizer, for the tests with two threads (ring, the deferred log sink)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer"
+      }
+    },
+    {
       "name": "assert-off",
       "displayName": "GCC, contract assertions compiled out (configs/assert_off_defconfig)",
       "inherits": "base",
@@ -61,6 +73,7 @@
     { "name": "gcc", "configurePreset": "gcc" },
     { "name": "clang", "configurePreset": "clang" },
     { "name": "sanitize", "configurePreset": "sanitize" },
+    { "name": "tsan", "configurePreset": "tsan" },
     { "name": "assert-off", "configurePreset": "assert-off" }
   ],
   "testPresets": [
@@ -79,6 +92,15 @@
       "environment": {
         "ASAN_OPTIONS": "detect_leaks=1:strict_string_checks=1:detect_stack_use_after_return=1:allocator_may_return_null=1",
         "UBSAN_OPTIONS": "print_stacktrace=1"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "base",
+      "configurePreset": "tsan",
+      "filter": { "include": { "name": "^(ring\\.(unit|contract|stress)|log\\.(deferred|contract\\.deferred))\\." } },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1"
       }
     },
     { "name": "assert-off", "inherits": "base", "configurePreset": "assert-off" }

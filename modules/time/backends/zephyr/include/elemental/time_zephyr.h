@@ -13,7 +13,8 @@
  * the life of the program and may be read from any thread. From an interrupt
  * handler: Zephyr's header does not say either way; the kernel reads the
  * tick count under a spin lock (kernel/timeout.c, v4.5.0), which an
- * interrupt handler may take. Not run from one here (PORT.md).
+ * interrupt handler may take. Read from one under an emulator only
+ * (PORT.md).
  */
 #ifndef ELEMENTAL_TIME_ZEPHYR_H
 #define ELEMENTAL_TIME_ZEPHYR_H

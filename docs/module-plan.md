@@ -56,7 +56,7 @@ receives a record: level, timestamp, message bytes. The contract is
 non-variadic ([architecture.md](architecture.md#64-logging--proposed)). The
 C macros sit on top in their own header. Two sinks come first: a writer
 sink, which formats a line into a stack buffer and writes it with
-`el_write_all`, and a memory sink for tests. A **deferred sink** comes in
+`el_write_all`, and a memory sink for tests. A **deferred sink** came in
 M5: it copies records into a ring and a task drains them, so an interrupt
 handler can log. Elemental's own modules never log; detail stays on the
 object ([conventions.md](conventions.md#errors), rule 6). *Effects:* time,
@@ -126,7 +126,7 @@ left the choice open. The codes:
 
 | Code | Arrives with | Caller does |
 |---|---|---|
-| `EL_ERR_NO_SPACE` | the `io` buffers (full, or cannot grow); then `fmt` truncation, `ring`, `frame` encode | Provide more storage |
+| `EL_ERR_NO_SPACE` | the `io` buffers (full, or cannot grow); then `fmt` truncation, the deferred log sink, `frame` encode. Not a full `ring`, whose writer stalls with `EL_ERR_WOULD_BLOCK` ([ADR 0009](adr/0009-capacity-status.md), amended) | Provide more storage |
 | `EL_ERR_INVALID_DATA` | `frame` decode | Drop the input, resynchronise |
 | `EL_ERR_TIMED_OUT` | IPC correlation, if discovery keeps it | Retry or give up |
 
@@ -153,9 +153,9 @@ owner's decision.
 **`ring`: single-producer, single-consumer byte ring.** A FIFO over caller
 storage. It is safe with one producer and one consumer in different
 contexts, such as an interrupt handler and a task. It has reader and
-writer adapters. This is the
-[ring pipe example](../examples/backend_ring) promoted, with a concurrency
-contract added. *Why Elemental:* the deferred log sink and an
+writer adapters. This is the ring pipe example promoted, with a
+concurrency contract added; the example was retired when
+[`ring`](../modules/ring/README.md) was built (M5). *Why Elemental:* the deferred log sink and an
 interrupt-driven UART both need exactly this. Every firmware project writes
 it again, often with a data race. It also gives Elemental's first atomic
 one small, testable home. *Effects:* interrupt context and memory ordering.
@@ -225,8 +225,8 @@ execution context, none of which `crc` has. `el_crc32_update` and
 | A UART module or board backends in `modules/` | Board-specific. Belongs to a platform port. | — |
 | Wall-clock time, calendars, time zones | Not needed for timeouts or log ordering | A sink must print dates |
 
-The UART used in M5 is an **example**, under `examples/` or
-`tests/zephyr/`, like the ring pipe. It is not a shipped backend.
+The UART used in M5 is an **example**,
+[examples/uart_ring](../examples/uart_ring). It is not a shipped backend.
 
 ## 2. Dependency graph
 
@@ -313,8 +313,9 @@ answer. Each becomes a short ADR when it is made.
 **Capacity and bad-input statuses. Before `alloc`.** *Decided in
 [ADR 0009](adr/0009-capacity-status.md).* One code,
 `EL_ERR_NO_SPACE`, means "the storage available was not enough". It covers
-a full format buffer, a full ring, a frame larger than its buffer, and an
-exhausted allocator inside a function that allocates. In every case the
+a full format buffer, a frame larger than its buffer, and an
+exhausted allocator inside a function that allocates. (A full ring was on
+this list; M5 took it off: the ring's writer stalls.) In every case the
 caller's response is the same: supply more. This replaces the planned
 `EL_ERR_NO_MEMORY`. It stays distinct from `EL_ERR_END_OF_STREAM`, which is
 permanent. Malformed input gets `EL_ERR_INVALID_DATA`. The

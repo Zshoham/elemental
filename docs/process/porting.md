@@ -35,9 +35,13 @@ in its own, built against an installed Elemental. The steps are the same.
    [build.md](../build.md#verification-levels).
 
 Worked examples: [the POSIX backend](../../modules/io/backends/posix/PORT.md)
-in this repository, and [examples/backend_ring](../../examples/backend_ring)
-with [examples/consume_installed](../../examples/consume_installed) for one
-built outside it.
+in this repository;
+[examples/backend_size_classes](../../examples/backend_size_classes),
+[examples/backend_step_clock](../../examples/backend_step_clock) and
+[examples/backend_log_tee](../../examples/backend_log_tee) for a backend
+written the way one outside it would be; and
+[examples/consume_installed](../../examples/consume_installed) for running
+an installed contract suite from another project.
 
 ## Making a backend selectable only where it can build
 

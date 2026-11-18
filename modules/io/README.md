@@ -50,11 +50,15 @@ stalls, or fails.
 5. If it lives in this repository, add a `PORT.md`
    ([porting.md](../../docs/process/porting.md)).
 
-[examples/backend_ring](../../examples/backend_ring) is a complete backend
-done this way, in under 100 lines, with its fixture and both kinds of test.
-[examples/consume_installed](../../examples/consume_installed) builds the
-same backend against an installed Elemental, as a backend kept outside this
-repository would be.
+The two sides of [`ring`](../ring/README.md) are streams done this way:
+[ring_io.c](../ring/src/ring_io.c) is the two operations and the two
+handles, in under 60 lines, with its
+[fixture](../ring/tests/fixture_ring.c) and both kinds of test.
+[examples/uart_ring](../../examples/uart_ring) puts a Zephyr UART's
+receive interrupt behind that reader, and
+[examples/consume_installed](../../examples/consume_installed) runs the
+contract suite against an installed Elemental, as a backend kept outside
+this repository would.
 
 ## The contract suite
 
@@ -80,8 +84,9 @@ outside project brings its own
 
 It needs C++17 and a hosted C++ library. On a microcontroller it runs
 through Zephyr: the Zephyr test application runs it against the memory
-streams, the buffered writer and the ring pipe on `native_sim`, an emulated
-Cortex-M3, and an emulated Cortex-M0+, as io's own test image
+streams and the buffered writer on `native_sim`, an emulated
+Cortex-M3, and an emulated Cortex-M0+, as io's own test image, and against
+the ring in ring's
 ([build.md](../../docs/build.md#tests-on-zephyr)).
 
 A fixture is a C struct with four required functions and four optional
@@ -98,17 +103,18 @@ as a full memory buffer does.
 | `el_grow_buf` as a writer (`IO_ALLOC`) | 8 | 4: cannot stall (reader, writer); does not end; cannot be made full after an exact count |
 | POSIX, blocking pipe | 8 | 4: cannot stall; a pipe cannot end, or be full without stalling, after an exact count |
 | POSIX, non-blocking pipe | 10 | 2: a pipe cannot end, or be full without stalling, after an exact count |
-| Ring pipe example | 10 | 2: stalls when full instead of ending or reporting `EL_ERR_NO_SPACE` |
+| [`ring`](../ring/README.md)'s writer and reader | 10 | 2: stalls when full instead of ending or reporting `EL_ERR_NO_SPACE` |
 | Buffered writer, fixed 16 bytes, in front of a sink that stalls | 9 | 3: the memory reader cannot stall; accepts what its sink has not, so cannot end or be full after an exact count |
 | Buffered writer, fixed capacity 0 (pass-through), in front of a sink that stalls or ends | 10 | 2: the memory reader cannot stall; cannot be full after an exact count |
 | Buffered writer, grown over a 256-byte arena (`IO_ALLOC`); stalled is the sink full **and** the arena spent | 9 | 3: as for fixed storage |
 
 What the suite does not cover is deliberate: behavior that belongs to one
-backend. Deliberately broken variants of the ring pipe were used to check
-the suite itself. It caught dropped bytes, reordering, a missing
-wrap-around, and a stall reported as end of stream. It did not catch
-"accepts writes after its write side is closed", because closing a write
-side is not part of the interface; the ring pipe's own test covers that.
+backend. Deliberately broken variants of a ring pipe, the example that
+[`ring`](../ring/README.md) has since replaced, were used to check the
+suite itself. It caught dropped bytes, reordering, a missing wrap-around,
+and a stall reported as end of stream. It did not catch "accepts writes
+after its write side is closed", because closing a write side is not part
+of the interface; ring's own tests cover that.
 
 ## Buffers (`io_buf`, `io_alloc`)
 

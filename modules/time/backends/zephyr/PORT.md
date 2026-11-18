@@ -19,7 +19,7 @@ This document follows the template in
 | A reading that never goes back | Yes | The kernel's uptime, 64 bits. |
 | A constant frequency | Yes | `CONFIG_SYS_CLOCK_TICKS_PER_SEC`, fixed when the application is built: 100 by default, 10 000 with a tickless kernel. |
 | Reading without blocking | Yes | One kernel call and no arithmetic. |
-| Reading from an interrupt handler | Not run | Zephyr's header does not mark `k_uptime_ticks()` either way. Its implementation reads the tick count under a spin lock (`kernel/timeout.c`, v4.5.0), which an interrupt handler may take. |
+| Reading from an interrupt handler | Yes, by an emulator run | Zephyr's header does not mark `k_uptime_ticks()` either way. Its implementation reads the tick count under a spin lock (`kernel/timeout.c`, v4.5.0), which an interrupt handler may take. Read from a UART's receive interrupt on `mps2/an385` under QEMU ([examples/uart_ring](../../../../examples/uart_ring)). |
 
 ## Unsupported semantics
 
@@ -52,8 +52,8 @@ does.
 ## Concurrency and context
 
 The handle has no object and no state: it is valid for the life of the
-program and may be read from any thread. It does not block. From an
-interrupt handler it has not been run; see Capabilities.
+program and may be read from any thread. It does not block. It may be
+read from an interrupt handler; see Capabilities for what that rests on.
 
 ## Verification
 
@@ -71,6 +71,13 @@ emulator's timer is the emulator's: these runs show the port reads the
 kernel's uptime in the right unit, not that a real board's timer keeps
 time.
 
+Reading from an interrupt handler is checked by the UART example's test,
+`example.uart_ring`, in the `elemental.tests.ring.uart` image on
+`mps2/an385` under QEMU: a logger whose clock is this one, wrapped to note
+where it is read from, logs from the receive interrupt, and each record's
+time lies between two readings taken by the thread around it. One board,
+one emulator, three readings.
+
 Not verified: real hardware; `CONFIG_USERSPACE`; reading from an interrupt
-handler, which waits for M5's UART example; a kernel tick rate other than
-the two the boards were built with.
+handler on ARMv6-M or while a thread is inside `k_uptime_ticks()` itself;
+a kernel tick rate other than the two the boards were built with.

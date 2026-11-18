@@ -22,6 +22,29 @@ if(EL_CONFIG_IO_ALLOC)
     LIBRARIES elemental::log elemental::alloc)
 endif()
 
+# The deferred sink: the contract suite, drained into a memory sink; what
+# only it promises; and, on a host, a thread on each of its sides (the run
+# that can fail on a data race is the `tsan` preset's, docs/build.md).
+if(EL_CONFIG_LOG_DEFERRED)
+  elemental_add_test(log.contract.deferred
+    SOURCES contract_deferred_test.cpp fixture_deferred.c
+    LIBRARIES elemental::log_contract)
+  elemental_add_test(log.deferred
+    SOURCES log_deferred_test.cpp log_support.c
+    LIBRARIES elemental::log)
+  if(NOT ELEMENTAL_TEST_IMAGE)
+    find_package(Threads REQUIRED)
+    elemental_add_test(log.deferred.stress
+      SOURCES log_deferred_stress_test.cpp stress_support.c
+      LIBRARIES elemental::log Threads::Threads)
+  endif()
+  if(EL_CONFIG_ASSERT AND ELEMENTAL_DEATH_TESTS)
+    elemental_add_test(log.violations.deferred
+      SOURCES log_deferred_violations_test.cpp log_support.c
+      LIBRARIES elemental::log)
+  endif()
+endif()
+
 # Two sinks in one program, one of them a POSIX descriptor.
 if(EL_CONFIG_IO_POSIX AND EL_CONFIG_TIME_POSIX)
   elemental_add_test(log.posix

@@ -98,10 +98,11 @@ cmake --preset gcc && cmake --build --preset gcc && ctest --preset gcc
 | `gcc` | GCC, default configuration, warnings as errors. |
 | `clang` | Clang, same. |
 | `sanitize` | Clang with AddressSanitizer and UndefinedBehaviorSanitizer, configured with [configs/variant_defconfig](../configs/variant_defconfig): one non-default option of every Kconfig choice (the application assertion handler, 256-entry CRC tables, `FMT_PRINTF_LIBC`). Its test environment sets `allocator_may_return_null=1`, because the allocator contract suite asks the C library for impossible sizes and expects `NULL`, which AddressSanitizer otherwise turns into a fatal error. (`CMakePresets.json` cannot carry this comment: `$comment` needs presets schema 10, CMake 3.31.) |
+| `tsan` | Clang with ThreadSanitizer, default configuration. Its test preset runs only the tests of `ring` and of the deferred log sink, two groups of which run a thread on each side (`ring.stress`, `log.deferred.stress`): the one place two contexts touch one object. ThreadSanitizer cannot be combined with AddressSanitizer, so it is a preset of its own. No death tests. |
 | `assert-off` | GCC with [configs/assert_off_defconfig](../configs/assert_off_defconfig): contract assertions compiled out. Every test except the death tests runs, so no behavior depends on an assertion being there. |
 
-**Configurations.** `gcc` and `clang` run the defaults, `sanitize` one
-non-default option of every choice, and `assert-off` the configuration
+**Configurations.** `gcc`, `clang` and `tsan` run the defaults, `sanitize`
+one non-default option of every choice, and `assert-off` the configuration
 without assertions. Each is one defconfig under [configs/](../configs). A
 new Kconfig choice adds an alternative to `variant_defconfig`
 ([new-module.md](process/new-module.md#configuration-options)), preferably
@@ -194,11 +195,12 @@ can sit side by side.
 
 | Symbol | Default | Use case |
 |---|---|---|
-| `STATUS`, `IO`, `ALLOC`, `FMT`, `BYTES`, `CRC`, `TIME`, `LOG` | on | Build only the modules a product uses. `LOG` selects `FMT`, `TIME` and `IO`. The compile-time log cut-off is not an option here: it is the consumer's macro `EL_LOG_CUTOFF` ([ADR 0021](adr/0021-log-cutoff.md)). |
+| `STATUS`, `IO`, `RING`, `ALLOC`, `FMT`, `BYTES`, `CRC`, `TIME`, `LOG` | on | Build only the modules a product uses. `LOG` selects `FMT`, `TIME` and `IO`; `RING` selects `IO` and needs `COMPILER_ATOMICS`. The compile-time log cut-off is not an option here: it is the consumer's macro `EL_LOG_CUTOFF` ([ADR 0021](adr/0021-log-cutoff.md)). |
 | `CRC_TABLE_4BIT` / `_8BIT` / `CRC_GCC_BUILTIN` / `CRC_ZEPHYR` | 4-bit | What computes the CRCs: 96 bytes of tables or 1.5 KiB, GCC 15's CRC builtins, or Zephyr's `sys/crc.h`. Results are identical ([modules/crc](../modules/crc/README.md#configuration)). |
 | `FMT_PRINTF_BUILTIN` / `FMT_PRINTF_LIBC` | built-in | What printf accepts. `FMT_PRINTF_LIBC` adds C's other numeric conversions (floats, `%p`, flags, precision, `*`) through the C library's `snprintf`, one at a time, whole or absent; the portable subset is built-in code under both ([modules/fmt](../modules/fmt/README.md#configuration), [ADR 0016](adr/0016-private-choices-that-widen.md)). |
 | `IO_POSIX` | on where `<unistd.h>` exists | The POSIX backend cannot be built for a target without it. |
 | `IO_ALLOC` | on where `ALLOC` is on | `el_grow_buf`, buffer storage that grows, part of `elemental::io`. Off, io builds and links no allocator. |
+| `LOG_DEFERRED` | on where `RING` is on | `el_log_deferred_sink`, the sink for an interrupt handler, part of `elemental::log`. Off, log builds and links no ring. |
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `TIME_POSIX` | on where `<unistd.h>` exists | The POSIX clock needs `clock_gettime`. |
 | `TIME_ZEPHYR` | on in a Zephyr build | The Zephyr clock needs the kernel. It cannot be selected anywhere else. |
@@ -209,6 +211,7 @@ can sit side by side.
 | `COMPILER_GCC_CRC_BUILTINS` | probed | Not settable. CMake compiles a call to `__builtin_rev_crc32_data8` and `__builtin_crc16_data8`. |
 | `PLATFORM_ZEPHYR_CRC` | probed | Not settable. A Zephyr build with `CONFIG_CRC` and without `CONFIG_CRC_HW_HANDLER`, read from Zephyr's configuration. |
 | `PLATFORM_ZEPHYR` | probed | Not settable. The build is a Zephyr application's: Zephyr's `zephyr_library()` command exists. |
+| `COMPILER_ATOMICS` | probed | Not settable. CMake compiles an acquire load and a release store of an `_Atomic size_t` ([ADR 0023](adr/0023-atomics-and-interrupt-context.md)). That they are instructions and not calls is the [symbol check](#the-symbol-check)'s to show. |
 
 An option needs a use case to be added
 ([new-module.md](process/new-module.md)). An option whose effect the linker
@@ -460,9 +463,10 @@ Twister builds that board's image and does not run it.
 
 | Scenario | Board | What it does |
 |---|---|---|
-| `elemental.tests.<module>`: `status`, `alloc`, `io`, `fmt`, `bytes`, `crc`, `time`, `log` | `native_sim` | One module's tests, in a 32-bit Linux process. |
+| `elemental.tests.<module>`: `status`, `alloc`, `io`, `ring`, `fmt`, `bytes`, `crc`, `time`, `log` | `native_sim` | One module's tests, in a 32-bit Linux process. |
 | `elemental.tests.<module>` | `mps2/an385` | One module's tests, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
 | `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
+| `elemental.tests.ring.uart` | `mps2/an385` | The `ring` image with the [UART example](../examples/uart_ring)'s test: `ELEMENTAL_ZEPHYR_UART_WIRE=ON` makes QEMU join the board's UART1 and UART2 through a socket, and `CONFIG_UART_INTERRUPT_DRIVEN=y` gives the receive interrupt. The one scenario in which an interrupt handler runs Elemental code. |
 | `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
 | `elemental.tests.fmt.variant` | `nucleo_g0b1re_renode` | The `fmt` image with `variant_defconfig`: the libc printf option (`FMT_PRINTF_LIBC`) on ARMv6-M. |
@@ -531,8 +535,8 @@ hold. Since M3a each module's tests are their own image
 (`ELEMENTAL_TEST_MODULE` in [tests/zephyr/CMakeLists.txt](../tests/zephyr/CMakeLists.txt)),
 run as the scenario `elemental.tests.<module>` on every board, so a failing
 module is its own line in Twister's report. An example's tests are in the
-image of the module they test (the ring pipe with `io`, the size classes
-with `alloc`). The configuration scenarios (`variant`, `assert_off`,
+image of the module they test (the UART example with `ring`, the size
+classes with `alloc`). The configuration scenarios (`variant`, `assert_off`,
 `crc_zephyr`) build all the tests into one image (`ELEMENTAL_TEST_MODULE`
 `all`, the default) on `mps2/an385`, which has the RAM for it. A test whose
 name is in no module's list stops the configure, so **a new module adds its
@@ -558,13 +562,15 @@ GoogleTest's count, skipped included. The six images that existed in M3b
 |---|---|---|---|
 | `status` | 17 | 234 800, 15 576, 6 832, 1 324 | 245 812, 13 536, 7 236, 1 364 |
 | `alloc` | 58 | 268 064, 41 904, 29 648, 1 836 | 279 652, 39 912, 31 376, 1 948 |
-| `io` | 145 | 350 228, 18 024, 63 576, 2 636 | 362 208, 15 984, 67 908, 2 732 |
+| `io` | 129 | 343 756, 17 744, 56 928, 2 636 | 355 744, 15 704, 60 788, 2 732 |
+| `ring` | 26 | 264 300, 15 880, 15 432, 2 636 | 275 728, 13 840, 16 396, 2 732 |
+| `ring`, with the UART example (`ring.uart`) | 29 | 277 176, 18 272, 16 472, 2 636 | not built |
 | `fmt` | 32 | 268 348, 19 656, 13 912, 1 772 | 279 216, 17 616, 14 584, 1 892 |
 | `bytes` | 38 | 283 220, 15 552, 12 888, 1 324 | 293 624, 13 512, 13 664, 1 364 |
 | `crc` | 8 | 230 728, 15 552, 3 680, 1 324 | 241 868, 13 512, 3 872, 1 364 |
 | `time` | 42 | 258 352, 15 728, 20 000, 1 796 | 269 892, 13 688, 21 228, 1 900 |
-| `log` | 108 | 326 436, 31 344, 40 232, 2 100 | 338 624, 29 304, 42 700, 2 188 |
-| All, `variant` | 456 | 652 076, 64 392, 168 288, 2 636 | not built |
+| `log` | 139 | 355 588, 35 912, 50 584, 2 100 | 367 920, 33 872, 53 760, 2 188 |
+| All, `variant` | 497 | 692 452, 68 968, 181 480, 2 636 | not built |
 
 The `log` and `variant` rows were measured again on 2026-11-17, after the
 writer sink's three grown-buffer tests (`log.sinks.grown`) were added:
@@ -581,7 +587,17 @@ more tests in the image) were added. Before, `time` was 41 tests,
 88 tests, 308 812, 31 136, 34 352, 2 508 and 320 752, 29 096, 36 452,
 2 712; `variant` 435 tests, 633 756, 64 176, 161 976, 2 636.
 
-`io` is the largest: about 68 KB of heap of the about 131 KB its static RAM
+M5 (2026-11-17) added the two `ring` rows and changed three. `io` lost the
+ring pipe example's 16 tests to `ring` (145 tests, 350 228, 18 024,
+63 576, 2 636 and 362 208, 15 984, 67 908, 2 732 before). `log` gained the
+deferred sink's 31: their rings and storage are 4 568 bytes of static
+RAM, and the heap grew by about 10 KB (108 tests, 326 436, 31 344, 40 232,
+2 100 and 338 624, 29 304, 42 700, 2 188 before). `variant` was 456 tests,
+652 076, 64 392, 168 288, 2 636. The other images measured the same.
+`ring.uart` is `ring`'s image with the example's three tests, its UART
+driver's interrupt-driven code, and a 1 KiB log ring.
+
+`io` is the largest: about 61 KB of heap of the about 131 KB its static RAM
 leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
 `log` uses the most stack after `io`, 2 188 of 4 096 bytes on the
 Cortex-M0+, most of it the tests' and GoogleTest's own frames. A log call
@@ -603,8 +619,9 @@ and 3 024 of heap on `mps2/an385`, and `io`, then 143 tests, 348 092 and
 **Twister's run time** (`--integration -j 8`, this machine, fresh output
 directory each time): 170.6 s for M3a's first run with one image per
 board (7 configurations, the Cortex-M0+ image failing at start), 175.4 s
-for the per-module layout (22 configurations, all passing), and 184.6 s
-for M4's 28 configurations. The extra
+for the per-module layout (22 configurations, all passing), 184.6 s
+for M4's 28 configurations, and 260.1 s for M5's 33 (`-j 8`, compiler
+temporaries on the home volume). The extra
 builds cost little because each module image compiles only its own tests;
 both runs had Zephyr's build cache available, so read them as "about".
 
@@ -681,7 +698,14 @@ a large `switch` will meet the same.
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
-Cortex-M0 first.
+Cortex-M0 first. `ring` and the deferred log sink use atomics, and need
+none: their only atomic operations are a load and a store of one word,
+which GCC 14.3.0 compiles to an `ldr` or `str` and a `dmb` on all three
+boards. A read-modify-write such as `atomic_fetch_add` would be a call to
+`__atomic_fetch_add_4` on ARMv6-M, which nothing provides
+([ADR 0023](adr/0023-atomics-and-interrupt-context.md)). `ring` divides
+nothing either: its indices count modulo twice the capacity, so a
+position is a comparison and a subtraction.
 `alloc` leaves no symbol undefined on either: `el_layout_array` checks
 `count * size` for overflow by splitting each operand into halves, without
 a division or a double-width multiply, which on the Cortex-M0 would be
@@ -690,7 +714,8 @@ seconds and milliseconds the same way, by shift and subtract and from
 16-bit halves: with `/` and `*` on its 64-bit values it would need
 `__aeabi_uldivmod` and `__aeabi_lmul`, 504 bytes of libgcc
 ([time proposal](proposals/time.md#dependencies-and-cost)). `log` adds
-nothing: `memcpy`, in the memory sink.
+nothing: `memcpy`, in the memory sink and the deferred sink. `ring` adds
+nothing: `memcpy`.
 
 ### Verification levels
 
@@ -729,14 +754,15 @@ instead of dropping its status, and is unchanged with assertions off.
 `EL_TRY` in `io` and `fmt`, and `EL_NODISCARD` on every declaration, cost
 nothing: every other number here is what it was on 2026-11-13.
 
-The other libraries in the same build. `time` and `log` are M4's, measured
-2026-11-16; the rest are what they were on 2026-11-15:
+The other libraries in the same build. `ring` and `log` as M5 left them,
+measured 2026-11-17; `time` M4's, measured 2026-11-16; the rest are what
+they were on 2026-11-15:
 
-| Configuration | `alloc` | `status` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `log` |
-|---|---|---|---|---|---|---|---|---|
-| Assertions off | 380 | 93 | 1 658 | 1 084 | 212 | 364 | 32 | 1 181 |
-| Trap in place (default) | 572 | 93 | 1 744 | 1 318 | 224 | 438 | 32 | 1 361 |
-| Application handler | 798 | 93 | 1 921 | 1 642 | 255 | 570 | 32 | 1 651 |
+| Configuration | `alloc` | `status` | `ring` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `log` |
+|---|---|---|---|---|---|---|---|---|---|
+| Assertions off | 380 | 93 | 400 | 1 658 | 1 084 | 212 | 364 | 32 | 1 647 |
+| Trap in place (default) | 572 | 93 | 454 | 1 744 | 1 318 | 224 | 438 | 32 | 1 917 |
+| Application handler | 798 | 93 | 579 | 1 921 | 1 642 | 255 | 570 | 32 | 2 322 |
 
 `time` is the front functions, the two conversions, and the manual clock,
 each its own object; the conversions are most of it, because they divide
@@ -759,6 +785,13 @@ conversions in a clock's own unit. `log` grew by 292, 324 and 348 bytes
 where its line's start ends, the memory sink lends its storage through
 an `el_buf`, and the begin, append and end steps are shared by
 `el_log_write`, `el_log_sink_write` and `el_log_vprintf`. The other
+libraries measured the same.
+
+M5 (2026-11-17): `ring` is new, the ring and its two streams, each its
+own object; the streams are 98 bytes of it with the trap. `log` grew by
+466, 556 and 671 bytes (1 181, 1 361 and 1 651 before) for the deferred
+sink, which is in `elemental::log` with `LOG_DEFERRED` on, the default
+where `RING` is, and is linked only by a program that uses it. The other
 libraries measured the same.
 
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
@@ -789,10 +822,14 @@ and exited successfully.
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
-| Contract violations stop the program (`io.violations`, `io.violations.grow`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`, `time.violations`, `log.violations`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
+| Contract violations stop the program (`io.violations`, `io.violations.grow`, `ring.violations`, `alloc.violations`, `fmt.violations`, `bytes.violations`, `crc.violations`, `time.violations`, `log.violations`, `log.violations.deferred`) | passed, trap | passed, trap | passed, application handler | n/a, no death tests | n/a, no death tests | n/a, no death tests | not run |
 | io contract suite: fixed `el_buf` and the memory reader | passed | passed | passed | passed | passed | passed (per module) | not run |
 | io contract suite: POSIX, blocking and non-blocking | passed | passed | passed | n/a | n/a | n/a | n/a |
-| io contract suite: ring pipe example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| io contract suite: `ring`'s writer and reader | passed | passed | passed | passed | passed | passed (per module) | not run |
+| ring: unit tests, one context driving both sides | passed | passed | passed | passed | passed | passed (per module) | not run |
+| ring and the deferred sink: a thread on each side (`ring.stress`, `log.deferred.stress`) | passed | passed | passed; and under ThreadSanitizer, `tsan` preset: passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| log: the deferred sink, one context driving both sides (`log.deferred`) | passed | passed | passed | passed | passed | passed (per module) | not run |
+| A receive interrupt fills a ring and logs through the deferred sink; a thread reads through an `el_reader` and drains (`example.uart_ring`) | n/a | n/a | n/a | n/a | passed, `elemental.tests.ring.uart`: QEMU joins UART1 to UART2 | not run | n/a |
 | io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
@@ -818,48 +855,55 @@ and exited successfully.
 | Clock contract suite and platform tests: POSIX (`time_posix`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Clock contract suite and platform tests: the Zephyr kernel's uptime (`time_zephyr`) | n/a | n/a | n/a | passed, 100 ticks per second | passed, 100 ticks per second | passed (per module), 10 000 ticks per second | not run |
 | log: the logger and the printf call site, formatting into the buffer the sink lends; a file compiled with `EL_LOG_CUTOFF`; the writer sink's line, over fixed and grown buffers, and the memory sink's storage | passed | passed | passed | passed | passed | passed (per module) | not run |
-| Log sink contract suite: memory sink, writer sink over an `el_buf`, tee example | passed | passed | passed | passed | passed | passed (per module) | not run |
+| Log sink contract suite: memory sink, writer sink over an `el_buf`, deferred sink, tee example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | log: two sinks in one program, one of them a POSIX descriptor (`log.posix`); `el_cat` logging to standard error (`integration.installed`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | log: `EL_LOG_CUTOFF` removes the call and its format string from the object, C11 and C++17, `-O0` and `-Os` (`log.cutoff_check.*`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; `snprintf` allowed only with `FMT_PRINTF_LIBC` | passed | passed |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; `snprintf` allowed only with `FMT_PRINTF_LIBC`; no `__atomic_*` | passed; no `__atomic_*` | passed; no `__atomic_*` |
 
-The hosted presets run 603 GoogleTest tests, of which 35 are reported as
+The hosted presets run 665 GoogleTest tests, of which 35 are reported as
 skipped because a fixture lacks an optional capability
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite),
 [time](../modules/time/README.md#the-contract-suite),
 [log](../modules/log/README.md#the-contract-suite)), plus the interop
 and integration cases, two format-attribute, six must-use and twenty-four
-log cut-off compile checks, and the `EL_NODISCARD` declaration check: 648
-CTest tests in all. `sanitize` runs 653: its `variant_defconfig` adds
+log cut-off compile checks, and the `EL_NODISCARD` declaration check: 710
+CTest tests in all. `sanitize` runs 715: its `variant_defconfig` adds
 `fmt.libc` and the libc option's violations, and the two Rust sketches are
 skipped under sanitizers because a plain `rustc` link has no sanitizer
-runtime. `assert-off` runs 576: 648 less the 72 tests of the
-`*.violations` binaries, which are not built without assertions.
+runtime. `assert-off` runs 628: 710 less the 82 tests of the
+`*.violations` binaries, which are not built without assertions. `tsan`
+runs 68: the tests of `ring` and of the deferred sink, without the death
+tests. M5 added 62 GoogleTest tests: `ring`'s 40, the deferred sink's 38,
+less the ring pipe example's 16.
 
 `integration.module_subsets` builds each module and backend alone, except
 `time_zephyr`, which no host can build: it is left out because a probed
 fact (`PLATFORM_ZEPHYR`) hides it, the only reason the case accepts, and
 its own platform's tests cover it.
 
-The Zephyr tests are 448 GoogleTest tests: the hosted ones without the
+The Zephyr tests are 489 GoogleTest tests: the hosted ones without the
 POSIX and C library backends', the death tests, and the host-only
-`fmt.oracle`, `bytes.portable` and `log.posix`, and with the nine of
-`time_zephyr`, which run only there; 456 in the `variant` scenario, with
-`fmt.libc`. Twister (2026-11-17) reports 28 test configurations passed
-and `elemental.symbols.armv6m` built, with no warnings:
+`fmt.oracle`, `bytes.portable`, `log.posix`, `ring.stress` and
+`log.deferred.stress`, and with the nine of `time_zephyr`, which run only
+there; 497 in the `variant` scenario, with `fmt.libc`; and the three of
+`example.uart_ring` in `elemental.tests.ring.uart`. Twister (2026-11-17)
+reports 32 test configurations passed and `elemental.symbols.armv6m`
+built, with no warnings:
 
 - `elemental.tests.<module>` on `native_sim`, `mps2/an385` and
   `nucleo_g0b1re_renode`, passed and skipped by GoogleTest's count, the
-  same on each board: `status` 17 and 0, `alloc` 55 and 3, `io` 128 and
-  17, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0, `time` 40 and 2,
-  `log` 106 and 2 (448 together);
-- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 424 passed
-  and 24 skipped, `variant` 431 and 25 (`fmt.libc`'s float test skipped at
+  same on each board: `status` 17 and 0, `alloc` 55 and 3, `io` 114 and
+  15, `ring` 24 and 2, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0,
+  `time` 40 and 2, `log` 137 and 2 (489 together);
+- `ring`'s image with the UART example on `mps2/an385`
+  (`elemental.tests.ring.uart`): 27 passed and 2 skipped;
+- the full image on `mps2/an385`: `assert_off` and `crc_zephyr` 465 passed
+  and 24 skipped, `variant` 472 and 25 (`fmt.libc`'s float test skipped at
   picolibc's integer level);
 - the `fmt` image with `variant_defconfig` on `nucleo_g0b1re_renode`
   (`elemental.tests.fmt.variant`): 39 passed and 1 skipped, the same float
@@ -997,6 +1041,32 @@ Additionally, each run once by hand and not part of the automated suite:
   The one that survived, no check that a sink lent a buffer, duplicated
   `el_buf_len()`'s own null check, which still stops such a sink, and was
   removed rather than tested.
+- Twenty-one deliberately broken variants for M5's `ring` and deferred
+  sink (2026-11-17), all caught in the end. Eighteen with
+  `mutant.sh`: a ring that keeps one byte free, whose indices wrap at the
+  capacity instead of twice it, whose room and write ignore the close,
+  whose writer stalls after the close, whose reader ends at the close
+  before the last bytes, and whose full writer reports `EL_ERR_NO_SPACE`;
+  a deferred sink that publishes a record in two writes, does not count a
+  lost record, keeps a cut message, writes a record the ring has no room
+  for, drains while the ring keeps filling, leaves a refused record or the
+  rest of a cut message in the ring, gives a cut message as whole, and
+  drops the record's frequency. Two first survived. A reader that looks at
+  the close after finding the ring empty, instead of before, is wrong only
+  when the other thread writes and closes between its two loads; the
+  stress tests close four times a run and missed it, and
+  `RingStressClose`, which closes 20 000 times, was added and caught it in
+  three runs of three. A begin that does not check the ring's room loses
+  the same records at end, after formatting them; a test of begin itself
+  was added. The indices wrapping at the capacity also first hung one
+  stress test, whose reader got bytes forever; the readers now stop at
+  more bytes than were written. Three more against the two-thread tests
+  under ThreadSanitizer, built as the `tsan` preset is: the ring's words
+  plain `size_t`, atomic with every order relaxed, and only the tail
+  stored relaxed. Each passed GoogleTest's own checks, the bytes arriving
+  whole and in order, and each was reported as a data race (10, 6 and 3
+  reports in `ring.stress`; 5, 2 and 2 in `log.deferred.stress`): on
+  x86-64 the sanitizer is the part of these tests that fails.
 - Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in
@@ -1028,9 +1098,19 @@ Not verified:
 - **A clock on a real board.** `time_zephyr` was run under two emulators
   and on `native_sim`, at 100 and 10 000 kernel ticks per second; an
   emulator's timer shows that the port reads the kernel's uptime in the
-  right unit, not that a board keeps time. It was not read from an
-  interrupt handler.
-- Logging from an interrupt handler (M5), and the log cut-off with any
+  right unit, not that a board keeps time. It was read from an interrupt
+  handler on `mps2/an385` under QEMU only.
+- **What the ring's evidence does not show.** The UART run is an emulator
+  run on one core: a real exception entry preempts the reading thread and
+  the bytes and records come through, but it does not show timing, an
+  overrun by a handler that is late, or every point at which a handler
+  could preempt (QEMU runs translated blocks of instructions; at which
+  boundaries it takes an interrupt was not examined). Nothing shows memory
+  ordering between two cores of an Arm processor: the two-thread tests run
+  on x86-64, which orders more strongly, and ThreadSanitizer checks C's
+  rules, not a processor. No interrupt was taken on the Cortex-M0+ board,
+  where the ring's tests run in one context. No hardware.
+- The log cut-off with any
   compiler but the host's GCC and Clang: `log.cutoff_check.*` is host
   only, so that the Zephyr SDK's GCC 14.3.0 drops a cut call was not
   checked on an object, only that such calls do not run

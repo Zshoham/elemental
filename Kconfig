@@ -42,10 +42,18 @@ config PLATFORM_ZEPHYR
 	  The build is a Zephyr application's: Zephyr's headers and kernel are
 	  there to build against. Probed by CMake.
 
+config COMPILER_ATOMICS
+	def_bool $(EL_COMPILER_ATOMICS)
+	help
+	  The compiler accepts <stdatomic.h>'s acquire load and release store
+	  of an _Atomic size_t, the only atomic operations Elemental uses
+	  (docs/adr/0023). Probed by CMake.
+
 menu "Modules"
 
 rsource "modules/status/Kconfig"
 rsource "modules/io/Kconfig"
+rsource "modules/ring/Kconfig"
 rsource "modules/alloc/Kconfig"
 rsource "modules/bytes/Kconfig"
 rsource "modules/crc/Kconfig"

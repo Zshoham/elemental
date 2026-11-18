@@ -194,8 +194,13 @@ silent, are the conservative ones.
 | **Interrupt handlers** | Not allowed. | "ISR-safe", meaning: does not block, does not allocate, takes no lock, and is safe under the one-context rule. |
 | **Blocking** | Does not block. | A function that may wait says what it waits for. For interfaces, blocking is a property of the implementation, and each one documents it. |
 
-No Elemental module contains a lock, an atomic, or thread-local state today.
-A module that needs one takes it as an explicit dependency in its proposal.
+No Elemental module contains a lock or thread-local state. One contains
+atomics: [`ring`](../modules/ring/README.md), whose object is used by two
+contexts at once, and the deferred log sink built on it. The only atomic
+operations they use are a load and a store of one word, each word written
+by one context
+([ADR 0023](adr/0023-atomics-and-interrupt-context.md)). A module that
+needs more than that takes it as an explicit decision in its proposal.
 
 ## ABI
 

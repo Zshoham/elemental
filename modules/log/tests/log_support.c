@@ -81,6 +81,46 @@ el_log_sink recording_sink_without_end(recording_sink *sink)
     return (el_log_sink){.ctx = sink, .ops = &ops_without_end};
 }
 
+/* ---- echoing_sink -------------------------------------------------------- */
+
+static el_status echoing_begin(void *ctx, const el_log_record *record, el_buf **message)
+{
+    (void)record;
+    echoing_sink *const sink = ctx;
+    el_buf_truncate(&sink->buf, 0);
+    *message = &sink->buf;
+    return EL_OK;
+}
+
+static el_status echoing_end(void *ctx, const el_log_record *record, el_status fit)
+{
+    (void)record;
+    (void)fit;
+    echoing_sink *const sink = ctx;
+    sink->ends++;
+    if (sink->ends <= sink->limit) {
+        el_status_ignore(el_log_sink_write(sink->echo, &sink->again));
+    }
+    return EL_OK;
+}
+
+static const el_log_sink_ops echoing_ops = {.begin = echoing_begin, .end = echoing_end};
+
+void echoing_sink_init(echoing_sink *sink, el_log_sink echo, const el_log_record *again,
+                       unsigned limit)
+{
+    sink->echo = echo;
+    sink->again = *again;
+    sink->limit = limit;
+    sink->ends = 0;
+    el_buf_init(&sink->buf, sink->storage, sizeof(sink->storage));
+}
+
+el_log_sink echoing_sink_as_sink(echoing_sink *sink)
+{
+    return (el_log_sink){.ctx = sink, .ops = &echoing_ops};
+}
+
 /* ---- counting_clock ------------------------------------------------------ */
 
 static el_ticks counting_now(void *ctx)
