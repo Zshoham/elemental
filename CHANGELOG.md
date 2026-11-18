@@ -228,3 +228,5 @@ First milestone: the project's foundation.
   interrupt behind an `el_reader`, logging through the deferred sink.
 - A `tsan` preset: Clang with ThreadSanitizer, running the tests of `ring`
   and of the deferred sink, two of which use two threads.
+- `io`: documented that the `el_buf` growth hook is private to io and is
+  installed only by `el_grow_buf_init`.

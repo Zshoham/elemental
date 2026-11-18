@@ -37,8 +37,9 @@ Elemental owns:
   streams over caller-provided memory.
 - **Contract test suites**, written as GoogleTest tests and shipped as
   source, so that implementations outside this repository can run them.
-- **Reference backends** for common platforms (today: POSIX file
-  descriptors), kept only where they are tested.
+- **Reference backends** for common platforms, kept only where they are
+  tested. These cover POSIX file descriptors, POSIX and Zephyr clocks,
+  and the C library allocator.
 
 Elemental does not own:
 
@@ -86,34 +87,47 @@ runtime-support module, not for widening this definition.
 CMakeLists.txt  Kconfig         the single build entry and the Kconfig root
 cmake/                          configuration, module helper, package, test image
 modules/
-  status/                       status codes, contract assertions
-    Kconfig  CMakeLists.txt  include/elemental/  src/  tests/
-  io/                           reader/writer interfaces, memory streams
-    Kconfig  CMakeLists.txt  include/elemental/  src/  tests/
-    contract/                   the io contract suite (GoogleTest source)
-    backends/posix/             a platform backend, with PORT.md
-examples/                       a backend, and two consumer projects
+  alloc/                        allocator interface and arenas
+    contract/
+    backends/libc/
+  bytes/                        byte order and bit operations
+  crc/                          CRC updates
+  fmt/                          integer formatting and printf
+  io/                           reader/writer interfaces and buffers
+    contract/
+    backends/posix/
+  log/                          logging and sink interface
+    contract/
+  ring/                         byte FIFO and stream adapters
+  status/                       status codes and contract assertions
+  time/                         clock interface and tick conversions
+    contract/
+    backends/posix/
+    backends/zephyr/
+examples/                       backends and consumer projects
 tests/                          repository-level checks: headers, interop,
                                 integration; zephyr/, the target test image
 configs/                        defconfigs
 docs/
 ```
 
-A module is a directory that carries everything about itself: its Kconfig,
-build file, public headers, sources, tests, and README. Adding a module does
-not touch another module's files; it adds one line to the module list in
-`CMakeLists.txt` and one `rsource` line in `Kconfig`.
+A module carries its `Kconfig`, `CMakeLists.txt`, `include/elemental/`,
+`src/`, `tests/`, and `README.md`. Its `contract/` directory, where present,
+holds the GoogleTest suite and its fixture header. Each backend directory
+has a build file, headers, sources, tests, and `PORT.md`. Adding a module
+adds one line to the module list in `CMakeLists.txt` and one `rsource` line
+in `Kconfig`.
 
 ### The four kinds of code
 
 The distinction is kept where it does work, and only there.
 
-| Kind | What it is | Where | In the slice |
+| Kind | What it is | Where | Examples |
 |---|---|---|---|
-| Interface contract | Types, operations, documented behavior | `modules/<m>/include/elemental/<m>.h` | `io.h` |
-| Portable implementation | Needs nothing from a platform | same module | `io_mem.h`, `io_mem.c` |
-| Platform backend | One interface on one platform facility, its own library | `modules/<m>/backends/<platform>/` | `io_posix` |
-| Application composition | Chooses backends and wires them | the application | `examples/consume_*` |
+| Interface contract | Types, operations, documented behavior | `modules/<m>/include/elemental/<m>.h` | `alloc.h`, `time.h`, `log.h` |
+| Portable implementation | Needs nothing from a platform | same module | the arenas in `alloc_arena.c`, the manual clock in `time_manual.c` |
+| Platform backend | One interface on one platform facility, its own library | `modules/<m>/backends/<platform>/` | `alloc_libc`, `io_posix`, `time_posix`, `time_zephyr` |
+| Application composition | Chooses backends and wires them | the application | `examples/consume_installed`, `examples/uart_ring` |
 
 There is no "core", "common", "hal", or "port" directory, because nothing
 needs one yet. A platform backend is a library next to its interface, not a
@@ -121,19 +135,26 @@ layer under it.
 
 ### Dependency graph
 
-```
-status          (no dependencies)
-  ^
-  io            (status; memcpy, memmove; alloc with IO_ALLOC)
-  ^        ^          ^
-io_posix   io_contract  fmt   (status, io; since M3a)
-(POSIX)    (test support)
-```
+These are the direct edges between Elemental targets, from each target to
+its dependencies. The contract targets are for tests.
+
+| Target | Direct dependencies |
+|---|---|
+| `status` | None |
+| `alloc`, `bytes`, `crc`, `time` | `status` |
+| `io` | `status`, plus `alloc` with `IO_ALLOC` |
+| `fmt`, `ring` | `status`, `io` |
+| `log` | `status`, `io`, `fmt`, `time`, plus `ring` with `LOG_DEFERRED` |
+| `alloc_libc`, `alloc_contract` | `alloc` |
+| `io_posix`, `io_contract` | `io` |
+| `time_posix`, `time_zephyr`, `time_contract` | `time` |
+| `log_contract` | `log` |
 
 `fmt` depends on `io` because its printf formats into an `io` buffer or a
-buffered writer ([ADR 0015](adr/0015-formatting-into-io-buffers.md)); `io`
-does not depend on `fmt`. `alloc`, `bytes` and `crc` depend on `status`
-only.
+buffered writer ([ADR 0015](adr/0015-formatting-into-io-buffers.md)).
+`ring` uses `io` for its reader and writer adapters. `log` uses `io` for
+buffers and its writer sink, `fmt` for formatting, and `time` for its
+clock. The deferred sink adds `ring`.
 
 `status` is the only module every other module may depend on. That privilege
 is why it must stay tiny; its admission rule is in
@@ -144,10 +165,10 @@ module-to-module dependency has to be justified in the module's proposal.
 
 | Aspect | Guarantee |
 |---|---|
-| **Source consumption** | A module is `include/` plus `src/`, compiled with any C11 compiler and one extra header, `elemental_config.h`, on the include path. No generated code other than that header, which may be written by hand. |
-| **CMake use** | One target per module, `elemental::<module>`, a static library. Linking it brings its dependencies and nothing else. With `add_subdirectory(... EXCLUDE_FROM_ALL)` only linked modules are compiled. |
+| **Source consumption** | Compile the selected files in `src/` with a C11 compiler. Put the module's `include/`, its dependencies' headers, and `elemental_config.h` on the include path. The configuration header may be written by hand. |
+| **CMake use** | Each module and backend has a static library target under `elemental::`. Contract suite targets supply source to the tests that link them. Linking a target brings its dependencies. With `add_subdirectory(... EXCLUDE_FROM_ALL)` only linked modules are compiled. |
 | **Generated configuration** | Private to Elemental's own sources. Public headers never include it, so a consumer's sources compile the same way whatever the configuration is. |
-| **Transitive dependencies** | Stated in the module's README and enforced by the build: a module names its dependencies, and a missing one is a configure-time error. Today the longest chain is two (`io_posix` → `io` → `status`). |
+| **Transitive dependencies** | Stated in the module's README and enforced by the build. A module names its dependencies, and a missing one is a configure-time error. The longest possible chain has five edges (`log_contract` → `log` → `fmt` → `io` → `alloc` → `status`, with `IO_ALLOC`). |
 
 No module requires a global runtime, an init call, or another module that it
 does not name. The three supported ways to consume a module, and which of them
@@ -306,24 +327,23 @@ and use from C++, Rust, and Python.
 
 ### Storage is the caller's
 
-No function in the slice allocates. Objects have public layouts so that the
-caller can place them in static, stack, or heap storage, and buffers are
-passed in. This is not a temporary state of affairs. The rule for future
-modules is:
+No function in the first slice allocated. Objects have public layouts so
+that the caller can place them in static, stack, or heap storage, and
+buffers are passed in. The rule for future modules is:
 
 - A module that can work in caller-provided storage must, with no allocator
   in its signature.
 - A module that genuinely needs dynamic storage takes an allocator handle as
   an explicit parameter. Nothing reaches for a global heap.
-- Convenience that needs allocation (a growable buffer writer, say) goes in a
-  separate library, so the base module does not acquire a dependency on the
-  allocation module.
+
+`io` builds its growable buffer only with `IO_ALLOC`. That option adds the
+dependency on `alloc`.
 
 Which candidate modules need allocation:
 
 | Module | Needs an allocator? |
 |---|---|
-| status, io | No. |
+| status, io | Only `el_grow_buf` needs one, when `IO_ALLOC` is on. |
 | allocation | It is one. Its arena runs over caller storage. |
 | logging | No. Formatting into a caller buffer; deferred logging into a caller-provided ring. |
 | async | Not in the interface. Operation state is caller-owned; an executor's queues are sized from caller storage. |
@@ -366,9 +386,9 @@ frame decoder (section 6.5) should be a function of its input. A helper that
 reads frames from an `el_reader` is glue on top, and is where the
 would-block handling goes, once.
 
-The same applies to other environmental inputs. Time is a parameter, not a
-call: a module that needs "now" is given a timestamp or a clock operation by
-its caller. No module reads a clock, an environment variable, or a global.
+The same applies to other environmental inputs. A module that needs "now"
+is given a timestamp or an `el_clock` by its caller. The logger reads the
+clock it was given.
 
 **Cost.** Bytes-in, results-out APIs are more work to design and push
 buffering onto the caller. They are worth it for protocol-shaped logic and

@@ -37,6 +37,8 @@
  *
  * The struct layout is public so that callers can allocate it. The fields
  * are not part of the API: use the functions.
+ * The `grow` hook is private to io. Only el_grow_buf_init() installs it.
+ * It is not an extension point. Code outside io must not set or call it.
  *
  * Concurrency: no internal synchronization; one buffer, one context at a
  * time. A fixed buffer never blocks or allocates, so it may be used from an
@@ -64,7 +66,11 @@ typedef struct el_buf {
     uint8_t *data;
     size_t len;
     size_t cap;
-    /* Null for fixed storage. Set by el_grow_buf_init: make room >= min. */
+    /*
+     * Private to io, not an extension point. Only el_grow_buf_init()
+     * installs this hook. Code outside io must not set or call it.
+     * Null for fixed storage. Otherwise makes room >= min.
+     */
     el_status (*grow)(struct el_buf *b, size_t min);
 } el_buf;
 
