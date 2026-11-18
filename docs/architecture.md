@@ -335,9 +335,9 @@ buffers are passed in. The rule for future modules is:
   in its signature.
 - A module that genuinely needs dynamic storage takes an allocator handle as
   an explicit parameter. Nothing reaches for a global heap.
-
-`io` builds its growable buffer only with `IO_ALLOC`. That option adds the
-dependency on `alloc`.
+- Convenience that needs allocation is a part of its module behind a Kconfig
+  option of its own, so the module depends on the allocation module only
+  when that part is on: `el_grow_buf` in `io`, behind `IO_ALLOC`.
 
 Which candidate modules need allocation:
 
@@ -387,8 +387,9 @@ reads frames from an `el_reader` is glue on top, and is where the
 would-block handling goes, once.
 
 The same applies to other environmental inputs. A module that needs "now"
-is given a timestamp or an `el_clock` by its caller. The logger reads the
-clock it was given.
+is given a timestamp or an `el_clock` by its caller, and reads no other
+clock: the logger reads the one it was given. No module reads an
+environment variable or a global.
 
 **Cost.** Bytes-in, results-out APIs are more work to design and push
 buffering onto the caller. They are worth it for protocol-shaped logic and

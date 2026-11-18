@@ -33,8 +33,8 @@ Elemental's C functions and types start with `el_` and use lower case.
 
 | Thing | Form | Example |
 |---|---|---|
-| Central types | `el_<noun>` | `el_reader`, `el_writer`, `el_buf`, `el_allocator`, `el_layout`, `el_clock`, `el_ticks`, `el_ring`, `el_logger`, `el_log_sink`, `el_status` |
-| Supporting types | `el_<module>_<noun>` | `el_ring_word`, `el_log_record`, `el_log_level`, `el_alloc_checker` |
+| Central types | `el_<noun>` | `el_reader`, `el_writer`, `el_buf`, `el_allocator`, `el_layout`, `el_clock`, `el_ticks`, `el_ring`, `el_logger`, `el_status` |
+| Supporting types | `el_<module>_<noun>` | `el_log_sink`, `el_log_record`, `el_log_level`, `el_ring_word`, `el_alloc_checker` |
 | Implementations | `el_<kind>_<noun>` or `el_<module>_<kind>_<noun>` | `el_mem_reader`, `el_grow_buf`, `el_buffered_writer`, `el_bump_arena`, `el_manual_clock`, `el_log_writer_sink` |
 | Functions of a type | `<type>_<operation>` | `el_buf_append`, `el_ring_write`, `el_logger_init`, `el_status_name`, `el_ticks_from_ms` |
 | Interface front functions and helpers | `el_<verb>` or `<interface>_<operation>` | `el_read`, `el_write`, `el_read_exact`, `el_alloc`, `el_free`, `el_clock_now`, `el_log_sink_write` |
