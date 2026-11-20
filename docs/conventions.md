@@ -29,16 +29,40 @@ that file (`_POSIX_C_SOURCE` in `io_posix.c`), never on a command line.
 
 ## Naming
 
+Elemental's C functions and types start with `el_` and use lower case.
+
 | Thing | Form | Example |
 |---|---|---|
-| Functions, types | `el_<module>_<noun>_<verb>`, lower case | `el_mem_reader_init` |
+| Central types | `el_<noun>` | `el_reader`, `el_writer`, `el_buf`, `el_allocator`, `el_layout`, `el_clock`, `el_ticks`, `el_ring`, `el_logger`, `el_status` |
+| Supporting types | `el_<module>_<noun>` | `el_log_sink`, `el_log_record`, `el_log_level`, `el_ring_word`, `el_alloc_checker` |
+| Implementations | `el_<kind>_<noun>` or `el_<module>_<kind>_<noun>` | `el_mem_reader`, `el_grow_buf`, `el_buffered_writer`, `el_bump_arena`, `el_manual_clock`, `el_log_writer_sink` |
+| Functions of a type | `<type>_<operation>` | `el_buf_append`, `el_ring_write`, `el_logger_init`, `el_status_name`, `el_ticks_from_ms` |
+| Interface front functions and helpers | `el_<verb>` or `<interface>_<operation>` | `el_read`, `el_write`, `el_read_exact`, `el_alloc`, `el_free`, `el_clock_now`, `el_log_sink_write` |
+| Module functions | `el_<module>_<operation>` | `el_bytes_load_le16`, `el_fmt_dec_u64`, `el_log_write` |
+| CRC functions | `el_<algorithm>_<operation>` | `el_crc32_update`, `el_crc16_ibm3740_update` |
+| Platform backend types and handle factories | `el_<platform>_<noun>` | `el_posix_fd`, `el_posix_clock`, `el_zephyr_clock`, `el_libc_allocator` |
+| Operation tables | `<interface>_ops` | `el_reader_ops` |
+| Handle from an object | `<type>_as_<interface>` | `el_mem_reader_as_reader`, `el_log_writer_sink_as_sink` |
+| Contract fixtures and suites | `el_<module>_contract_fixture` in C, `El<Module>Contract` in C++ | `el_io_contract_fixture`, `ElIoContract` |
+| Private `el_` names | Trailing `_` | `el_buf_append_some_`, `el_fmt_target_`, `el_log_sink_begin_` |
 | Constants, macros | `EL_...`, upper case | `EL_OK`, `EL_ASSERT` |
 | Status codes | `EL_OK`, `EL_ERR_<WHAT>` | `EL_ERR_WOULD_BLOCK` |
-| Headers | `<elemental/<module>.h>` | `<elemental/io_mem.h>` |
+| Module headers | `<elemental/<module>.h>` and `<elemental/<module>_<part>.h>`, or named for the facility in `status` | `<elemental/io.h>`, `<elemental/io_mem.h>`, `<elemental/assert.h>`, `<elemental/assert_handler.h>` |
+| Backend headers | `<elemental/<module>_<platform>.h>` | `<elemental/time_zephyr.h>` |
+| Contract suite headers | `<elemental/<module>_contract.h>` and `<elemental/<module>_contract.hpp>` | `<elemental/io_contract.h>`, `<elemental/io_contract.hpp>` |
+| Header guards | `ELEMENTAL_<HEADER>_H` or `ELEMENTAL_<HEADER>_HPP` | `ELEMENTAL_IO_BUF_H`, `ELEMENTAL_IO_CONTRACT_HPP` |
 | Kconfig symbols | unprefixed in Kconfig, `EL_CONFIG_<SYMBOL>` when generated | `EL_CONFIG_IO_POSIX` |
-| CMake targets | `elemental::<module>` | `elemental::io_posix` |
-| Operation tables | `<interface>_ops` | `el_reader_ops` |
-| Handle from an object | `<type>_as_<interface>` | `el_mem_reader_as_reader` |
+| CMake targets | `elemental::<module>`, `elemental::<module>_<platform>`, `elemental::<module>_contract` | `elemental::io`, `elemental::io_posix`, `elemental::io_contract` |
+
+Module functions can work on their own, as in `bytes` and `fmt`, or take an
+object, as `el_log_write` takes an `el_logger`. The part after `as_` can use
+the interface's short name, as in `el_log_writer_sink_as_sink`.
+The assertion handler `el_assert_failed` is a hook supplied by the
+application. The `PrintTo` overloads use the name GoogleTest looks for.
+
+The trailing underscore also marks a private helper in a public header
+(`el_trap_`). File-local helpers can use an unprefixed name (`buf_write`).
+Private macros can follow the usual macro form (`EL_TRAP`).
 
 Types are `typedef`'d and used without `struct`. There is no `_t` suffix,
 which POSIX reserves. The object a function acts on is its first parameter.

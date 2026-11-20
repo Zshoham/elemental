@@ -153,8 +153,10 @@ arena a buffer that has grown to n bytes has used up to about 2n.
 where `ALLOC` is on), and then `elemental::io` links `elemental::alloc`. With
 `IO_ALLOC` off, io builds and links no allocator, which
 `integration.subdirectory` checks. Even with it on, `io_buf.c` names no
-allocator function: growth is reached through the hook `el_grow_buf_init`
-sets in the buffer, so a program that only uses fixed buffers links none.
+allocator function, so a program that only uses fixed buffers links none.
+Growth goes through the buffer's `grow` hook, which is private to io. Only
+`el_grow_buf_init` installs it. It is not an extension point. Code outside
+io must not set or call it.
 
 `el_buf` and `el_grow_buf` replaced `el_mem_writer` and `el_grow_writer` in
 milestone M3a ([proposal](../../docs/proposals/io-buffers-fmt.md)).
