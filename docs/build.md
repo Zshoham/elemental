@@ -855,9 +855,10 @@ the application without tests in each configuration.
 ## What is verified
 
 On one x86-64 Linux machine, 2026-11-17. "Passed" means the command was run
-and exited successfully. The literal-format checks were run on 2026-11-18
-with the same host compiler versions. The sandbox run used
-`LSAN_OPTIONS=detect_leaks=0` because LeakSanitizer could not run there.
+and exited successfully. The five host presets were run again on
+2026-11-20, after the literal-format checks were added, with the same
+compiler versions and LeakSanitizer on; the Zephyr columns are from the
+earlier runs.
 
 | Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
