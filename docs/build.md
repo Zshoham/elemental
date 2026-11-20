@@ -285,6 +285,7 @@ There are three supported ways. They differ in who runs Kconfig.
 | How | `find_package(Elemental)` | `add_subdirectory()` or FetchContent of the repository root | Copy `modules/<m>/` into your tree |
 | Kconfig runs in | Nobody's build. Frozen at install. | Elemental's subdirectory, at configure time | Nowhere |
 | Consumer needs | CMake, C compiler | plus Python ≥ 3.9 and the provisioned Kconfiglib | A C compiler |
+| To check printf literals | plus Python ≥ 3.9 | uses the same Python | call the checker directly |
 | To run a contract suite | plus a C++17 compiler and the consumer's own GoogleTest | the same | not supported |
 | Configuration chosen by | Whoever built the package | The application, with `ELEMENTAL_DEFCONFIG` | A config header you supply |
 | Example, checked by | `examples/consume_installed`, `integration.installed` | `examples/consume_subdirectory`, `integration.subdirectory` | `integration.raw_source` |
@@ -332,6 +333,44 @@ target_link_libraries(app PRIVATE elemental::io)
 As a subproject Elemental defines its library targets and nothing else: no
 tests, no examples, no install rules, no short tool targets. With
 `EXCLUDE_FROM_ALL`, only the modules the application links are compiled.
+
+### Checking printf formats
+
+An installed package and a CMake subproject both provide
+`elemental_check_formats()`. Call it after defining your target.
+
+```cmake
+target_link_libraries(app PRIVATE elemental::log)
+elemental_check_formats(app FUNCTIONS report:2)
+```
+
+It checks literal formats passed to the fmt and log printf functions,
+including calls through `EL_LOG` and the four level macros. The default
+is the [portable subset](../modules/fmt/include/elemental/fmt_printf.h),
+accepted with either formatter. Pass `LIBC` if the target requires
+`FMT_PRINTF_LIBC`. Both modes reject `%n`, `%lc` and `%ls`.
+`FUNCTIONS` adds wrapper names and their format argument positions,
+counting from 1. Omit it if the target uses only Elemental's entry points.
+Use `EL_FMT_PRINTF_CHECK` on your wrappers for the compiler's separate
+argument type check.
+
+The function uses a compiler launcher with Ninja or Makefiles, GCC or
+Clang, and host Python ≥ 3.9. Python is looked up when the function is
+called. The launcher preprocesses each compilation with that target's
+compiler, flags and headers. This uses the target C library's actual
+`<inttypes.h>` definitions, including when cross-compiling. It reads
+adjacent literals as one format and reports violations at their source
+lines. The build stops if any are found.
+
+The checker matches direct calls by name and reads narrow strings with
+an ASCII-compatible execution character set. It skips computed formats
+and indirect calls. In C++, enclose an argument that
+contains a template argument list in parentheses so its boundary is
+visible to the checker. The compiler still checks argument types and the
+formatter still checks its contract at run time.
+
+For a source drop, run `python3 tools/check_formats.py -- cc -E -dD ...`
+with the source's usual compiler flags and include paths.
 
 ### Source drop
 
@@ -816,7 +855,9 @@ the application without tests in each configuration.
 ## What is verified
 
 On one x86-64 Linux machine, 2026-11-17. "Passed" means the command was run
-and exited successfully.
+and exited successfully. The literal-format checks were run on 2026-11-18
+with the same host compiler versions. The sandbox run used
+`LSAN_OPTIONS=detect_leaks=0` because LeakSanitizer could not run there.
 
 | Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
@@ -843,6 +884,8 @@ and exited successfully.
 | fmt: conversions and printf subset into a buffer and a buffered writer, literal expectations; proposal Examples 1–3 and 2b (Example 2 against a scripted stalling UART) | passed | passed | passed | passed | passed | passed (per module) | not run |
 | fmt: printf subset against glibc `snprintf`, every capacity and through a buffered writer stalling after every k; decimal against division | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | fmt: format attribute accepts correct calls, rejects a mismatch | passed | passed | passed | n/a | n/a | n/a | n/a |
+| fmt and log: portable literal formats (`fmt.portable_check.*`, `integration.installed`), including a CMake build rejected at the call site | passed | passed | passed | not run | not run | not run | not run |
+| fmt: checked portable literals against the builtin formatter and `snprintf` | passed | passed | n/a, libc option | n/a, host only | n/a, host only | n/a, host only | n/a |
 | bytes: byte-order vectors at every alignment | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: catalogue check values and generated vectors, configured tables | passed | passed | passed | passed | passed | passed (per module) | not run |
 | crc: 256-entry tables (`variant_defconfig`) | not this configuration | not this configuration | passed | not this configuration | passed, `elemental.tests.variant` | not this configuration | n/a |
@@ -870,15 +913,16 @@ skipped because a fixture lacks an optional capability
 [alloc](../modules/alloc/README.md#the-contract-suite),
 [time](../modules/time/README.md#the-contract-suite),
 [log](../modules/log/README.md#the-contract-suite)), plus the interop
-and integration cases, two format-attribute, six must-use and twenty-four
-log cut-off compile checks, and the `EL_NODISCARD` declaration check: 710
-CTest tests in all. `sanitize` runs 715: its `variant_defconfig` adds
-`fmt.libc` and the libc option's violations, and the two Rust sketches are
-skipped under sanitizers because a plain `rustc` link has no sanitizer
-runtime. `assert-off` runs 628: 710 less the 82 tests of the
-`*.violations` binaries, which are not built without assertions. `tsan`
-runs 68: the tests of `ring` and of the deferred sink, without the death
-tests. M5 added 62 GoogleTest tests: `ring`'s 40, the deferred sink's 38,
+and integration cases, two format-attribute, six literal-format, six must-use
+and twenty-four log cut-off checks, and the `EL_NODISCARD` declaration check:
+716 CTest tests in all. `sanitize` runs 720: its `variant_defconfig` adds
+`fmt.libc` and the libc option's violations and omits the builtin format
+oracle. The sanitizer build leaves out the two Rust sketches because a
+plain `rustc` link has no sanitizer runtime. `assert-off` runs 634: 716
+less the 82 tests of the `*.violations` binaries, which are not built
+without assertions. These presets each report 35 skips. `tsan` runs 68
+with two skips: the tests of `ring` and of the deferred sink, without the
+death tests. M5 added 62 GoogleTest tests: `ring`'s 40, the deferred sink's 38,
 less the ring pipe example's 16.
 
 `integration.module_subsets` builds each module and backend alone, except

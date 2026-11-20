@@ -1,7 +1,7 @@
 # An application and a contract suite run that use an installed Elemental.
 #
-# Nothing here runs Kconfig or needs Python: the installed package is one
-# frozen configuration.
+# The installed package is one frozen configuration. The optional format
+# check needs Python; the package itself needs only CMake and a compiler.
 #
 #   cmake -S . -B build -DCMAKE_PREFIX_PATH=<elemental install prefix>
 cmake_minimum_required(VERSION 3.22)
@@ -16,6 +16,10 @@ find_package(Elemental 0.1 REQUIRED COMPONENTS io io_posix io_contract ring log 
 # GoogleTest.
 add_executable(el_cat main.c)
 target_link_libraries(el_cat PRIVATE elemental::io_posix elemental::log elemental::time_posix)
+option(CHECK_FORMATS "Check el_cat's literal Elemental formats at build time" ON)
+if(CHECK_FORMATS)
+  elemental_check_formats(el_cat)
+endif()
 
 # The backend author's view: the contract suite the package installs, run
 # from outside Elemental's repository. Here it runs against the package's

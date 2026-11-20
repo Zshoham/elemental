@@ -90,7 +90,10 @@ wants one reachable from every file declares it, in
   it cannot take whole is cut by `fmt`'s item rule (`el_log_write`: at a
   byte), and the sink counts the record as lost.
 - **Formats** are what [`el_fmt_printf`](../fmt/README.md) accepts in the
-  build.
+  build. Add `elemental_check_formats(app)` to check literal formats in
+  `EL_LOG`, all four level macros, and calls to `el_log_printf` and
+  `el_log_vprintf`. Calls below `EL_LOG_CUTOFF` are checked too. See
+  [build.md](../../docs/build.md#checking-printf-formats).
 
 Other languages call `el_log_write(logger, level, message, len)`, which is
 not variadic.

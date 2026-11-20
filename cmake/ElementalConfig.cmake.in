@@ -12,7 +12,7 @@
 # GTest::gtest target, from find_package(GTest) or from its own copy. The resolved configuration is exposed as EL_CONFIG_* variables and
 # listed in Elemental_CONFIG_SYMBOLS; the .config it came from is
 # Elemental_CONFIG_FILE. Consuming the package needs neither Kconfig nor
-# Python.
+# Python unless the consumer enables the literal format check.
 
 @PACKAGE_INIT@
 
@@ -35,6 +35,7 @@ foreach(_elemental_module IN LISTS _elemental_modules)
 endforeach()
 
 include("${CMAKE_CURRENT_LIST_DIR}/ElementalTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ElementalCheckFormats.cmake")
 
 # The link is by name and resolved when the consumer generates, so it does
 # not matter whether GoogleTest is found before or after this package.

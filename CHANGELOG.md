@@ -230,3 +230,7 @@ First milestone: the project's foundation.
   and of the deferred sink, two of which use two threads.
 - `io`: documented that the `el_buf` growth hook is private to io and is
   installed only by `el_grow_buf_init`.
+- `fmt` and `log` consumers can opt into `elemental_check_formats(target)`
+  to reject nonportable printf literals at build time. It works from an
+  installed package or a CMake subproject, with an option for targets that
+  require `FMT_PRINTF_LIBC`.

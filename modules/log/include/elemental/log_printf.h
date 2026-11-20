@@ -14,8 +14,10 @@
  *     EL_LOG_INFO(&log, "listening on port %d", port);
  *     EL_LOG_WARN(&log, "%s did not answer, attempt %d of %d", peer, attempt, attempts);
  *
- * Formats: what el_fmt_printf() accepts in this build, checked by the
- * compiler where it can check a format.
+ * Formats: what el_fmt_printf() accepts in this build. The compiler checks
+ * argument types for literal formats. Use elemental_check_formats(target)
+ * in CMake to check those literals against the portable subset, including
+ * calls through EL_LOG and EL_LOG_* below the cut-off.
  *
  * Message length: a message is formatted straight into the buffer the
  * logger's sink lends (elemental/log.h), after whatever the sink put there

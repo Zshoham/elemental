@@ -185,6 +185,7 @@ def case_installed(work):
                  "libelemental_log.a",
                  "ElementalConfig.cmake", "ElementalConfigVersion.cmake",
                  "ElementalTargets.cmake", "ElementalConfiguration.cmake",
+                 "ElementalCheckFormats.cmake", "check_formats.py",
                  "elemental.config"):
         check(exists_under(prefix, name), "not installed: " + name)
 
@@ -209,15 +210,45 @@ def case_installed(work):
         "-DCMAKE_C_COMPILER={}".format(ARGS.c_compiler),
         "-DCMAKE_CXX_COMPILER={}".format(ARGS.cxx_compiler),
         "-DGOOGLETEST_SOURCE_DIR={}".format(ARGS.googletest)]
-    run(["cmake", "-S", consumer_source, "-B", consumer, "-G", ARGS.generator,
-         "-DCMAKE_PREFIX_PATH={}".format(prefix)] + consumer_definitions)
+    consumer_configure = ["cmake", "-S", consumer_source, "-B", consumer,
+                          "-G", ARGS.generator, "-DCMAKE_PREFIX_PATH={}".format(prefix),
+                          *consumer_definitions]
+    run([*consumer_configure, "-DCHECK_FORMATS=OFF"])
     build(consumer)
 
-    # The consumer ran neither Kconfig nor Python.
+    # With the optional check off, the consumer ran neither Kconfig nor Python.
     cache = (consumer / "CMakeCache.txt").read_text()
     check("Python3_EXECUTABLE" not in cache, "the consumer looked for Python")
     check(not exists_under(consumer, "elemental_config.h"),
           "the consumer generated a configuration header")
+
+    run([*consumer_configure, "-DCHECK_FORMATS=ON"])
+    build(consumer, "--target", "el_cat")
+
+    # A valid C printf format can still be rejected by the installed checker.
+    format_consumer = work / "format-consumer"
+    write(format_consumer / "CMakeLists.txt", """\
+cmake_minimum_required(VERSION 3.22)
+project(format_consumer LANGUAGES C)
+find_package(Elemental REQUIRED COMPONENTS log)
+add_library(format_consumer OBJECT bad_format.c)
+target_link_libraries(format_consumer PRIVATE elemental::log)
+elemental_check_formats(format_consumer)
+""")
+    bad_format = write(format_consumer / "bad_format.c", """\
+#include <elemental/log_printf.h>
+void report(el_logger *log, double temp)
+{
+    EL_LOG_ERROR(log, "temp %f", temp);
+}
+""")
+    format_build = work / "format-build"
+    run(["cmake", "-S", format_consumer, "-B", format_build,
+         "-G", ARGS.generator, "-DCMAKE_PREFIX_PATH={}".format(prefix),
+         "-DCMAKE_C_COMPILER={}".format(ARGS.c_compiler)])
+    output = build(format_build, expect_failure=True)
+    check("{}:4: error: el_log_printf: '%f' in format 'temp %f'".format(bad_format) in output,
+          "installed checker diagnostic not found:\n" + output)
 
     # The application: large enough to need many reads and partial writes.
     payload = bytes((i * 7 + i // 251) % 256 for i in range(300000))
