@@ -5,6 +5,8 @@
 # carries the language and the optimization level; the check is run without
 # optimization too, because the cut-off must not depend on it
 # (docs/adr/0021-log-cutoff.md).
+cmake_minimum_required(VERSION 3.22)
+
 set(include_flags "")
 foreach(dir IN LISTS INCLUDES)
   list(APPEND include_flags "-I${dir}")

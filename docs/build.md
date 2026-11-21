@@ -958,6 +958,9 @@ Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.
 
+The same Twister matrix passed on 2026-11-21 in an Ubuntu 24.04 container
+using the CI workflow's pinned SDK and Renode.
+
 `fmt`'s literal-expectation tests (`fmt.unit`) pass unchanged on
 `mps2/an385` and `nucleo_g0b1re_renode`, so the portable subset's output is
 byte-identical on the host, an emulated ARMv7-M and an emulated ARMv6-M
@@ -1122,12 +1125,9 @@ Additionally, each run once by hand and not part of the automated suite:
 
 Not verified:
 
-- **The CI workflow has never run.** It is syntactically valid YAML and
-  mirrors the commands above. In particular unverified: Ubuntu 24.04's GCC
-  and Clang (older than the ones above) with warnings as errors; its
-  Python 3.9 from `actions/setup-python`; and the `zephyr` job's workspace
-  setup, whose SDK step (`west sdk install`) differs from how the local
-  SDK was installed (the minimal bundle and its `setup.sh`).
+- A passing GitHub Actions run of the current workflow. The November 20,
+  2026 run built the host presets, but the CMake policy error stopped the
+  log cut-off checks and Zephyr stopped at SDK setup before Twister.
 - Any compiler other than those above, including MSVC and vendor compilers.
   The MSVC branches in the build files and in `assert.h` are untested.
 - Any host operating system other than Linux. None is supported.
@@ -1137,8 +1137,6 @@ Not verified:
 - The STM32G0B1's peripherals beyond what the tests touch: the Renode
   model is an STM32G071's, enlarged, and was not checked against the G0B1
   reference manual.
-- The CI `zephyr` job's Renode download and the `hal_stm32` fetch, which
-  were done by hand here.
 - Contract violations on a target: death tests run on the host only.
 - **A clock on a real board.** `time_zephyr` was run under two emulators
   and on `native_sim`, at 100 and 10 000 kernel ticks per second; an

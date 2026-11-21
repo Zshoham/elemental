@@ -114,7 +114,7 @@ jobs:
     env:
       ZEPHYR_REVISION: v4.5.0
       ZEPHYR_COMMIT: 41d10b59730406bbab4ca9f1fbbe9e96aafb4966
-      ZEPHYR_MODULES: '-.*,+cmsis,+cmsis_6,+picolibc,+hal_nordic,+hal_stm32'
+      WEST_PROJECT_FILTER: '-.*,+cmsis,+cmsis_6,+picolibc,+hal_nordic,+hal_stm32'
       ZEPHYR_SDK_VERSION: 1.0.1
       RENODE_VERSION: 1.17.0
       RENODE_SHA256: 4ba7c68b59e2447f188ef4b4b112fcccd2802582c460beedceb63b84e5605a5f
@@ -152,8 +152,22 @@ jobs:
             --mr "$ZEPHYR_REVISION" ~/zephyrproject
           cd ~/zephyrproject
           test "$(git -C zephyr rev-parse HEAD)" = "$ZEPHYR_COMMIT"
-          west config manifest.project-filter -- "$ZEPHYR_MODULES"
+          west config manifest.project-filter -- "$WEST_PROJECT_FILTER"
           west update --narrow -o=--depth=1
+
+      # The SDK command imports packages from requirements-base.txt. Install
+      # the requirements on cache hits too: the Python environment is fresh.
+      - name: Install Zephyr's Python requirements
+        run: |
+          cd ~/zephyrproject/zephyr
+          pip install -r scripts/requirements-base.txt \
+            -r scripts/requirements-build-test.txt \
+            -r scripts/requirements-run-test.txt
+
+      - name: Install the Zephyr SDK and Renode
+        if: steps.workspace.outputs.cache-hit != 'true'
+        run: |
+          cd ~/zephyrproject
           west sdk install --version "$ZEPHYR_SDK_VERSION" \
             -t arm-zephyr-eabi -H -d "$ZEPHYR_SDK_INSTALL_DIR"
           archive="renode-$RENODE_VERSION.linux-portable.tar.gz"
@@ -162,13 +176,6 @@ jobs:
           mkdir renode
           tar -xzf "$archive" -C renode --strip-components=1
           rm "$archive"
-
-      - name: Install Zephyr's Python requirements
-        run: |
-          cd ~/zephyrproject/zephyr
-          pip install -r scripts/requirements-base.txt \
-            -r scripts/requirements-build-test.txt \
-            -r scripts/requirements-run-test.txt
 
       - name: Provision the pinned Kconfiglib fork and GoogleTest
         run: cmake -P tools/provision.cmake
