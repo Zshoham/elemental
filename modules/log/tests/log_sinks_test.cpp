@@ -414,6 +414,40 @@ TEST_F(ElLogMemSink, RecordSizeIsWhatOneRecordTakes)
     EXPECT_EQ(el_log_mem_sink_count(&sink), 3u);
 }
 
+TEST_F(ElLogMemSink, StorageSizeIsTheFunctionsRecordSizeForNRecords)
+{
+    const size_t counts[] = {0, 1, 3, 8};
+    const size_t longest[] = {0, 1, 24, 64};
+    for (const size_t n : counts) {
+        for (const size_t m : longest) {
+            EXPECT_EQ(EL_LOG_MEM_SINK_STORAGE_SIZE(n, m), n * el_log_mem_sink_record_size(m))
+                << n << " records of " << m << " bytes";
+        }
+    }
+
+    /* A constant expression, for a static array. */
+    static uint8_t constant[EL_LOG_MEM_SINK_STORAGE_SIZE(3, 10)];
+    EXPECT_EQ(sizeof(constant), 3 * el_log_mem_sink_record_size(10));
+}
+
+TEST_F(ElLogMemSink, StorageOfTheMacrosSizeKeepsNRecordsOfMBytesAndLosesTheNext)
+{
+    constexpr size_t kCount = 4;
+    constexpr size_t kLongest = 9;
+    static uint8_t exact[EL_LOG_MEM_SINK_STORAGE_SIZE(kCount, kLongest)];
+    Open(exact, sizeof(exact));
+
+    for (size_t i = 0; i < kCount; i++) {
+        EXPECT_EQ(Write("123456789"), EL_OK) << "record " << i;
+    }
+    EXPECT_EQ(el_log_mem_sink_count(&sink), kCount);
+    EXPECT_EQ(Write("123456789"), EL_ERR_NO_SPACE) << "the next one";
+    EXPECT_EQ(Write(""), EL_ERR_NO_SPACE) << "not even an empty one";
+    EXPECT_EQ(el_log_mem_sink_count(&sink), kCount);
+    EXPECT_EQ(el_log_mem_sink_lost(&sink), 2u);
+    EXPECT_EQ(MessageAt(kCount - 1), "123456789");
+}
+
 TEST_F(ElLogMemSink, ARecordThatDoesNotFitIsLostWholeAndCounted)
 {
     Open(storage, el_log_mem_sink_record_size(5) + el_log_mem_sink_record_size(8) - 1);
@@ -437,6 +471,11 @@ TEST_F(ElLogMemSink, StorageTooSmallForARecordsOwnFieldsLosesIt)
     EXPECT_EQ(Write(""), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_mem_sink_count(&sink), 0u);
     EXPECT_EQ(el_log_mem_sink_lost(&sink), 1u);
+
+    /* Refused at begin, so no record is left open: another is begun, and
+     * refused again, without a check firing. */
+    EXPECT_EQ(Write("x"), EL_ERR_NO_SPACE);
+    EXPECT_EQ(el_log_mem_sink_lost(&sink), 2u);
 }
 
 TEST_F(ElLogMemSink, WithNoStorageEveryRecordIsLost)

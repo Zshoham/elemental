@@ -19,7 +19,9 @@ constexpr int kSteps = 5;
 
 el_clock Open(const el_time_contract_fixture *fixture)
 {
-    fixture->reset(fixture->ctx);
+    if (fixture->reset != nullptr) {
+        fixture->reset(fixture->ctx);
+    }
     return fixture->clock(fixture->ctx);
 }
 
@@ -36,7 +38,6 @@ void ElTimeContract::SetUp()
 {
     const el_time_contract_fixture *const fixture = GetParam();
     ASSERT_TRUE(fixture != nullptr) << "the suite was instantiated with a null fixture";
-    ASSERT_TRUE(fixture->reset != nullptr) << "fixture.reset is required";
     ASSERT_TRUE(fixture->clock != nullptr) << "fixture.clock is required";
 }
 

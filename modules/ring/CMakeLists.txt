@@ -4,6 +4,10 @@ elemental_add_module(ring
   SOURCES src/ring.c src/ring_io.c
   DEPENDS status io)
 
+if(EL_CONFIG_RING_ZEPHYR_UART)
+  add_subdirectory(backends/zephyr_uart)
+endif()
+
 if(COMMAND elemental_add_test)
   add_subdirectory(tests)
 endif()

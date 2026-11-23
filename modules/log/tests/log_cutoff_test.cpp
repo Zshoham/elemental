@@ -76,3 +76,48 @@ TEST_F(ElLogCutoff, TheFunctionsAreNotAffected)
 
     EXPECT_EQ(sink.calls, 2u);
 }
+
+namespace
+{
+
+el_status CountedCompose(void *ctx, el_buf *message)
+{
+    ++*static_cast<int *>(ctx);
+    return el_buf_append(message, "composed", 8);
+}
+
+} // namespace
+
+/* A constant, so that it can guard a declaration or a static array too. */
+static_assert(!EL_LOG_KEPT(EL_LOG_LEVEL_DEBUG), "below the cut-off");
+static_assert(!EL_LOG_KEPT(EL_LOG_LEVEL_INFO), "below the cut-off");
+static_assert(EL_LOG_KEPT(EL_LOG_LEVEL_WARN), "at the cut-off");
+static_assert(EL_LOG_KEPT(EL_LOG_LEVEL_ERROR), "above the cut-off");
+
+TEST_F(ElLogCutoff, AComposedMessageUnderKeptIsCutOffWithTheCallsAndNotComposed)
+{
+    int composed = 0;
+    if (EL_LOG_KEPT(EL_LOG_LEVEL_INFO)) {
+        el_log_compose(&log, EL_LOG_LEVEL_INFO, CountedCompose, &composed);
+    }
+    EXPECT_EQ(composed, 0);
+    EXPECT_EQ(sink.calls, 0u);
+    EXPECT_EQ(clock.now_calls, 0u);
+
+    if (EL_LOG_KEPT(EL_LOG_LEVEL_WARN)) {
+        el_log_compose(&log, EL_LOG_LEVEL_WARN, CountedCompose, &composed);
+    }
+    EXPECT_EQ(composed, 1);
+    EXPECT_EQ(sink.calls, 1u);
+    EXPECT_EQ(std::string(sink.message, sink.last.len), "composed");
+}
+
+TEST_F(ElLogCutoff, ComposeItselfIsNotAffected)
+{
+    /* Only the macro and the guard honor the cut-off. */
+    int composed = 0;
+    el_log_compose(&log, EL_LOG_LEVEL_DEBUG, CountedCompose, &composed);
+
+    EXPECT_EQ(composed, 1);
+    EXPECT_EQ(sink.calls, 1u);
+}

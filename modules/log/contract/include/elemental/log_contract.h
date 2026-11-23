@@ -45,17 +45,22 @@ extern "C" {
  * How to set up the sink under test, and how to look at what it delivered.
  *
  * The suite uses one sink at a time. Before asking for a new one it calls
- * `reset`, which must release whatever the previous request created and
- * forget what was delivered. `ctx` is passed back to every function
- * unchanged. A record counts as delivered once the sink's end returned
- * EL_OK for it; `index` 0 is the first one delivered.
+ * `reset`, if the fixture has one, which must release whatever the
+ * previous request created and forget what was delivered; without one, the
+ * next request must make a sink that has delivered nothing. `ctx` is
+ * passed back to every function unchanged. A record counts as delivered
+ * once the sink's end returned EL_OK for it; `index` 0 is the first one
+ * delivered.
  */
 typedef struct el_log_contract_fixture {
     /* Shown in failure reports. */
     const char *name;
     void *ctx;
 
-    /* Required. Release the sink created by the previous request, if any. */
+    /*
+     * Optional. Release the sink created by the previous request, if any.
+     * Leave null if there is nothing to release: the suite does not call it.
+     */
     void (*reset)(void *ctx);
 
     /*

@@ -47,7 +47,7 @@ Elemental does not own:
 |---|---|
 | The application | `main`, startup order, which backend each component is given, threads, the event loop, every policy decision. Elemental never starts a thread, installs a signal handler, or reads global state on its own. |
 | A platform port | Startup code, vector tables, linker scripts, clocks, interrupt wiring, the C runtime the compiler requires. |
-| A backend | The mapping from one interface onto one platform facility. A backend may live in this repository or outside it. |
+| A backend | The mapping from one interface onto one platform facility, or a module's object fed from one facility (a receive interrupt filling a ring). A backend may live in this repository or outside it. |
 | External libraries | Protocols, parsers, cryptography, compression, anything with a domain of its own. |
 
 ### What "libc replacement" means here
@@ -96,9 +96,11 @@ modules/
   io/                           reader/writer interfaces and buffers
     contract/
     backends/posix/
+    backends/zephyr_uart/
   log/                          logging and sink interface
     contract/
   ring/                         byte FIFO and stream adapters
+    backends/zephyr_uart/
   status/                       status codes and contract assertions
   time/                         clock interface and tick conversions
     contract/
@@ -126,12 +128,14 @@ The distinction is kept where it does work, and only there.
 |---|---|---|---|
 | Interface contract | Types, operations, documented behavior | `modules/<m>/include/elemental/<m>.h` | `alloc.h`, `time.h`, `log.h` |
 | Portable implementation | Needs nothing from a platform | same module | the arenas in `alloc_arena.c`, the manual clock in `time_manual.c` |
-| Platform backend | One interface on one platform facility, its own library | `modules/<m>/backends/<platform>/` | `alloc_libc`, `io_posix`, `time_posix`, `time_zephyr` |
+| Platform backend | One interface's implementation on one platform facility, or a module's object fed from one facility (the producer case), its own library | `modules/<m>/backends/<backend>/` | `alloc_libc`, `io_posix`, `io_zephyr_uart`, `time_posix`, `time_zephyr`; `ring_zephyr_uart`, a ring that a UART's receive interrupt fills |
 | Application composition | Chooses backends and wires them | the application | `examples/consume_installed`, `examples/uart_ring` |
 
 There is no "core", "common", "hal", or "port" directory, because nothing
 needs one yet. A platform backend is a library next to its interface, not a
-layer under it.
+layer under it. Its name, `<m>_<backend>`, says what it sits on: the
+platform for its base facility, platform and facility for one a build may
+lack ([conventions.md](conventions.md#naming)).
 
 ### Dependency graph
 
@@ -147,6 +151,8 @@ its dependencies. The contract targets are for tests.
 | `log` | `status`, `io`, `fmt`, `time`, plus `ring` with `LOG_DEFERRED` |
 | `alloc_libc`, `alloc_contract` | `alloc` |
 | `io_posix`, `io_contract` | `io` |
+| `io_zephyr_uart` | `io` |
+| `ring_zephyr_uart` | `ring` |
 | `time_posix`, `time_zephyr`, `time_contract` | `time` |
 | `log_contract` | `log` |
 
@@ -154,7 +160,9 @@ its dependencies. The contract targets are for tests.
 buffered writer ([ADR 0015](adr/0015-formatting-into-io-buffers.md)).
 `ring` uses `io` for its reader and writer adapters. `log` uses `io` for
 buffers and its writer sink, `fmt` for formatting, and `time` for its
-clock. The deferred sink adds `ring`.
+clock. The deferred sink adds `ring`. `ring_zephyr_uart` is the producer of
+a caller's `ring`, fed by a UART's receive interrupt; the reading thread
+reads through the ring's reader.
 
 `status` is the only module every other module may depend on. That privilege
 is why it must stay tiny; its admission rule is in
@@ -345,7 +353,7 @@ Which candidate modules need allocation:
 |---|---|
 | status, io | Only `el_grow_buf` needs one, when `IO_ALLOC` is on. |
 | allocation | It is one. Its arena runs over caller storage. |
-| logging | No. Formatting into a caller buffer; deferred logging into a caller-provided ring. |
+| logging | No. Formatting into a caller buffer; deferred logging into caller-provided storage, in which the deferred sink keeps its own queue. |
 | async | Not in the interface. Operation state is caller-owned; an executor's queues are sized from caller storage. |
 | IPC | No for framing. Transport-specific for the rest. |
 
@@ -568,7 +576,10 @@ EL_LOG_INFO(log, "connected to %s:%d", host, port);
   target and a public generated header, and justify it.
 - A timestamp is an argument or a caller-supplied operation; the logger does
   not read a clock.
-- Use from an interrupt handler means deferring, into a caller-provided ring.
+- Use from an interrupt handler means deferring, into caller-provided
+  storage. (Written before the design: the deferred sink first took a ring
+  the caller set up; since M5a it keeps the queue itself, in one block of
+  the caller's storage.)
 
 ### 6.5 Async and IPC — discovery before design
 

@@ -48,9 +48,21 @@ static void size_classes_free(void *ctx, void *ptr, el_layout layout)
     sc->free_list[i] = ptr;
 }
 
+/* A block never moves between classes, so within its class the operation
+ * keeps it where it is. For another class it returns NULL, and el_realloc()
+ * allocates, copies and frees. */
+static void *size_classes_realloc(void *ctx, void *ptr, el_layout layout, size_t new_size)
+{
+    (void)ctx;
+    const int now = class_of(layout);
+    const int then = class_of(el_layout_make(new_size, layout.align));
+    return now == then ? ptr : NULL;
+}
+
 static const el_allocator_ops size_classes_ops = {
     .alloc = size_classes_alloc,
     .free = size_classes_free,
+    .realloc = size_classes_realloc,
 };
 
 void size_classes_init(size_classes *sc, void *storage, size_t size)

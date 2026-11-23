@@ -62,4 +62,43 @@ TEST_F(SizeClasses, RefusesWhatNoClassHolds)
     EXPECT_EQ(el_alloc(a, el_layout_make(1, 512)), nullptr);
 }
 
+TEST_F(SizeClasses, ResizingWithinTheClassKeepsTheBlockWhereItIs)
+{
+    void *const block = el_alloc(a, el_layout_make(10, 8)); /* class 16 */
+    EXPECT_EQ(el_realloc(a, block, el_layout_make(10, 8), 16), block);
+    EXPECT_EQ(el_realloc(a, block, el_layout_make(16, 8), 1), block);
+    EXPECT_EQ(a.ops->realloc(a.ctx, block, el_layout_make(1, 8), 15), block);
+}
+
+TEST_F(SizeClasses, ResizingToAnotherClassIsLeftToElRealloc)
+{
+    uint8_t *const block = static_cast<uint8_t *>(el_alloc(a, el_layout_make(10, 8)));
+    for (uint8_t i = 0; i < 10; i++) {
+        block[i] = i + 1;
+    }
+    /* The operation does not move blocks between classes... */
+    EXPECT_EQ(a.ops->realloc(a.ctx, block, el_layout_make(10, 8), 17), nullptr);
+    /* ...so el_realloc does, and the block it leaves is its old class's. */
+    uint8_t *const moved = static_cast<uint8_t *>(el_realloc(a, block, el_layout_make(10, 8), 17));
+    ASSERT_NE(moved, nullptr);
+    EXPECT_NE(moved, block);
+    for (uint8_t i = 0; i < 10; i++) {
+        EXPECT_EQ(moved[i], i + 1);
+    }
+    EXPECT_EQ(el_alloc(a, el_layout_make(16, 1)), block);
+
+    /* Past the largest class: refused, and the block is as it was. */
+    EXPECT_EQ(el_realloc(a, moved, el_layout_make(17, 8), 257), nullptr);
+    EXPECT_EQ(moved[9], 10);
+}
+
+TEST_F(SizeClasses, AResizedBlockIsFreedIntoItsNewClass)
+{
+    void *const block = el_alloc(a, el_layout_make(10, 8));
+    void *const moved = el_realloc(a, block, el_layout_make(10, 8), 100); /* class 128 */
+    ASSERT_NE(moved, nullptr);
+    el_free(a, moved, el_layout_make(100, 8));
+    EXPECT_EQ(el_alloc(a, el_layout_make(128, 1)), moved);
+}
+
 } // namespace

@@ -1,10 +1,16 @@
-/* The allocator contract suite against both arenas. */
+/*
+ * The allocator contract suite against both arenas, and against two
+ * allocators built on the stack arena: the checking allocator, and one that
+ * has no realloc operation.
+ */
 #include <elemental/alloc_contract.hpp>
 
 #include "fixture_arena.h"
 
 INSTANTIATE_TEST_SUITE_P(
-    Arena, ElAllocContract, testing::Values(&alloc_fixture_bump_arena, &alloc_fixture_stack_arena),
+    Arena, ElAllocContract,
+    testing::Values(&alloc_fixture_bump_arena, &alloc_fixture_stack_arena,
+                    &alloc_fixture_checked_stack_arena, &alloc_fixture_stack_arena_without_realloc),
     [](const testing::TestParamInfo<const el_alloc_contract_fixture *> &param_info) {
         return std::string(param_info.param->name);
     });

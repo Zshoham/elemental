@@ -4,7 +4,8 @@
  * An allocator hands out memory and takes it back. Code that needs dynamic
  * storage takes an el_allocator as a parameter, so its caller decides where
  * the memory comes from: an arena over a static array, the C library's heap,
- * or anything else that implements the two operations below.
+ * or anything else that implements the two operations below, and optionally
+ * a third that changes an allocation's size.
  *
  * STATUS: experimental. See docs/process/api-stability.md.
  *
@@ -20,10 +21,12 @@
  * EL_ERR_NO_SPACE. The size of an array that overflows is caught earlier,
  * by el_layout_array(), which reports EL_ERR_NO_SPACE.
  *
- * Sized free: el_free() takes back the layout the allocation was made with
- * (docs/adr/0012-sized-free.md). An allocator may rely on it, so it must be
- * exact: keep the layout you allocated with and free with that same value.
- * For a growable buffer it is the layout of its capacity, not its length.
+ * Sized free: el_free() takes back the allocation's current layout
+ * (docs/adr/0012-sized-free.md): the one it was allocated with, or, after a
+ * successful el_realloc(), the alignment with the size it was changed to.
+ * An allocator may rely on it, so it must be exact: keep that layout beside
+ * the pointer and free with that same value. For a growable buffer it is
+ * the layout of its capacity, not its length.
  *
  * Alignment: every layout names its alignment, a power of two (1, 2, 4,
  * ...). The returned pointer is a multiple of it. There is no default.
@@ -32,6 +35,10 @@
  * a non-null pointer, a multiple of the alignment, that must not be
  * dereferenced and need not be unique. Freeing it, with a layout of size 0,
  * does nothing. So an operation is never called with a size of 0.
+ *
+ * Changing size: el_realloc() changes an allocation's size, in place if the
+ * allocator can and by allocating, copying and freeing if not. The
+ * allocator's third operation, `realloc`, is optional.
  *
  * Ownership and lifetime:
  *
@@ -56,7 +63,12 @@
  * pointer other than null or the zero-size pointer; freeing memory the
  * allocator did not provide, twice, or with a different layout. The last
  * group is checked only where an implementation can do so cheaply, and is
- * otherwise undefined behavior, as it is for free().
+ * otherwise undefined behavior, as it is for free(). For el_realloc(): the
+ * same for `ptr` and `layout`, and a realloc operation that returns a
+ * pointer not aligned to the layout. A call to the size the layout already
+ * has returns `ptr` before any of the allocator's own checks, so there a
+ * wrong pointer or layout, the zero-size pointer included, goes unchecked
+ * (still a violation).
  */
 #ifndef ELEMENTAL_ALLOC_H
 #define ELEMENTAL_ALLOC_H
@@ -123,7 +135,8 @@ EL_NODISCARD el_status el_layout_array(el_layout elem, size_t count, el_layout *
 
 /* ---- Interface ----------------------------------------------------------
  *
- * To implement an allocator, define both operations over your own state and
+ * To implement an allocator, define the two operations over your own state
+ * (and, if you can do better than allocate, copy and free, the third) and
  * hand out a handle that pairs them with it. The functions below check the
  * caller's arguments before an operation runs and check its result after,
  * so an operation may rely on the "called with" guarantees.
@@ -147,11 +160,32 @@ typedef struct el_allocator_ops {
      * Take back an allocation.
      *
      * Called with: ptr not null; layout.size >= 1. ptr and layout are, if
-     *              the caller kept the contract, exactly those of a
-     *              successful alloc on this ctx that has not been freed.
+     *              the caller kept the contract, exactly the current ones
+     *              of a live allocation on this ctx: from the most recent
+     *              successful alloc or realloc that produced it, at the
+     *              address that returned and with its size and alignment.
      * Must: not fail. It may make the memory available again, or not.
      */
     void (*free)(void *ctx, void *ptr, el_layout layout);
+
+    /*
+     * Optional: null if the allocator can do no better than allocate, copy
+     * and free, which el_realloc() then does.
+     *
+     * Change an allocation's size, moving it if the allocator chooses.
+     *
+     * Called with: ptr and layout exactly those of a live allocation from
+     *              this ctx; new_size >= 1 and different from layout.size.
+     * Must: return the allocation's address, `ptr` or another multiple of
+     *       layout.align, with new_size bytes there whose first
+     *       min(layout.size, new_size) are the allocation's; the caller
+     *       then uses only the returned pointer, even if it equals `ptr`,
+     *       as after C's realloc(). Or
+     *       return NULL and change nothing: el_realloc() then allocates,
+     *       copies and frees, so NULL means "no better than that", not
+     *       only "no memory".
+     */
+    void *(*realloc)(void *ctx, void *ptr, el_layout layout, size_t new_size);
 } el_allocator_ops;
 
 /*
@@ -172,12 +206,43 @@ typedef struct el_allocator {
 EL_NODISCARD void *el_alloc(el_allocator allocator, el_layout layout);
 
 /*
- * Give back `ptr`, which was allocated from `allocator` with exactly this
- * `layout`. `ptr` may be null only when `layout.size` is 0, which frees
- * nothing; that makes the empty state (NULL, size 0) of a buffer safe to
- * free.
+ * Give back `ptr`, which was allocated from `allocator` and has exactly
+ * this `layout` now: the one it was allocated with, or the one its last
+ * el_realloc() gave it. `ptr` may be null only when `layout.size` is 0,
+ * which frees nothing; that makes the empty state (NULL, size 0) of a
+ * buffer safe to free.
  */
 void el_free(el_allocator allocator, void *ptr, el_layout layout);
+
+/*
+ * Change the allocation at `ptr`, made from `allocator` with `layout`, to
+ * `new_size` bytes, moving it if need be. Returns its address, `ptr` or
+ * another; its first min(layout.size, new_size) bytes are what they were,
+ * and the rest are unspecified. From then on it is freed with
+ * el_layout_make(new_size, layout.align), at the returned address. NULL if
+ * it cannot be done: nothing changed, and the allocation is still at `ptr`
+ * with `layout`.
+ *
+ * The allocator's realloc operation is asked first. Without one, or if it
+ * returns NULL, a new allocation is made, the old one's bytes copied into
+ * it, and the old one freed. So an allocator that is out of memory may be
+ * asked twice.
+ *
+ * A new size equal to layout.size returns `ptr` without consulting the
+ * allocator. A layout of size 0 (`ptr` null or the zero-size pointer) is
+ * el_alloc() of the new size, and so is not a failure when the new size is
+ * 0 too: it returns the zero-size pointer. A new size of 0 frees the
+ * allocation and returns the zero-size pointer. No operation is called with
+ * a size of 0.
+ *
+ * After a success only the returned pointer is used: the old one, and every
+ * pointer derived from it, are not used again, even if the address is the
+ * same. A pointer into the allocation is derived again from the returned
+ * one. (A backend such as el_libc_allocator() hands the call to C's
+ * realloc(), which ends the old object even when it returns the same
+ * address.)
+ */
+EL_NODISCARD void *el_realloc(el_allocator allocator, void *ptr, el_layout layout, size_t new_size);
 
 #ifdef __cplusplus
 }

@@ -234,3 +234,116 @@ First milestone: the project's foundation.
   to reject nonportable printf literals at build time. It works from an
   installed package or a CMake subproject, with an option for targets that
   require `FMT_PRINTF_LIBC`.
+- `io_contract` (M5a, [seams proposal](docs/proposals/seams.md)): a
+  fixture has a reader half and a writer half, and may leave either out;
+  the suite reports the absent half's tests as skipped ("no reader", "no
+  writer"). The new field `reader_then`, `EL_IO_CONTRACT_THEN_ENDS` (0, the
+  default) or `EL_IO_CONTRACT_THEN_STALLS`, says what a reader does after
+  its content; it is the fixture's last member, after the ones that were
+  there, which keep their order, so a fixture initialized by position still
+  compiles and means what it did. The content the suite lends a reader is
+  one constant of static storage duration, valid for as long as the reader
+  borrows it. `ReaderDeliversItsContentInOrderThenEnds` is renamed
+  `ReaderDeliversItsContentInOrder`, and the new
+  `ReaderThatStallsAfterItsContentHasNotEnded` checks a reader that stalls:
+  13 tests, from 12. `reset` is optional. The buffered-writer and
+  `el_grow_buf` fixtures no longer borrow a memory reader; the ring is
+  also run open, as a reader that stalls.
+- `time_contract` (M5a): `reset` is optional.
+- `log` (experimental, M5a): `el_log_compose(logger, level, compose, ctx)`
+  and `el_log_compose_fn`: an application's function writes the message
+  into the buffer the sink lends, between begin and end, which the library
+  calls, ending the record on the sink that began it even if the function
+  changed the logger. Nothing is composed for a record that is not made or
+  that the sink refuses at begin; a sink that refuses it at end does so
+  after the function ran. The function runs in the caller's context, so
+  from an interrupt handler it must not block or allocate. `EL_LOG_KEPT`
+  (`elemental/log_printf.h`), the cut-off as a constant, which `EL_LOG`
+  now uses. `el_logger_off()`, a constant logger that makes no records.
+  `EL_LOG_MEM_SINK_STORAGE_SIZE(count, message_max)` and
+  `EL_LOG_DEFERRED_SINK_STORAGE_SIZE(waiting, message_max)` size a sink's
+  storage at compile time, checking no overflow; the `_record_size()`
+  functions stay. The memory, writer and deferred sinks gain a field
+  marking a record open, and assert that logging into a sink from inside a
+  compose function, or into a writer sink from its own writer, does not
+  begin a second record; the writer sink's record stays open until its
+  line is written. `reset` is optional in the log contract suite.
+- `log` (experimental, M5a), breaking: the deferred sink owns its queue.
+  `el_log_deferred_sink_init(sink, storage, storage_cap, message_max)`
+  takes one block of storage and the longest message, in place of an
+  `el_ring *` and record storage; a size above 0 and below one record, or
+  a queue above `SIZE_MAX / 2`, is a contract violation, and a size of 0
+  makes a sink that loses everything whatever `message_max` is.
+  `el_log_deferred_sink_pending_bytes()` reports the queue's fill.
+- `alloc` (experimental, M5a, [ADR 0025](docs/adr/0025-an-allocation-changes-size-and-may-move.md)):
+  `el_allocator_ops` gains an optional last operation, `realloc`, which
+  changes an allocation's size and may move it; null from it means "no
+  better than allocate, copy and free". `el_realloc()` asks it and falls
+  back to that; after a success only the returned pointer is used, even
+  at the old address, and the allocation is freed with its new size.
+  Both arenas grow and shrink their latest allocation in place;
+  `el_libc_allocator()` answers with `realloc()` up to `max_align_t`, and
+  asks `malloc()` and `realloc()` for at least the alignment in bytes, so
+  that a heap that aligns small blocks less still returns them aligned;
+  the checking allocator checks a resize that reaches it as it checks a
+  free. `alloc` now needs `memcpy`. `reset` is optional in the alloc
+  contract suite, which gains 13 tests of resizing.
+- `io` (M5a): `el_grow_buf` grows through `el_realloc`, so a buffer that is
+  its arena's latest allocation grows in place.
+- `io_zephyr_uart` and `ring_zephyr_uart` (experimental, M5a): a Zephyr
+  UART, as two libraries named for the facility
+  ([conventions.md](docs/conventions.md#naming)).
+  `io_zephyr_uart` (`elemental/io_zephyr_uart.h`,
+  `elemental::io_zephyr_uart`) is `el_zephyr_uart_poll`, a writer that
+  passes each byte to `uart_poll_out()`. Its promise is that every byte
+  reaches `uart_poll_out()`: lossless only where the driver's `poll_out`
+  waits for the device to accept it (Zephyr's RTT UART skips bytes when its
+  buffer is full). Kconfig `IO_ZEPHYR_UART`, which depends on `IO` and on
+  the new probed symbol `PLATFORM_ZEPHYR_UART` (`CONFIG_SERIAL`); it needs
+  neither interrupt-driven UARTs nor `ring`.
+  `ring_zephyr_uart` (`elemental/ring_zephyr_uart.h`,
+  `elemental::ring_zephyr_uart`) is `el_zephyr_uart_irq`, the producer of a
+  ring the caller sets up: the receive interrupt writes what arrives into
+  it, counts what did not fit, and calls the application's
+  `on_arrival(ctx)` after bytes arrive, queued or counted as dropped. The
+  thread reads through `el_ring_as_reader()`. From a successful init until
+  deinit the ring's producer side is the handler's; a failed init leaves
+  the ring open and untouched; deinit disables the interrupt, clears the
+  callback, then closes the ring, so the reader ends after what was
+  received. `on_arrival` may also run inside `el_zephyr_uart_irq_init`, on
+  the calling thread, so it and its `ctx` are ready before init; the ring
+  and its storage stay alive while its reader is used, after deinit too.
+  The callback is set only after the caller's ring is open, as some drivers
+  run it at once from another of the device's interrupts; init fails with
+  `EL_ERR_IO` when an asynchronous receive is active (`uart_poll_in()`
+  gives `-EBUSY`); a driver without `poll_in` cannot have held bytes
+  discarded, and they may be received. The receiver is supported only on
+  drivers that call the callback from the device's interrupt, not from a
+  work queue (Bluetooth NUS, USB CDC ACM), and only on an instance with
+  interrupt-driven receive, which Zephyr cannot report per instance.
+  `EL_ERR_IO` covers only what the driver reports. Kconfig
+  `RING_ZEPHYR_UART`, which depends on `RING` and on the new probed symbol
+  `PLATFORM_ZEPHYR_UART_IRQ` (`CONFIG_SERIAL` and
+  `CONFIG_UART_INTERRUPT_DRIVEN`), a build-wide fact. Neither public header
+  includes a Zephyr header, and no public layout depends on Zephyr's
+  configuration. The io contract suite runs over two joined UARTs on
+  `mps2/an385`, the writer on one and the ring's reader on the other, in
+  the `elemental.tests.ring.uart` scenario.
+- `io_zephyr_uart`, `ring_zephyr_uart`, `time_zephyr`, `crc` with
+  `CRC_ZEPHYR` (M5a): Zephyr's `zephyr_interface` is linked for the build
+  only, so a Zephyr application can add Elemental with
+  `ELEMENTAL_INSTALL=ON` and install it; the export failed to generate
+  before.
+- `examples/uart_ring` (M5a): its receive side is now `ring_zephyr_uart`
+  filling the example's own ring, and it sends with `io_zephyr_uart`;
+  `uart_reader.c` and `.h` are removed. What it still shows is logging from
+  an interrupt handler, a `k_timer`'s, through the deferred sink.
+- Zephyr tests: `native_sim`'s image turns its pseudo-terminal UARTs on and
+  interrupt-driven (`tests/zephyr/boards/native_sim.conf`), the first one
+  staying the console on standard output, so `io_zephyr_uart` and
+  `ring_zephyr_uart` build there and their tests against scripted devices
+  run in `elemental.tests.io` and `elemental.tests.ring`.
+- With `ELEMENTAL_INSTALL=ON` in a build whose toolchain skips CMake's
+  compiler detection (a Zephyr application), Elemental measures the
+  target's pointer size itself before including `GNUInstallDirs`, which no
+  longer warns that it cannot choose `lib` or `lib64`.

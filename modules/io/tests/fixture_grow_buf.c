@@ -3,8 +3,7 @@
  * wrapped in the checking allocator, so every block it frees is checked
  * against the size it was allocated with, and none is left behind.
  *
- * io_alloc has no reader. The fixture's reader is a memory reader, which
- * the suite requires; it adds nothing that io.contract.buf does not test.
+ * io_alloc has no reader, so the fixture has no reader half.
  *
  * A grown buffer cannot stall and does not end. It reports EL_ERR_NO_SPACE
  * when its allocator refuses, but where that happens depends on how growth
@@ -16,7 +15,6 @@
 #include <elemental/alloc_arena.h>
 #include <elemental/alloc_contract.h>
 #include <elemental/io_alloc.h>
-#include <elemental/io_mem.h>
 
 #include <stdalign.h>
 #include <stdlib.h>
@@ -28,7 +26,6 @@ static struct {
     el_alloc_checker checker;
     el_grow_buf grown;
     el_buf *buf;
-    el_mem_reader reader;
     size_t taken;
 } state;
 
@@ -42,15 +39,7 @@ static void reset(void *ctx)
             abort(); /* The buffer left a block behind. */
         }
     }
-    el_mem_reader_init(&state.reader, NULL, 0);
     state.taken = 0;
-}
-
-static el_reader reader_with_content(void *ctx, const uint8_t *content, size_t len)
-{
-    (void)ctx;
-    el_mem_reader_init(&state.reader, content, len);
-    return el_mem_reader_as_reader(&state.reader);
 }
 
 static el_writer writer_with_room(void *ctx, size_t room)
@@ -80,13 +69,7 @@ static size_t writer_take(void *ctx, uint8_t *out, size_t cap)
 
 const el_io_contract_fixture io_alloc_fixture_grow_buf = {
     .name = "el_grow_buf",
-    .ctx = NULL,
     .reset = reset,
-    .reader_with_content = reader_with_content,
     .writer_with_room = writer_with_room,
     .writer_take = writer_take,
-    .reader_stalled = NULL,
-    .writer_stalled = NULL,
-    .writer_ending_after = NULL,
-    .writer_full_after = NULL,
 };

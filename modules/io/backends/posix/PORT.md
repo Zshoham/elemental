@@ -64,9 +64,11 @@ Not for interrupt handlers. Blocks exactly when the descriptor does.
 | `io_posix.contract.*` | Shared contract suite | Interface semantics, over pipes, once blocking and once non-blocking. |
 | `io_posix.platform.*` | Backend-specific | `EPIPE` is end of stream; an OS failure is `EL_ERR_IO` and keeps its `errno`; the descriptor stays open and its flags untouched; one object reads and writes a socket pair; an interrupted blocking read is would-block. |
 
-Skipped contract tests: 3 over the blocking pipe and 1 over the non-blocking
-one. A blocking pipe cannot be made to stall (2 tests), and a pipe cannot
-end after an exact number of bytes are written (1 test, both fixtures).
+Skipped contract tests: 5 over the blocking pipe and 3 over the non-blocking
+one. A blocking pipe cannot be made to stall (2 tests); a pipe cannot end,
+or be full without stalling, after an exact number of bytes are written (2
+tests, both fixtures); and its reader ends after the content, so the check
+of a reader that stalls after it is skipped (1 test, both fixtures).
 
 Run with GCC 16.2.1 and Clang 23.1.4, and under AddressSanitizer and
 UndefinedBehaviorSanitizer, on Linux x86-64.

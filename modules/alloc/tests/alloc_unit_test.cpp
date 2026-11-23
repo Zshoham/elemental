@@ -339,4 +339,167 @@ TEST(StackArena, ResetGivesEverythingBack)
     EXPECT_EQ(el_alloc(a, el_layout_make(64, 1)), storage);
 }
 
+/* ---- Changing an allocation's size, in both arenas ---------------------- */
+
+/*
+ * Both arenas resize alike, so each check takes the handle of a fresh arena
+ * of 64 bytes over `storage` and the test calls it for each arena.
+ */
+
+void CheckTheLatestAllocationGrowsInPlaceWhileThereIsRoom(el_allocator a)
+{
+    uint8_t *const first = static_cast<uint8_t *>(el_alloc(a, el_layout_make(8, 8)));
+    uint8_t *const latest = static_cast<uint8_t *>(el_alloc(a, el_layout_make(16, 8)));
+    ASSERT_EQ(first, storage);
+    ASSERT_EQ(latest, storage + 8);
+    for (size_t i = 0; i < 16; i++) {
+        latest[i] = static_cast<uint8_t>(i + 1);
+    }
+
+    /* The operation itself, then through el_realloc: the same address. */
+    ASSERT_NE(a.ops->realloc, nullptr);
+    EXPECT_EQ(a.ops->realloc(a.ctx, latest, el_layout_make(16, 8), 40), latest);
+    EXPECT_EQ(el_realloc(a, latest, el_layout_make(40, 8), 56), latest);
+    for (size_t i = 0; i < 16; i++) {
+        EXPECT_EQ(latest[i], i + 1) << "offset " << i;
+    }
+    /* 8 + 56 is the whole arena: one byte more is refused, and changes nothing. */
+    EXPECT_EQ(a.ops->realloc(a.ctx, latest, el_layout_make(56, 8), 57), nullptr);
+    EXPECT_EQ(el_realloc(a, latest, el_layout_make(56, 8), 57), nullptr);
+    EXPECT_EQ(el_alloc(a, el_layout_make(1, 1)), nullptr) << "the grown allocation holds the rest";
+    EXPECT_EQ(el_realloc(a, latest, el_layout_make(56, 8), 56), latest);
+}
+
+void CheckShrinkingTheLatestAllocationGivesTheTailBack(el_allocator a)
+{
+    uint8_t *const first = static_cast<uint8_t *>(el_alloc(a, el_layout_make(32, 8)));
+    ASSERT_EQ(first, storage);
+    EXPECT_EQ(el_realloc(a, first, el_layout_make(32, 8), 4), first);
+    EXPECT_EQ(el_alloc(a, el_layout_make(60, 1)), storage + 4)
+        << "the 28 bytes cut off the end were not given back";
+    EXPECT_EQ(el_alloc(a, el_layout_make(1, 1)), nullptr);
+}
+
+void CheckAnEarlierAllocationShrinksInPlaceAndGivesNothingBack(el_allocator a)
+{
+    uint8_t *const first = static_cast<uint8_t *>(el_alloc(a, el_layout_make(16, 8)));
+    ASSERT_NE(el_alloc(a, el_layout_make(16, 8)), nullptr);
+    ASSERT_EQ(first, storage);
+    for (size_t i = 0; i < 16; i++) {
+        first[i] = static_cast<uint8_t>(i + 1);
+    }
+
+    EXPECT_EQ(el_realloc(a, first, el_layout_make(16, 8), 4), first);
+    EXPECT_EQ(el_alloc(a, el_layout_make(1, 1)), storage + 32)
+        << "shrinking an allocation below the latest gave storage back";
+
+    /* It cannot grow where it is: the operation says so... */
+    EXPECT_EQ(a.ops->realloc(a.ctx, first, el_layout_make(4, 8), 8), nullptr);
+    /* ...and el_realloc moves it, keeping what it held. */
+    uint8_t *const moved = static_cast<uint8_t *>(el_realloc(a, first, el_layout_make(4, 8), 24));
+    ASSERT_EQ(moved, storage + 40);
+    for (size_t i = 0; i < 4; i++) {
+        EXPECT_EQ(moved[i], i + 1) << "offset " << i;
+    }
+}
+
+void CheckTheLatestAllocationIsTheOneEndingAtTheTop(el_allocator a)
+{
+    /* The second allocation starts at 8, after 7 bytes of padding. */
+    uint8_t *const first = static_cast<uint8_t *>(el_alloc(a, el_layout_make(1, 1)));
+    uint8_t *const second = static_cast<uint8_t *>(el_alloc(a, el_layout_make(8, 8)));
+    ASSERT_EQ(first, storage);
+    ASSERT_EQ(second, storage + 8);
+
+    /* The first one ends at 1, not at the top (16), though only padding follows it. */
+    EXPECT_EQ(a.ops->realloc(a.ctx, first, el_layout_make(1, 1), 8), nullptr);
+    EXPECT_EQ(a.ops->realloc(a.ctx, second, el_layout_make(8, 8), 56), second);
+}
+
+TEST(BumpArena, TheLatestAllocationGrowsInPlaceWhileThereIsRoom)
+{
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, storage, 64);
+    CheckTheLatestAllocationGrowsInPlaceWhileThereIsRoom(el_bump_arena_as_allocator(&arena));
+}
+
+TEST(BumpArena, ShrinkingTheLatestAllocationGivesTheTailBack)
+{
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, storage, 64);
+    CheckShrinkingTheLatestAllocationGivesTheTailBack(el_bump_arena_as_allocator(&arena));
+}
+
+TEST(BumpArena, AnEarlierAllocationShrinksInPlaceAndGivesNothingBack)
+{
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, storage, 64);
+    CheckAnEarlierAllocationShrinksInPlaceAndGivesNothingBack(el_bump_arena_as_allocator(&arena));
+}
+
+TEST(BumpArena, TheLatestAllocationIsTheOneEndingAtTheTop)
+{
+    el_bump_arena arena;
+    el_bump_arena_init(&arena, storage, 64);
+    CheckTheLatestAllocationIsTheOneEndingAtTheTop(el_bump_arena_as_allocator(&arena));
+}
+
+TEST(StackArena, TheLatestAllocationGrowsInPlaceWhileThereIsRoom)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    CheckTheLatestAllocationGrowsInPlaceWhileThereIsRoom(el_stack_arena_as_allocator(&arena));
+}
+
+TEST(StackArena, ShrinkingTheLatestAllocationGivesTheTailBack)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    CheckShrinkingTheLatestAllocationGivesTheTailBack(el_stack_arena_as_allocator(&arena));
+}
+
+TEST(StackArena, AnEarlierAllocationShrinksInPlaceAndGivesNothingBack)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    CheckAnEarlierAllocationShrinksInPlaceAndGivesNothingBack(el_stack_arena_as_allocator(&arena));
+}
+
+TEST(StackArena, TheLatestAllocationIsTheOneEndingAtTheTop)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    CheckTheLatestAllocationIsTheOneEndingAtTheTop(el_stack_arena_as_allocator(&arena));
+}
+
+TEST(StackArena, AShrunkLatestAllocationIsFreedWithItsNewSize)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    const el_allocator a = el_stack_arena_as_allocator(&arena);
+
+    void *const block = el_alloc(a, el_layout_make(40, 8));
+    ASSERT_EQ(el_realloc(a, block, el_layout_make(40, 8), 10), block);
+    el_free(a, block, el_layout_make(10, 8));
+    EXPECT_EQ(el_alloc(a, el_layout_make(64, 1)), storage) << "the free did not reach the bottom";
+}
+
+TEST(StackArena, AnAllocationShrunkBelowTheLatestKeepsItsOldEndAndIsNotGivenBackInReverseOrder)
+{
+    el_stack_arena arena;
+    el_stack_arena_init(&arena, storage, 64);
+    const el_allocator a = el_stack_arena_as_allocator(&arena);
+
+    void *const first = el_alloc(a, el_layout_make(16, 8));
+    void *const second = el_alloc(a, el_layout_make(16, 8));
+    ASSERT_EQ(el_realloc(a, first, el_layout_make(16, 8), 8), first);
+
+    el_free(a, second, el_layout_make(16, 8));
+    EXPECT_EQ(el_alloc(a, el_layout_make(1, 1)), storage + 16);
+    el_free(a, storage + 16, el_layout_make(1, 1));
+    /* `first` now ends at 8 but the top is at 16: its free is not recognized,
+     * though it is the last one freed in reverse order. */
+    el_free(a, first, el_layout_make(8, 8));
+    EXPECT_EQ(el_alloc(a, el_layout_make(48, 1)), storage + 16);
+}
 } // namespace

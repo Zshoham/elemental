@@ -1,9 +1,9 @@
 /*
  * What only the deferred sink promises (elemental/log_deferred.h): a record
- * waits in the ring, whole, until it is drained; one that does not fit is
- * lost whole and counted; a drain is bounded by what was there. One context
- * drives both sides here; two are log_deferred_stress_test.cpp. What every
- * sink promises is the contract suite (contract_deferred_test.cpp).
+ * waits in the sink's queue, whole, until it is drained; one that does not
+ * fit is lost whole and counted; a drain is bounded by what was there. One
+ * context drives both sides here; two are log_deferred_stress_test.cpp. What
+ * every sink promises is the contract suite (contract_deferred_test.cpp).
  */
 #include <gtest/gtest.h>
 
@@ -26,8 +26,9 @@ namespace
 /* Static, not in the fixture: a Zephyr image runs the tests on a 4 KiB
  * stack and a small heap. One byte more than is used, for the tests that
  * want storage of an odd alignment. */
-alignas(8) uint8_t ring_storage[512 + 1];
-alignas(8) uint8_t record_storage[128 + 1];
+constexpr size_t kMessageMax = 96;
+constexpr size_t kQueueMax = 512;
+alignas(8) uint8_t storage[EL_LOG_DEFERRED_SINK_STORAGE_SIZE(1, kMessageMax) + kQueueMax + 1];
 alignas(8) uint8_t kept_storage[1024];
 recording_sink recording;
 
@@ -49,18 +50,19 @@ class ElLogDeferredSink : public testing::Test
   protected:
     void SetUp() override
     {
-        Open(sizeof(ring_storage) - 1, sizeof(record_storage) - 1);
+        Open(kQueueMax);
         el_log_mem_sink_init(&kept, kept_storage, sizeof(kept_storage));
         to = el_log_mem_sink_as_sink(&kept);
         recording_sink_init(&recording);
     }
 
-    /* A sink over a ring of `ring_cap` bytes that builds its records in
-     * `record_cap` bytes. */
-    void Open(size_t ring_cap, size_t record_cap)
+    /* A sink over a queue of `queue_cap` bytes, building its records in
+     * room for a message of `message_max` bytes. */
+    void Open(size_t queue_cap, size_t message_max = kMessageMax)
     {
-        el_ring_init(&ring, ring_storage, ring_cap);
-        el_log_deferred_sink_init(&sink, &ring, record_storage, record_cap);
+        const size_t cap = el_log_deferred_sink_record_size(message_max) + queue_cap;
+        ASSERT_LE(cap, sizeof(storage) - 1);
+        el_log_deferred_sink_init(&sink, storage, cap, message_max);
         handle = el_log_deferred_sink_as_sink(&sink);
     }
 
@@ -82,23 +84,22 @@ class ElLogDeferredSink : public testing::Test
         return std::string(record.message, record.len);
     }
 
-    el_ring ring;
     el_log_deferred_sink sink;
     el_log_sink handle;
     el_log_mem_sink kept;
     el_log_sink to;
 };
 
-TEST_F(ElLogDeferredSink, ARecordWaitsInTheRingUntilItIsDrained)
+TEST_F(ElLogDeferredSink, ARecordWaitsInTheQueueUntilItIsDrained)
 {
     EXPECT_EQ(Write("first"), EL_OK);
     EXPECT_EQ(el_log_mem_sink_count(&kept), 0u) << "the record went on before a drain";
-    EXPECT_EQ(el_ring_len(&ring), el_log_deferred_sink_record_size(5));
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), el_log_deferred_sink_record_size(5));
 
     EXPECT_EQ(Drain(), 1u);
     ASSERT_EQ(el_log_mem_sink_count(&kept), 1u);
     EXPECT_EQ(KeptMessage(0), "first");
-    EXPECT_EQ(el_ring_len(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
 }
 
 TEST_F(ElLogDeferredSink, ARecordArrivesWithEveryField)
@@ -150,7 +151,7 @@ TEST_F(ElLogDeferredSink, DrainGivesRecordsOldestFirstAndSaysHowMany)
     EXPECT_EQ(KeptMessage(2), "three");
 }
 
-TEST_F(ElLogDeferredSink, DrainingAnEmptyRingCallsNobody)
+TEST_F(ElLogDeferredSink, DrainingAnEmptyQueueCallsNobody)
 {
     EXPECT_EQ(el_log_deferred_sink_drain(&sink, recording_sink_as_sink(&recording)), 0u);
     EXPECT_EQ(recording.begins, 0u);
@@ -161,12 +162,12 @@ TEST_F(ElLogDeferredSink, DrainingAnEmptyRingCallsNobody)
     EXPECT_EQ(recording.begins, 1u);
 }
 
-/* A ring that no whole number of these records fills: each lap, a record
+/* A queue that no whole number of these records fills: each lap, a record
  * lies across the end of the storage, in its fields or in its message. */
-TEST_F(ElLogDeferredSink, ARecordAcrossTheEndOfTheRingArrivesWhole)
+TEST_F(ElLogDeferredSink, ARecordAcrossTheEndOfTheQueueArrivesWhole)
 {
     const size_t one = el_log_deferred_sink_record_size(11);
-    Open(2 * one + 5, sizeof(record_storage) - 1);
+    Open(2 * one + 5);
 
     for (unsigned i = 0; i < 100; i++) {
         SCOPED_TRACE(testing::Message() << "record " << i);
@@ -185,35 +186,36 @@ TEST_F(ElLogDeferredSink, ARecordAcrossTheEndOfTheRingArrivesWhole)
     }
 }
 
-TEST_F(ElLogDeferredSink, RecordSizeIsWhatOneRecordTakesInTheRingAndInTheRecordStorage)
+TEST_F(ElLogDeferredSink, RecordSizeIsWhatOneRecordTakesInTheQueueAndInTheRecordArea)
 {
     EXPECT_EQ(el_log_deferred_sink_record_size(10) - el_log_deferred_sink_record_size(0), 10u);
 
-    /* In the ring. */
+    /* In the queue. */
     const size_t one = el_log_deferred_sink_record_size(4);
-    Open(3 * one, sizeof(record_storage) - 1);
+    Open(3 * one);
     EXPECT_EQ(Write("aaaa"), EL_OK);
     EXPECT_EQ(Write("bbbb"), EL_OK);
     EXPECT_EQ(Write("cccc"), EL_OK);
-    EXPECT_EQ(el_ring_room(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 3 * one);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 0u);
+    EXPECT_EQ(Write(""), EL_ERR_NO_SPACE) << "not even the fields of another fit";
 
-    /* In the record storage: exactly enough for a message of four bytes. */
-    Open(sizeof(ring_storage) - 1, one);
+    /* In the record area: exactly enough for a message of four bytes. */
+    Open(kQueueMax, 4);
     EXPECT_EQ(Write("dddd"), EL_OK);
     EXPECT_EQ(Write("eeeee"), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
 }
 
-TEST_F(ElLogDeferredSink, AMessageLongerThanTheRecordStorageIsLostWholeAndCounted)
+TEST_F(ElLogDeferredSink, AMessageLongerThanTheRecordAreaIsLostWholeAndCounted)
 {
-    Open(sizeof(ring_storage) - 1, el_log_deferred_sink_record_size(8));
+    Open(kQueueMax, 8);
 
     EXPECT_EQ(Write("12345678"), EL_OK);
     EXPECT_EQ(Write("123456789"), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
-    EXPECT_EQ(el_ring_len(&ring), el_log_deferred_sink_record_size(8))
-        << "part of a lost record is in the ring";
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), el_log_deferred_sink_record_size(8))
+        << "part of a lost record is in the queue";
 
     /* What came before and what comes after is whole. */
     EXPECT_EQ(Write("abc"), EL_OK);
@@ -222,18 +224,19 @@ TEST_F(ElLogDeferredSink, AMessageLongerThanTheRecordStorageIsLostWholeAndCounte
     EXPECT_EQ(KeptMessage(1), "abc");
 }
 
-TEST_F(ElLogDeferredSink, ARecordTheRingHasNoRoomForIsLostWholeAndCounted)
+TEST_F(ElLogDeferredSink, ARecordTheQueueHasNoRoomForIsLostWholeAndCounted)
 {
     const size_t one = el_log_deferred_sink_record_size(6);
     /* Two records, and all but one byte of a third. */
-    Open(3 * one - 1, sizeof(record_storage) - 1);
+    Open(3 * one - 1);
 
     EXPECT_EQ(Write("first."), EL_OK);
     EXPECT_EQ(Write("second"), EL_OK);
     EXPECT_EQ(Write("third."), EL_ERR_NO_SPACE);
     EXPECT_EQ(Write("fourth"), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 2u);
-    EXPECT_EQ(el_ring_len(&ring), 2 * one) << "part of a lost record is in the ring";
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 2 * one)
+        << "part of a lost record is in the queue";
 
     /* A shorter one still fits in what is left. */
     EXPECT_EQ(Write("short"), EL_OK);
@@ -249,11 +252,11 @@ TEST_F(ElLogDeferredSink, ARecordTheRingHasNoRoomForIsLostWholeAndCounted)
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 2u);
 }
 
-/* Refused at begin, before anything is formatted: the ring's room does not
+/* Refused at begin, before anything is formatted: the queue's room does not
  * hold even the record's own fields. */
-TEST_F(ElLogDeferredSink, ARingWithoutRoomForARecordsOwnFieldsLosesIt)
+TEST_F(ElLogDeferredSink, AQueueWithoutRoomForARecordsOwnFieldsLosesIt)
 {
-    Open(el_log_deferred_sink_record_size(0) - 1, sizeof(record_storage) - 1);
+    Open(el_log_deferred_sink_record_size(0) - 1);
 
     /* Begin itself refuses: it lends no buffer to format into. */
     el_log_record record = Record("");
@@ -265,44 +268,54 @@ TEST_F(ElLogDeferredSink, ARingWithoutRoomForARecordsOwnFieldsLosesIt)
 
     EXPECT_EQ(Write(""), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 2u);
-    EXPECT_EQ(el_ring_len(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
 }
 
-TEST_F(ElLogDeferredSink, RecordStorageTooSmallForARecordsOwnFieldsLosesIt)
+/* A message of no bytes: the record area is the fields and nothing else, so
+ * only an empty message is built, and kept. */
+TEST_F(ElLogDeferredSink, ASinkForEmptyMessagesTakesEmptyRecordsAndLosesTheRest)
 {
-    Open(sizeof(ring_storage) - 1, el_log_deferred_sink_record_size(0) - 1);
-    EXPECT_EQ(Write(""), EL_ERR_NO_SPACE);
-    EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
-
-    /* Exactly the fields: an empty message is a record. */
-    Open(sizeof(ring_storage) - 1, el_log_deferred_sink_record_size(0));
+    Open(kQueueMax, 0);
     EXPECT_EQ(Write(""), EL_OK);
     EXPECT_EQ(Write("x"), EL_ERR_NO_SPACE);
     EXPECT_EQ(Drain(), 1u);
+    EXPECT_EQ(KeptMessage(0), "");
 }
 
-TEST_F(ElLogDeferredSink, WithNoRecordStorageEveryRecordIsLost)
+/* Storage of one record's worth and nothing more: no room in the queue
+ * even for the fields of a record, so nothing can wait. */
+TEST_F(ElLogDeferredSink, StorageOfOneRecordsWorthLosesEveryRecord)
 {
-    el_log_deferred_sink_init(&sink, &ring, nullptr, 0);
+    Open(0, 8);
+    EXPECT_EQ(Write(""), EL_ERR_NO_SPACE);
+    EXPECT_EQ(Write("12345678"), EL_ERR_NO_SPACE);
+    EXPECT_EQ(el_log_deferred_sink_lost(&sink), 2u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
+}
+
+TEST_F(ElLogDeferredSink, WithNoStorageEveryRecordIsLost)
+{
+    el_log_deferred_sink_init(&sink, nullptr, 0, kMessageMax);
     handle = el_log_deferred_sink_as_sink(&sink);
 
     EXPECT_EQ(Write(""), EL_ERR_NO_SPACE);
     EXPECT_EQ(Write("message"), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 2u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
     EXPECT_EQ(Drain(), 0u);
 }
 
 TEST_F(ElLogDeferredSink, SettingTheSinkUpAgainForgetsTheLostCount)
 {
-    Open(0, sizeof(record_storage) - 1);
+    Open(0);
     EXPECT_EQ(Write("x"), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
 
-    Open(sizeof(ring_storage) - 1, sizeof(record_storage) - 1);
+    Open(kQueueMax);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 0u);
 }
 
-/* The record a destination refuses is taken out of the ring, message and
+/* The record a destination refuses is taken out of the queue, message and
  * all, so the next one is read from where it starts. */
 TEST_F(ElLogDeferredSink, ADestinationThatRefusesARecordStillGetsTheNextOneWhole)
 {
@@ -315,7 +328,7 @@ TEST_F(ElLogDeferredSink, ADestinationThatRefusesARecordStillGetsTheNextOneWhole
     EXPECT_EQ(el_log_deferred_sink_drain(&sink, refusing), 2u);
     EXPECT_EQ(recording.begins, 2u);
     EXPECT_EQ(recording.calls, 0u) << "a record that was not begun was ended";
-    EXPECT_EQ(el_ring_len(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 0u) << "lost by the destination, not by this sink";
 
     recording.begin_answer = EL_OK;
@@ -367,7 +380,7 @@ TEST_F(ElLogDeferredSink, AMessageIsReadIntoTheBufferTheDestinationLends)
 
 /* The destination logs through the same deferred sink while it is drained
  * into: what it logs waits for the next drain, so a drain ends. */
-TEST_F(ElLogDeferredSink, ADrainTakesOnlyWhatWasInTheRingWhenItBegan)
+TEST_F(ElLogDeferredSink, ADrainTakesOnlyWhatWasInTheQueueWhenItBegan)
 {
     const el_log_record again = Record("echo");
     echoing_sink echoing;
@@ -377,14 +390,14 @@ TEST_F(ElLogDeferredSink, ADrainTakesOnlyWhatWasInTheRingWhenItBegan)
 
     EXPECT_EQ(el_log_deferred_sink_drain(&sink, echoing_sink_as_sink(&echoing)), 2u);
     EXPECT_EQ(echoing.ends, 2u);
-    EXPECT_EQ(el_ring_len(&ring), 2 * el_log_deferred_sink_record_size(4));
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 2 * el_log_deferred_sink_record_size(4));
 
     EXPECT_EQ(Drain(), 2u);
     EXPECT_EQ(KeptMessage(0), "echo");
     EXPECT_EQ(KeptMessage(1), "echo");
 }
 
-TEST_F(ElLogDeferredSink, APrintfMessageIsFormattedInTheRecordStorage)
+TEST_F(ElLogDeferredSink, APrintfMessageIsFormattedInTheRecordArea)
 {
     el_manual_clock manual;
     el_manual_clock_init(&manual, 1000);
@@ -394,7 +407,7 @@ TEST_F(ElLogDeferredSink, APrintfMessageIsFormattedInTheRecordStorage)
 
     EL_LOG_INFO(&log, "received %u bytes, %s", 42u, "then stopped");
     EL_LOG_DEBUG(&log, "below the logger's level");
-    EXPECT_EQ(el_ring_len(&ring), el_log_deferred_sink_record_size(31));
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), el_log_deferred_sink_record_size(31));
 
     ASSERT_EQ(Drain(), 1u);
     el_log_record back;
@@ -404,9 +417,9 @@ TEST_F(ElLogDeferredSink, APrintfMessageIsFormattedInTheRecordStorage)
     EXPECT_STREQ(back.tag, "uart");
 }
 
-TEST_F(ElLogDeferredSink, APrintfMessageThatDoesNotFitTheRecordStorageIsLostWhole)
+TEST_F(ElLogDeferredSink, APrintfMessageThatDoesNotFitTheRecordAreaIsLostWhole)
 {
-    Open(sizeof(ring_storage) - 1, el_log_deferred_sink_record_size(10));
+    Open(kQueueMax, 10);
     el_manual_clock manual;
     el_manual_clock_init(&manual, 1000);
     el_logger log;
@@ -414,7 +427,7 @@ TEST_F(ElLogDeferredSink, APrintfMessageThatDoesNotFitTheRecordStorageIsLostWhol
 
     EL_LOG_INFO(&log, "%s", "eleven byte");
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
-    EXPECT_EQ(el_ring_len(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
 
     EL_LOG_INFO(&log, "%s", "ten bytes.");
     EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
@@ -422,11 +435,10 @@ TEST_F(ElLogDeferredSink, APrintfMessageThatDoesNotFitTheRecordStorageIsLostWhol
     EXPECT_EQ(KeptMessage(0), "ten bytes.");
 }
 
-/* Entries are copied in and out: neither storage needs an alignment. */
+/* Entries are copied in and out: the storage needs no alignment. */
 TEST_F(ElLogDeferredSink, WorksInStorageOfAnyAlignment)
 {
-    el_ring_init(&ring, ring_storage + 1, sizeof(ring_storage) - 1);
-    el_log_deferred_sink_init(&sink, &ring, record_storage + 1, sizeof(record_storage) - 1);
+    el_log_deferred_sink_init(&sink, storage + 1, sizeof(storage) - 1, kMessageMax);
     handle = el_log_deferred_sink_as_sink(&sink);
 
     for (unsigned i = 0; i < 40; i++) {
@@ -438,6 +450,61 @@ TEST_F(ElLogDeferredSink, WorksInStorageOfAnyAlignment)
         EXPECT_EQ(recording.last.timestamp, 0x0102030405060708ULL + i);
         EXPECT_EQ(std::string(recording.last.message, recording.last.len), message);
     }
+}
+
+/* What EL_LOG_DEFERRED_SINK_STORAGE_SIZE promises: one record's bytes for the
+ * record area, and for each record that may wait. */
+TEST_F(ElLogDeferredSink, StorageSizeIsTheFunctionsRecordSizeForTheAreaAndEveryWaitingRecord)
+{
+    const size_t waiting[] = {0, 1, 3, 8};
+    const size_t longest[] = {0, 1, 24, 64};
+    for (const size_t n : waiting) {
+        for (const size_t m : longest) {
+            EXPECT_EQ(EL_LOG_DEFERRED_SINK_STORAGE_SIZE(n, m),
+                      (n + 1) * el_log_deferred_sink_record_size(m))
+                << n << " records of " << m << " bytes";
+        }
+    }
+
+    /* A constant expression, for a static array. */
+    static uint8_t constant[EL_LOG_DEFERRED_SINK_STORAGE_SIZE(3, 10)];
+    EXPECT_EQ(sizeof(constant), 4 * el_log_deferred_sink_record_size(10));
+}
+
+TEST_F(ElLogDeferredSink, StorageOfTheMacrosSizeHoldsNRecordsOfMBytesAndLosesTheNext)
+{
+    constexpr size_t kWaiting = 4;
+    constexpr size_t kLongest = 9;
+    static uint8_t exact[EL_LOG_DEFERRED_SINK_STORAGE_SIZE(kWaiting, kLongest)];
+    el_log_deferred_sink_init(&sink, exact, sizeof(exact), kLongest);
+    handle = el_log_deferred_sink_as_sink(&sink);
+    const size_t one = el_log_deferred_sink_record_size(kLongest);
+
+    for (size_t i = 1; i <= kWaiting; i++) {
+        EXPECT_EQ(Write("123456789"), EL_OK) << "record " << i;
+        EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), i * one);
+    }
+    EXPECT_EQ(Write("123456789"), EL_ERR_NO_SPACE) << "the next one";
+    EXPECT_EQ(el_log_deferred_sink_lost(&sink), 1u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), kWaiting * one);
+
+    /* The record area is as long as the longest message, and no longer. */
+    EXPECT_EQ(Drain(), kWaiting);
+    EXPECT_EQ(Write("1234567890"), EL_ERR_NO_SPACE);
+    EXPECT_EQ(Write("123456789"), EL_OK);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), one);
+}
+
+TEST_F(ElLogDeferredSink, PendingBytesAreTheRecordsThatWaitAndFollowTheDrain)
+{
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
+    ASSERT_EQ(Write("a"), EL_OK);
+    ASSERT_EQ(Write("bcd"), EL_OK);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink),
+              el_log_deferred_sink_record_size(1) + el_log_deferred_sink_record_size(3));
+
+    EXPECT_EQ(Drain(), 2u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
 }
 
 } // namespace

@@ -2,8 +2,8 @@
  * size_classes - an example allocator: blocks of 16 to 256 bytes carved from
  * caller-provided storage, reused through one free list per size.
  *
- * This is what an allocator author writes: a state struct, the two
- * operations of el_allocator_ops, and a function that hands out a handle.
+ * This is what an allocator author writes: a state struct, the operations
+ * of el_allocator_ops (the third is optional), and a function that hands out a handle.
  * It is also the allocator in this repository whose correctness depends on
  * sized free (docs/adr/0012-sized-free.md). A block carries no header: free
  * is told the layout, and computes from it the same class
@@ -18,6 +18,9 @@
  *          when no class is large enough.
  *   free:  pushes the block onto its class's list. Storage never moves
  *          between classes.
+ *   realloc (optional): the block itself when the new size is in the class
+ *          it is in; NULL for any other class, which el_realloc() answers
+ *          by allocating, copying and freeing.
  *
  * Storage: the caller provides the size_classes object and its storage and
  * keeps both alive while the allocator, a handle, or an allocation made

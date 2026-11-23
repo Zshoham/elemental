@@ -7,15 +7,19 @@
 //!   1. A C allocator used from Rust: `ElGlobal` implements `GlobalAlloc`
 //!      over an `el_stack_arena`.
 //!   2. A Rust allocator used from C: `RustAllocator` hands Rust's global
-//!      allocator to C as an `el_allocator`, and C's `el_grow_buf` grows in
-//!      it, written through the memory endpoint `el_buf_as_writer`.
+//!      allocator to C as an `el_allocator`, with and without the optional
+//!      `realloc` operation, and C's `el_grow_buf` grows in it, written
+//!      through the memory endpoint `el_buf_as_writer`.
 //!
 //! What lines up: null on failure; a power-of-two alignment on every
 //! request; the layout given back on free (`dealloc` takes the `Layout`,
 //! `el_free` the `el_layout`, the same size and alignment), so neither side
 //! needs a header; and no zero-size request ever reaches an implementation
-//! (`GlobalAlloc::alloc` forbids it, `el_alloc` answers it itself).
-//! `ElemLayout` is `Layout` one to one: two words, passed by value.
+//! (`GlobalAlloc::alloc` forbids it, `el_alloc` answers it itself). Changing
+//! a size lines up too: `GlobalAlloc::realloc` may move, keeps the
+//! alignment, and leaves the block alone when it returns null, as the
+//! `realloc` operation and `el_realloc` do. `ElemLayout` is `Layout` one to
+//! one: two words, passed by value.
 //!
 //! What does not: `GlobalAlloc` must be `Sync`, and an `el_allocator` handle
 //! carries no synchronization, so the arena sits behind a `Mutex`.
@@ -58,10 +62,15 @@ impl ElemLayout {
     }
 }
 
+/// `el_allocator_ops`. `realloc` is optional in C, so it is an `Option`: a
+/// null pointer there is `None`, and `Option<unsafe extern "C" fn>` has the
+/// layout of a C function pointer, so the struct is the one C reads.
 #[repr(C)]
 pub struct ElemAllocatorOps {
     pub alloc: unsafe extern "C" fn(*mut c_void, ElemLayout) -> *mut c_void,
     pub free: unsafe extern "C" fn(*mut c_void, *mut c_void, ElemLayout),
+    pub realloc:
+        Option<unsafe extern "C" fn(*mut c_void, *mut c_void, ElemLayout, usize) -> *mut c_void>,
 }
 
 /// A handle: two pointers, passed by value, owning nothing.
@@ -109,6 +118,12 @@ extern "C" {
     fn el_layout_array(elem: ElemLayout, count: usize, out: *mut ElemLayout) -> ElemStatus;
     fn el_alloc(allocator: ElemAllocator, layout: ElemLayout) -> *mut c_void;
     fn el_free(allocator: ElemAllocator, ptr: *mut c_void, layout: ElemLayout);
+    fn el_realloc(
+        allocator: ElemAllocator,
+        ptr: *mut c_void,
+        layout: ElemLayout,
+        new_size: usize,
+    ) -> *mut c_void;
     fn el_stack_arena_init(arena: *mut ElemStackArena, storage: *mut c_void, cap: usize);
     fn el_stack_arena_as_allocator(arena: *mut ElemStackArena) -> ElemAllocator;
     fn el_grow_buf_init(g: *mut ElemGrowBuf, allocator: ElemAllocator) -> *mut ElemBuf;
@@ -160,6 +175,15 @@ unsafe impl GlobalAlloc for ElGlobal {
         let handle = el_stack_arena_as_allocator(&mut **arena);
         el_free(handle, ptr.cast(), layout.into());
     }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // GlobalAlloc's caller guarantees the layout the block has and a
+        // nonzero new size: what el_realloc asks. Null leaves the block as
+        // it was, which is what GlobalAlloc::realloc promises too.
+        let mut arena = self.arena.lock().unwrap_or_else(|e| e.into_inner());
+        let handle = el_stack_arena_as_allocator(&mut **arena);
+        el_realloc(handle, ptr.cast(), layout.into(), new_size).cast()
+    }
 }
 
 fn c_allocator_from_rust() {
@@ -190,31 +214,69 @@ fn c_allocator_from_rust() {
         assert_eq!(el_layout_array(elem, usize::MAX, &mut array), EL_ERR_NO_SPACE);
         assert_eq!(array, ElemLayout { size: usize::MAX, align: 4 });
         assert_eq!(array.to_layout(), None);
+
+        // GlobalAlloc::realloc over el_realloc: the latest allocation grows
+        // where it is, and a request the arena cannot meet leaves the block
+        // as it was.
+        let small = Layout::from_size_align(16, 8).unwrap();
+        let big = Layout::from_size_align(64, 8).unwrap();
+        let ptr = global.alloc(small);
+        assert!(!ptr.is_null());
+        for i in 0..16 {
+            *ptr.add(i) = i as u8;
+        }
+        let grown = global.realloc(ptr, small, 64);
+        assert_eq!(grown, ptr, "the latest allocation grows in place");
+        for i in 0..16 {
+            assert_eq!(*grown.add(i), i as u8);
+        }
+        assert!(global.realloc(grown, big, 8192).is_null());
+        for i in 0..16 {
+            assert_eq!(*grown.add(i), i as u8, "a refused realloc changed the block");
+        }
+        global.dealloc(grown, big);
     }
-    println!("GlobalAlloc over el_stack_arena: aligned, reused, null when exhausted");
+    println!("GlobalAlloc over el_stack_arena: aligned, reused, resized, null when exhausted");
 }
 
 // ---- 2. A Rust allocator used from C --------------------------------------
 
 /// Rust's system allocator as an `el_allocator`. It records every live
-/// block with its layout, to show that what C frees is exactly what it
-/// allocated: sized free needs no header on this side either.
+/// block with its layout, to show that what C frees, or resizes, is exactly
+/// what it allocated: sized free needs no header on this side either.
 pub struct RustAllocator {
     live: RefCell<HashMap<usize, Layout>>,
+    ops: &'static ElemAllocatorOps,
     allocs: usize,
+    reallocs: usize,
 }
 
 impl RustAllocator {
-    const OPS: ElemAllocatorOps =
-        ElemAllocatorOps { alloc: Self::alloc_trampoline, free: Self::free_trampoline };
+    /// The `realloc` field null: `el_realloc` allocates, copies and frees.
+    const OPS: ElemAllocatorOps = ElemAllocatorOps {
+        alloc: Self::alloc_trampoline,
+        free: Self::free_trampoline,
+        realloc: None,
+    };
+    /// The field present, answered by `GlobalAlloc::realloc`.
+    const OPS_WITH_REALLOC: ElemAllocatorOps = ElemAllocatorOps {
+        alloc: Self::alloc_trampoline,
+        free: Self::free_trampoline,
+        realloc: Some(Self::realloc_trampoline),
+    };
 
-    pub fn new() -> Self {
-        RustAllocator { live: RefCell::new(HashMap::new()), allocs: 0 }
+    pub fn new(with_realloc: bool) -> Self {
+        RustAllocator {
+            live: RefCell::new(HashMap::new()),
+            ops: if with_realloc { &Self::OPS_WITH_REALLOC } else { &Self::OPS },
+            allocs: 0,
+            reallocs: 0,
+        }
     }
 
     /// The handle points at `self`, which must not move while it is in use.
     pub fn handle(&mut self) -> ElemAllocator {
-        ElemAllocator { ctx: (self as *mut Self).cast(), ops: &Self::OPS }
+        ElemAllocator { ctx: (self as *mut Self).cast(), ops: self.ops }
     }
 
     unsafe extern "C" fn alloc_trampoline(ctx: *mut c_void, layout: ElemLayout) -> *mut c_void {
@@ -247,10 +309,49 @@ impl RustAllocator {
         }
         System.dealloc(ptr.cast(), layout);
     }
+
+    /// `GlobalAlloc::realloc` is the counterpart of the `realloc` operation:
+    /// it may move, and leaves the block alone when it returns null. It
+    /// keeps the alignment, which is the layout's own, so there is no
+    /// alignment to refuse here.
+    unsafe extern "C" fn realloc_trampoline(
+        ctx: *mut c_void,
+        ptr: *mut c_void,
+        layout: ElemLayout,
+        new_size: usize,
+    ) -> *mut c_void {
+        // Guaranteed by el_realloc(): ptr and layout are a live allocation's,
+        // and new_size >= 1.
+        let this = &mut *ctx.cast::<Self>();
+        let layout = Layout::from_size_align_unchecked(layout.size, layout.align);
+        let recorded = this.live.borrow().get(&(ptr as usize)).copied();
+        if recorded != Some(layout) {
+            eprintln!("C resized {ptr:?} as {layout:?}, allocated as {recorded:?}");
+            std::process::abort();
+        }
+        // GlobalAlloc::realloc needs the new size to fit a Layout: null if it
+        // does not, so that el_realloc tries the fallback and fails there.
+        let Ok(resized) = Layout::from_size_align(new_size, layout.align()) else {
+            return null_mut();
+        };
+        match catch_unwind(AssertUnwindSafe(|| {
+            let moved = System.realloc(ptr.cast(), layout, new_size);
+            if !moved.is_null() {
+                let mut live = this.live.borrow_mut();
+                live.remove(&(ptr as usize));
+                live.insert(moved as usize, resized);
+                this.reallocs += 1;
+            }
+            moved
+        })) {
+            Ok(moved) => moved.cast(),
+            Err(_) => std::process::abort(), // nothing may unwind into C
+        }
+    }
 }
 
-fn rust_allocator_from_c() {
-    let mut rust = RustAllocator::new();
+fn rust_allocator_from_c(with_realloc: bool) {
+    let mut rust = RustAllocator::new(with_realloc);
     let handle = rust.handle();
     // Initialized by el_grow_buf_init; the zeros only give Rust a value.
     let mut grown = ElemGrowBuf {
@@ -273,15 +374,30 @@ fn rust_allocator_from_c() {
         el_grow_buf_deinit(&mut grown);
     }
     assert!(rust.live.borrow().is_empty(), "C left a block allocated");
-    assert!(rust.allocs > 1, "the buffer grew more than once");
+    if with_realloc {
+        // The first growth is an allocation; every later one is the
+        // operation's, which answered, so nothing was allocated again.
+        assert_eq!(rust.allocs, 1, "el_realloc allocated although the operation answered");
+        assert!(rust.reallocs > 1, "the buffer grew more than once");
+    } else {
+        // The field is null: every growth is an allocation, a copy, a free.
+        assert_eq!(rust.reallocs, 0);
+        assert!(rust.allocs > 1, "the buffer grew more than once");
+    }
     println!(
-        "el_grow_buf over Rust's allocator: {} bytes, {} allocations, all freed with their layouts",
+        "el_grow_buf over Rust's allocator, realloc operation {}: {} bytes, {} allocations, \
+         {} reallocations, all freed with their layouts",
+        if with_realloc { "present" } else { "null" },
         text.len(),
-        rust.allocs
+        rust.allocs,
+        rust.reallocs
     );
 }
 
 fn main() {
     c_allocator_from_rust();
-    rust_allocator_from_c();
+    // The `realloc` field null: C allocates, copies and frees.
+    rust_allocator_from_c(false);
+    // The field present: C asks Rust's `GlobalAlloc::realloc`.
+    rust_allocator_from_c(true);
 }

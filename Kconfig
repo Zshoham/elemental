@@ -36,6 +36,19 @@ config PLATFORM_ZEPHYR_CRC
 	  cannot fail: CONFIG_CRC without CONFIG_CRC_HW_HANDLER. Probed by
 	  CMake.
 
+config PLATFORM_ZEPHYR_UART
+	def_bool $(EL_PLATFORM_ZEPHYR_UART)
+	help
+	  A Zephyr build with a serial subsystem: CONFIG_SERIAL, which gives
+	  <zephyr/drivers/uart.h> and its polled calls. Probed by CMake.
+
+config PLATFORM_ZEPHYR_UART_IRQ
+	def_bool $(EL_PLATFORM_ZEPHYR_UART_IRQ)
+	help
+	  A Zephyr build with a serial subsystem whose drivers are
+	  interrupt-driven: CONFIG_SERIAL and CONFIG_UART_INTERRUPT_DRIVEN.
+	  Probed by CMake.
+
 config PLATFORM_ZEPHYR
 	def_bool $(EL_PLATFORM_ZEPHYR)
 	help

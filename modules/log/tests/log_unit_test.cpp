@@ -13,6 +13,7 @@
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 #include "log_support.h"
@@ -499,4 +500,363 @@ TEST_F(ElLogPrintf, AnEmptyFormatIsAnEmptyRecord)
 
     ASSERT_EQ(sink.calls, 1u);
     EXPECT_EQ(sink.last.len, 0u);
+}
+
+/* ---- Composing a message --------------------------------------------------- */
+
+namespace
+{
+
+/* What a compose function was called with and saw, and what it answers: it
+ * appends `text`, then returns `answer` (a failed append's status first). */
+struct Composition {
+    const char *text = "composed";
+    el_status answer = EL_OK;
+    unsigned calls = 0;
+    void *ctx_seen = nullptr;
+    el_buf *buf_seen = nullptr;
+    size_t length_at_call = 0;
+    const recording_sink *sink = nullptr; /* looked at from inside the call */
+    unsigned begins_seen = 0;
+    unsigned ends_seen = 0;
+};
+
+el_status Compose(void *ctx, el_buf *message)
+{
+    Composition *const c = static_cast<Composition *>(ctx);
+    c->calls++;
+    c->ctx_seen = ctx;
+    c->buf_seen = message;
+    c->length_at_call = el_buf_len(message);
+    if (c->sink != nullptr) {
+        c->begins_seen = c->sink->begins;
+        c->ends_seen = c->sink->calls;
+    }
+    const el_status appended = el_buf_append(message, c->text, std::strlen(c->text));
+    return appended != EL_OK ? appended : c->answer;
+}
+
+/* Appends nothing, and does not use its context. */
+el_status ComposeNothing(void *ctx, el_buf *message)
+{
+    (void)message;
+    EXPECT_EQ(ctx, nullptr);
+    return EL_OK;
+}
+
+/* A printf of the application's own, into the buffer: `ctx` is the text. */
+el_status ComposeFormatted(void *ctx, el_buf *message)
+{
+    return el_fmt_printf(message, "%s", static_cast<const char *>(ctx));
+}
+
+/* A formatter that works in place: reserve, write, commit. */
+el_status ComposeInPlace(void *ctx, el_buf *message)
+{
+    (void)ctx;
+    EL_TRY(el_buf_reserve(message, 4));
+    std::memcpy(el_buf_spare(message), "abcd", 4);
+    el_buf_commit(message, 4);
+    return EL_OK;
+}
+
+/* Appends, then takes back what it appended and no more. */
+el_status ComposeThenTakeBack(void *ctx, el_buf *message)
+{
+    (void)ctx;
+    const size_t start = el_buf_len(message);
+    EL_TRY(el_buf_append(message, "never kept", 10));
+    el_buf_truncate(message, start);
+    return EL_OK;
+}
+
+/* Logs a record through the logger in `ctx`. */
+struct Inner {
+    const el_logger *logger;
+};
+
+el_status ComposeAndLog(void *ctx, el_buf *message)
+{
+    const Inner *const inner = static_cast<const Inner *>(ctx);
+    el_log_write(inner->logger, EL_LOG_LEVEL_INFO, "inner", 5);
+    return el_buf_append(message, "outer", 5);
+}
+
+/* Silences the logger in `ctx` and then writes its message: a component
+ * that turns its own logging off from inside a record. */
+el_status ComposeAndSilence(void *ctx, el_buf *message)
+{
+    el_logger *const logger = static_cast<el_logger *>(ctx);
+    *logger = *el_logger_off();
+    return el_buf_append(message, "last", 4);
+}
+
+} // namespace
+
+TEST_F(ElLogger, ComposeWritesTheMessageIntoTheBufferTheSinkLentAndEndsTheRecord)
+{
+    Composition c;
+    clock.reading = 31;
+    el_log_compose(&log, EL_LOG_LEVEL_WARN, Compose, &c);
+
+    ASSERT_EQ(c.calls, 1u);
+    EXPECT_EQ(c.ctx_seen, &c) << "the context goes through unchanged";
+    EXPECT_EQ(c.buf_seen, &sink.buf) << "the buffer the sink lent";
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(LastMessage(), "composed");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+    EXPECT_EQ(sink.last_message_pointer, sink.storage) << "no copy on the way";
+    EXPECT_EQ(sink.last.level, EL_LOG_LEVEL_WARN);
+    EXPECT_STREQ(sink.last.tag, "net");
+    EXPECT_EQ(sink.last.timestamp, 31u);
+    EXPECT_EQ(sink.last.ticks_per_second, 1000u);
+}
+
+TEST_F(ElLogger, ComposeReadsTheClockOncePerRecordMadeAndBeginsBeforeItComposes)
+{
+    Composition c;
+    c.sink = &sink;
+    for (unsigned i = 1; i <= 3; i++) {
+        clock.reading = i * 10u;
+        el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+        EXPECT_EQ(clock.now_calls, i);
+        EXPECT_EQ(sink.begun.timestamp, i * 10u);
+        EXPECT_EQ(sink.begun.message, nullptr);
+        EXPECT_EQ(c.begins_seen, i) << "the sink had begun the record";
+        EXPECT_EQ(c.ends_seen, i - 1) << "and had not ended it";
+        EXPECT_EQ(sink.calls, i);
+    }
+}
+
+TEST_F(ElLogger, ComposeBelowTheMinimumReadsNoClockAndCallsNothing)
+{
+    Composition c;
+    el_log_compose(&log, EL_LOG_LEVEL_DEBUG, Compose, &c);
+
+    EXPECT_EQ(c.calls, 0u);
+    EXPECT_EQ(sink.begins, 0u);
+    EXPECT_EQ(sink.calls, 0u);
+    EXPECT_EQ(clock.now_calls, 0u) << "the clock is read only for a record that is made";
+
+    el_logger_set_level(&log, EL_LOG_LEVEL_OFF);
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+    EXPECT_EQ(c.calls, 0u);
+    EXPECT_EQ(clock.now_calls, 0u);
+}
+
+TEST_F(ElLogger, ComposeIsNotCalledForARecordTheSinkDoesNotBegin)
+{
+    Composition c;
+    sink.begin_answer = EL_ERR_NO_SPACE;
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+
+    EXPECT_EQ(sink.begins, 1u) << "the record was made, and is lost";
+    EXPECT_EQ(sink.calls, 0u) << "a record that was not begun is not ended";
+    EXPECT_EQ(c.calls, 0u);
+    EXPECT_EQ(clock.now_calls, 1u);
+
+    sink.begin_answer = EL_OK;
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+    EXPECT_EQ(c.calls, 1u);
+    EXPECT_EQ(LastMessage(), "composed");
+}
+
+TEST_F(ElLogger, ComposeAcceptsANullContext)
+{
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, ComposeNothing, nullptr);
+    EXPECT_EQ(sink.calls, 1u);
+}
+
+TEST_F(ElLogger, AnyStatusButOkIsACutMessageAndReachesTheSinkAsNoSpace)
+{
+    /* Elemental's codes, one the application made up, and the extremes. */
+    const el_status statuses[] = {
+        EL_ERR_NO_SPACE, EL_ERR_IO, EL_ERR_WOULD_BLOCK, EL_ERR_END_OF_STREAM, 1, -7,
+        INT32_MAX,       INT32_MIN};
+    for (const el_status status : statuses) {
+        SCOPED_TRACE(testing::Message() << "status " << status);
+        Composition c;
+        c.text = "part";
+        c.answer = status;
+        const unsigned ended = sink.calls;
+        el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+
+        EXPECT_EQ(sink.calls, ended + 1) << "a cut record is still ended";
+        EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE) << "whatever the failure was";
+        EXPECT_EQ(LastMessage(), "part") << "what was written before it is there";
+    }
+}
+
+TEST_F(ElLogger, AMessageTheBufferCannotTakeIsCutAndTheSinkIsTold)
+{
+    recording_sink_set_capacity(&sink, 5);
+    char text[] = "0123456789";
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, ComposeFormatted, text);
+
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(LastMessage(), "01234");
+    EXPECT_EQ(sink.last_fit, EL_ERR_NO_SPACE);
+}
+
+TEST_F(ElLogger, AMessageThatFillsTheBufferExactlyIsWhole)
+{
+    recording_sink_set_capacity(&sink, 5);
+    char text[] = "01234";
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, ComposeFormatted, text);
+
+    EXPECT_EQ(LastMessage(), "01234");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ComposeAppendsAfterWhatTheSinkAlreadyHasInItsBuffer)
+{
+    char storage[32];
+    el_buf lent;
+    el_buf_init(&lent, storage, sizeof(storage));
+    ASSERT_EQ(el_buf_append(&lent, "pre:", 4), EL_OK);
+    sink.lend = &lent;
+
+    Composition c;
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, Compose, &c);
+
+    EXPECT_EQ(c.length_at_call, 4u);
+    EXPECT_EQ(sink.last_message_pointer, storage + 4);
+    EXPECT_EQ(LastMessage(), "composed");
+    EXPECT_EQ(std::string(storage, el_buf_len(&lent)), "pre:composed");
+}
+
+TEST_F(ElLogger, AnEmptyComposedMessageIsARecord)
+{
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeNothing, nullptr);
+
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(sink.last.len, 0u);
+    EXPECT_EQ(sink.last_message_pointer, nullptr);
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ComposeMayTakeBackWhatItAppendedDownToTheLengthItStartedWith)
+{
+    char storage[32];
+    el_buf lent;
+    el_buf_init(&lent, storage, sizeof(storage));
+    ASSERT_EQ(el_buf_append(&lent, "pre:", 4), EL_OK);
+    sink.lend = &lent;
+
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeThenTakeBack, nullptr);
+
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(sink.last.len, 0u);
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ComposeMayWriteInPlaceWithReserveAndCommit)
+{
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeInPlace, nullptr);
+
+    EXPECT_EQ(LastMessage(), "abcd");
+    EXPECT_EQ(sink.last_message_pointer, sink.storage);
+}
+
+TEST_F(ElLogger, ComposeMayLogToAnotherSink)
+{
+    recording_sink other;
+    recording_sink_init(&other);
+    el_logger other_log;
+    el_logger_init(&other_log, recording_sink_as_sink(&other), counting_clock_as_clock(&clock),
+                   "other", EL_LOG_LEVEL_INFO);
+    Inner inner = {&other_log};
+
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeAndLog, &inner);
+
+    ASSERT_EQ(other.calls, 1u);
+    EXPECT_EQ(std::string(other.message, other.last.len), "inner");
+    ASSERT_EQ(sink.calls, 1u);
+    EXPECT_EQ(LastMessage(), "outer");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+}
+
+TEST_F(ElLogger, ARecordEndsOnTheSinkThatBeganItEvenIfComposeChangesTheLogger)
+{
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeAndSilence, &log);
+
+    EXPECT_EQ(log.level_min, EL_LOG_LEVEL_OFF) << "the logger was changed";
+    ASSERT_EQ(sink.begins, 1u);
+    ASSERT_EQ(sink.calls, 1u) << "the sink that began the record ends it";
+    EXPECT_EQ(LastMessage(), "last");
+    EXPECT_EQ(sink.last_fit, EL_OK);
+
+    /* The sink is free for the next record, from another logger. */
+    el_logger other;
+    el_logger_init(&other, recording_sink_as_sink(&sink), counting_clock_as_clock(&clock), "other",
+                   EL_LOG_LEVEL_INFO);
+    el_log_write(&other, EL_LOG_LEVEL_INFO, "next", 4);
+    EXPECT_EQ(sink.begins, 2u);
+    ASSERT_EQ(sink.calls, 2u);
+    EXPECT_EQ(LastMessage(), "next");
+}
+
+TEST_F(ElLogger, AMinimumOfOffReadsNoClockAndBeginsNothingFromAnyCallAtAnyLevel)
+{
+    el_logger_set_level(&log, EL_LOG_LEVEL_OFF);
+
+    Composition c;
+    /* A null %s is a contract violation if printf ever reads it. */
+    const char *volatile never_read = nullptr;
+    for (el_log_level level = EL_LOG_LEVEL_DEBUG; level < EL_LOG_LEVEL_OFF; level++) {
+        el_log_write(&log, level, "x", 1);
+        el_log_printf(&log, level, "%s", never_read);
+        el_log_compose(&log, level, Compose, &c);
+    }
+    EXPECT_EQ(clock.now_calls, 0u);
+    EXPECT_EQ(sink.begins, 0u);
+    EXPECT_EQ(sink.calls, 0u);
+    EXPECT_EQ(c.calls, 0u);
+}
+
+/* ---- The logger that makes no records ---------------------------------------- */
+
+/* What the constant itself shows; that a minimum of OFF reads no clock and
+ * begins no record is the logger test above, with a clock and a sink that
+ * count. */
+TEST(ElLoggerOff, IsOneConstantWithAMinimumOfOffThatFormatsAndComposesNothing)
+{
+    const el_logger *const off = el_logger_off();
+    ASSERT_NE(off, nullptr);
+    EXPECT_EQ(off, el_logger_off()) << "one constant for the whole program";
+    EXPECT_EQ(off->level_min, EL_LOG_LEVEL_OFF);
+
+    Composition c;
+    /* A null %s is a contract violation if printf ever reads it. */
+    const char *volatile never_read = nullptr;
+    for (el_log_level level = EL_LOG_LEVEL_DEBUG; level < EL_LOG_LEVEL_OFF; level++) {
+        el_log_write(off, level, "x", 1);
+        el_log_printf(off, level, "%s", never_read);
+        el_log_compose(off, level, Compose, &c);
+    }
+    EXPECT_EQ(c.calls, 0u);
+}
+
+TEST(ElLoggerOff, ACopyWithItsLevelLoweredLosesEveryRecordAndReadsAClockOfZero)
+{
+    el_logger copy = *el_logger_off();
+    el_logger_set_level(&copy, EL_LOG_LEVEL_DEBUG);
+
+    EXPECT_EQ(el_clock_now(copy.clock), 0u);
+    EXPECT_EQ(copy.ticks_per_second, 1u);
+    EXPECT_STREQ(copy.tag, "");
+
+    /* Every record is lost where it begins: nothing is written, nothing is
+     * composed, and no check fires. */
+    Composition c;
+    const char *volatile never_read = nullptr;
+    for (el_log_level level = EL_LOG_LEVEL_DEBUG; level < EL_LOG_LEVEL_OFF; level++) {
+        el_log_write(&copy, level, "x", 1);
+        el_log_printf(&copy, level, "%s", never_read);
+        el_log_compose(&copy, level, Compose, &c);
+    }
+    EXPECT_EQ(c.calls, 0u);
+
+    /* And the constant itself is untouched by the copy's change. */
+    EXPECT_EQ(el_logger_off()->level_min, EL_LOG_LEVEL_OFF);
 }

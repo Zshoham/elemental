@@ -10,14 +10,14 @@ cmake_minimum_required(VERSION 3.20.0)
 # boards/: nucleo_g0b1re_renode, the ARMv6-M board the tests run on.
 list(APPEND BOARD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# A wire for examples/uart_ring's test, which needs bytes to arrive on a
-# UART: QEMU connects the board's second and third UART to the two ends of
-# one socket, so that what the image sends on UART1 arrives on UART2. The
-# console stays on the first. The path is relative, to QEMU's working
-# directory, which is the build directory. For mps2/an385, with
-# CONFIG_UART_INTERRUPT_DRIVEN (testcase.yaml, elemental.tests.ring.uart).
+# A wire for the tests that need bytes to arrive on a UART, ring_zephyr_uart's
+# and examples/uart_ring's: QEMU connects the board's second and third UART
+# to the two ends of one socket, so that what the image sends on UART1
+# arrives on UART2. The console stays on the first. The path is relative, to
+# QEMU's working directory, which is the build directory. For mps2/an385,
+# with CONFIG_UART_INTERRUPT_DRIVEN (testcase.yaml, elemental.tests.ring.uart).
 # Set before Zephyr's package is found, which reads QEMU_EXTRA_FLAGS.
-option(ELEMENTAL_ZEPHYR_UART_WIRE "Join UART1 and UART2 under QEMU, and build the UART example's test" OFF)
+option(ELEMENTAL_ZEPHYR_UART_WIRE "Join UART1 and UART2 under QEMU, and build the tests that use the wire" OFF)
 if(ELEMENTAL_ZEPHYR_UART_WIRE)
   list(APPEND QEMU_EXTRA_FLAGS
     -chardev socket,id=wire0,path=uart-wire.sock,server=on,wait=off -serial chardev:wire0
@@ -52,8 +52,8 @@ if(ELEMENTAL_ZEPHYR_TESTS)
   set(ELEMENTAL_TEST_MODULES status alloc io ring fmt bytes crc time log)
   set(ELEMENTAL_TEST_MODULE_status status)
   set(ELEMENTAL_TEST_MODULE_alloc alloc example.size_classes)
-  set(ELEMENTAL_TEST_MODULE_io io)
-  set(ELEMENTAL_TEST_MODULE_ring ring example.uart_ring)
+  set(ELEMENTAL_TEST_MODULE_io io io_zephyr_uart)
+  set(ELEMENTAL_TEST_MODULE_ring ring ring_zephyr_uart example.uart_ring)
   set(ELEMENTAL_TEST_MODULE_fmt fmt)
   set(ELEMENTAL_TEST_MODULE_bytes bytes)
   set(ELEMENTAL_TEST_MODULE_crc crc)

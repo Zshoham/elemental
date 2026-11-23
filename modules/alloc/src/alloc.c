@@ -6,6 +6,13 @@
 #include <limits.h>
 #include <stdint.h>
 
+/* As in io_buf.c: memcpy() is required of every environment by the compiler. */
+#if __STDC_HOSTED__
+#include <string.h>
+#else
+void *memcpy(void *dest, const void *src, size_t n);
+#endif
+
 /*
  * The front functions are the boundary between callers and allocators.
  * Zero sizes and bad alignments are dealt with here, so an operation never
@@ -112,4 +119,38 @@ void el_free(el_allocator allocator, void *ptr, el_layout layout)
     }
     EL_ASSERT(ptr != NULL);
     allocator.ops->free(allocator.ctx, ptr, layout);
+}
+
+void *el_realloc(el_allocator allocator, void *ptr, el_layout layout, size_t new_size)
+{
+    check_handle(allocator, layout);
+
+    if (layout.size == 0) {
+        EL_ASSERT(ptr == NULL || ptr == zero_size_pointer(layout.align));
+        return el_alloc(allocator, el_layout_make(new_size, layout.align));
+    }
+    EL_ASSERT(ptr != NULL);
+    if (new_size == layout.size) {
+        return ptr;
+    }
+    if (new_size == 0) {
+        allocator.ops->free(allocator.ctx, ptr, layout);
+        return zero_size_pointer(layout.align);
+    }
+
+    if (allocator.ops->realloc != NULL) {
+        void *const moved = allocator.ops->realloc(allocator.ctx, ptr, layout, new_size);
+        if (moved != NULL) {
+            EL_ASSERT(((uintptr_t)moved & (layout.align - 1)) == 0);
+            return moved;
+        }
+    }
+
+    void *const fresh = el_alloc(allocator, el_layout_make(new_size, layout.align));
+    if (fresh == NULL) {
+        return NULL;
+    }
+    memcpy(fresh, ptr, new_size < layout.size ? new_size : layout.size);
+    allocator.ops->free(allocator.ctx, ptr, layout);
+    return fresh;
 }

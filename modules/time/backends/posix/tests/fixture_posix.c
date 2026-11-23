@@ -11,11 +11,6 @@
 #include <stddef.h>
 #include <time.h>
 
-static void reset(void *ctx)
-{
-    (void)ctx; /* The clock has no object to release. */
-}
-
 static el_clock clock_new(void *ctx)
 {
     (void)ctx;
@@ -37,7 +32,6 @@ static void advance(void *ctx, el_ticks ticks)
 const el_time_contract_fixture time_fixture_posix = {
     .name = "posix",
     .ctx = NULL,
-    .reset = reset,
     .clock = clock_new,
     .advance = advance,
 };

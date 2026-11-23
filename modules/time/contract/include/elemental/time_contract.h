@@ -25,15 +25,18 @@ extern "C" {
  * How to set up the implementation under test.
  *
  * The suite uses one clock at a time. Before asking for a new one it calls
- * `reset`, which must release whatever the previous request created. `ctx`
- * is passed back to every function unchanged.
+ * `reset`, if the fixture has one, which must release whatever the previous
+ * request created. `ctx` is passed back to every function unchanged.
  */
 typedef struct el_time_contract_fixture {
     /* Shown in failure reports. */
     const char *name;
     void *ctx;
 
-    /* Required. Release the clock created by the previous request, if any. */
+    /*
+     * Optional. Release the clock created by the previous request, if any.
+     * Leave null if there is nothing to release: the suite does not call it.
+     */
     void (*reset)(void *ctx);
 
     /* Required. A clock. */

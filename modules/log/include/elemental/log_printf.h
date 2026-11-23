@@ -45,8 +45,13 @@
  *     must have no side effect the program depends on.
  *   - Such a call is still compiled before it is dropped, so a format that
  *     does not match its arguments is reported either way.
- *   - Only the macros honor it. el_log_printf() and el_log_write() are
- *     functions, and always do what they say.
+ *   - Only the macros honor it. el_log_printf(), el_log_write() and
+ *     el_log_compose() are functions, and always do what they say. A
+ *     composed message is cut off by writing its call inside
+ *     `if (EL_LOG_KEPT(level)) { ... }`: the call is compiled and then
+ *     dropped, as the macros' are. The compose function, a function like
+ *     any other, is then unused: a compiler that optimizes drops a static
+ *     one with its text, and one that does not may keep it.
  *   - The run-time level still applies to what is kept: a call at or above
  *     the cut-off logs only if the logger's minimum lets it through.
  *
@@ -83,13 +88,21 @@ void el_log_vprintf(const el_logger *logger, el_log_level level, const char *for
 #endif
 
 /*
+ * A constant: whether calls at `level` are kept under EL_LOG_CUTOFF. Not
+ * the logger's run-time level, which el_log_compose() checks. Composed
+ * messages inside `if (EL_LOG_KEPT(level)) { ... }` are cut off with the
+ * EL_LOG_* calls.
+ */
+#define EL_LOG_KEPT(level) ((level) >= EL_LOG_CUTOFF)
+
+/*
  * Log at `level`, unless `level` is below EL_LOG_CUTOFF, in which case the
  * statement compiles to nothing. The condition is a constant, so there is
  * no test at run time.
  */
 #define EL_LOG(logger, level, ...)                         \
     do {                                                   \
-        if ((level) >= EL_LOG_CUTOFF) {                    \
+        if (EL_LOG_KEPT(level)) {                          \
             el_log_printf((logger), (level), __VA_ARGS__); \
         }                                                  \
     } while (0)

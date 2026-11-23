@@ -65,8 +65,12 @@ Structure:
 - [ ] The library is defined with `elemental_add_module()`. Dependencies are
       named in `DEPENDS` and expressed in Kconfig with `select` or
       `depends on`.
-- [ ] A platform backend is its own library under `backends/<platform>/`,
-      with its own Kconfig symbol that depends on a probed platform symbol.
+- [ ] A platform backend is its own library under `backends/<backend>/`,
+      with its own Kconfig symbol, `<MODULE>_<BACKEND>`, that depends on a
+      probed platform symbol (`PLATFORM_<PLATFORM>_<FACILITY>` for one
+      facility). `<backend>` is the platform, or the platform and the
+      facility ([conventions.md](../conventions.md#naming)); the directory
+      name is the target minus `<name>_`.
 
 Contract:
 

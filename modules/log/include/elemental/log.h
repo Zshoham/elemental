@@ -19,6 +19,14 @@
  * a message may be is the sink's buffer's to say, fixed or grown
  * (docs/adr/0022-log-sink-lends-the-buffer.md).
  *
+ * A message the application's own formatter writes is composed there too:
+ * el_log_compose() calls a function of the caller's with the lent buffer,
+ * between the sink's begin and end, so the message needs no scratch buffer
+ * and the library ends every record it begins, on the sink that began it.
+ * Nothing is composed for a record that is not made or that the sink
+ * refuses at begin; a sink that refuses the record only at end does so
+ * after the function has run.
+ *
  * This header is the contract: not variadic, usable from any language. The
  * printf-style call site and the compile-time cut-off are a C convenience
  * on top of it, in elemental/log_printf.h.
@@ -55,16 +63,28 @@
  * when its sink and its clock may. Sinks follow the default: one object,
  * one context at a time; a record's begin and end are made from the same
  * context, with nothing else given to that sink between them. A log call
- * blocks only if the sink does. Use from an interrupt handler needs a sink
- * and a clock that allow it, and a sink's buffer that does: a grown one
- * allocates. A sink's operations must not log through a logger that leads
- * back to the same sink.
+ * blocks only if the sink does, or, for el_log_compose(), the function it
+ * was given does. Use from an interrupt handler needs a sink and a clock
+ * that allow it, a sink's buffer that does (a grown one allocates), and,
+ * for el_log_compose(), a compose function that does: it runs on the
+ * caller's stack, in the caller's context, and whatever it calls may block
+ * or allocate there. A sink's operations, and a function given to
+ * el_log_compose(), must not log through a logger that leads back to the
+ * same sink.
  *
  * Contract violations, checked by assertions when the library is built with
  * them: a null logger, record, or tag; a handle that was never made, or one
  * with an operation missing; a null message with a nonzero length; a
  * record's level of EL_LOG_LEVEL_OFF or above; a minimum level above
- * EL_LOG_LEVEL_OFF; a sink that begins a record without lending a buffer.
+ * EL_LOG_LEVEL_OFF; a sink that begins a record without lending a buffer; a
+ * null compose function; a compose function that returns with the buffer
+ * shorter than it was when it was called; beginning a record on a sink that
+ * has one open, by logging into it from inside a compose function or from
+ * a callback the sink calls while it ends a record, such as a log writer
+ * sink's writer (the writer, memory and deferred sinks check it). A
+ * compose function that truncates below that length and appends again,
+ * ending no shorter, breaks the same precondition, but only the length it
+ * returns with is checked: the sink's own bytes it overwrote go unnoticed.
  */
 #ifndef ELEMENTAL_LOG_H
 #define ELEMENTAL_LOG_H
@@ -124,8 +144,9 @@ typedef struct el_log_record {
  *      of the sink's own, such as the start of a line.
  *   2. The caller appends the message to that buffer, and does nothing
  *      else with it: el_buf_append(), el_fmt_printf(), or el_buf_reserve()
- *      and el_buf_commit(). A message the buffer cannot take whole is cut,
- *      by printf's item rule or at a byte.
+ *      and el_buf_commit(), and el_buf_truncate() no lower than the length
+ *      the buffer had when begin returned. A message the buffer cannot take
+ *      whole is cut, by printf's item rule or at a byte.
  *   3. end: the sink is given the whole record, its message being the bytes
  *      appended, and says whether it took it.
  *
@@ -218,6 +239,15 @@ void el_logger_init(el_logger *logger, el_log_sink sink, el_clock clock, const c
 void el_logger_set_level(el_logger *logger, el_log_level level_min);
 
 /*
+ * The logger that makes no records, for a component that must be handed a
+ * logger in a program that wants none of its records. Its minimum is
+ * EL_LOG_LEVEL_OFF: every call returns at once, reads no clock and gives
+ * nothing to a sink. Constant, valid for the whole program, and usable
+ * from any context.
+ */
+const el_logger *el_logger_off(void);
+
+/*
  * Log the `len` bytes at `message`, at `level` (below EL_LOG_LEVEL_OFF).
  *
  * If `level` is below the logger's minimum, nothing happens: the clock is
@@ -230,6 +260,42 @@ void el_logger_set_level(el_logger *logger, el_log_level level_min);
  * It is borrowed for the call.
  */
 void el_log_write(const el_logger *logger, el_log_level level, const char *message, size_t len);
+
+/*
+ * Writes a record's message into `message`, the buffer the logger's sink
+ * lends, with el_buf functions only: el_buf_append(), el_fmt_printf(), a
+ * formatter of your own, el_buf_reserve() with el_buf_commit(), and
+ * el_buf_truncate() back to no less than the length the buffer had when
+ * it was called. Returns EL_OK if the message is whole; any other status,
+ * such as the first failure of what it called, means it is cut.
+ *
+ * It runs while the sink holds the record open: it must not log through a
+ * logger whose records reach the same sink, as a sink's own operations
+ * must not. It runs in the context of the el_log_compose() call, on its
+ * stack, so it and whatever it calls must be fit for that context: from
+ * an interrupt handler it must not block or allocate. Called through C:
+ * it must not unwind.
+ */
+typedef el_status (*el_log_compose_fn)(void *ctx, el_buf *message);
+
+/*
+ * Log the message `compose` writes, at `level` (below EL_LOG_LEVEL_OFF).
+ *
+ * If `level` is below the logger's minimum, nothing happens: the clock is
+ * not read and `compose` is not called. Otherwise the record is begun; if
+ * the sink refuses it, it is lost and counted, and `compose` is not
+ * called. Otherwise compose(ctx, message) writes the message into the
+ * buffer the sink lent, and the record is ended on the sink that began it,
+ * even if `compose` changed the logger meanwhile. A status other than
+ * EL_OK reaches the sink as EL_ERR_NO_SPACE, a cut message, whatever the
+ * failure was. A record the sink does not take at end is lost, and the
+ * sink counts it; `compose` has run by then. Like every log call, it
+ * cannot fail.
+ *
+ * `ctx` is passed to `compose` unchanged, and may be null.
+ */
+void el_log_compose(const el_logger *logger, el_log_level level, el_log_compose_fn compose,
+                    void *ctx);
 
 #ifdef __cplusplus
 }

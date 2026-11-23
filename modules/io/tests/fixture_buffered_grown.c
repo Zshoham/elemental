@@ -54,13 +54,8 @@ static el_writer grown_stalled(void *ctx)
 
 const el_io_contract_fixture io_alloc_fixture_buffered_grown = {
     .name = "el_buffered_writer (grown, 256-byte arena)",
-    .ctx = NULL,
     .reset = reset,
-    .reader_with_content = io_fixture_buffered_reader,
     .writer_with_room = grown_with_room,
     .writer_take = io_fixture_buffered_take,
-    .reader_stalled = NULL,
     .writer_stalled = grown_stalled,
-    .writer_ending_after = NULL,
-    .writer_full_after = NULL,
 };

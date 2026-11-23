@@ -1,25 +1,18 @@
 #include "uart_wire.h"
 
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
 #include <elemental/time_zephyr.h>
 
-static const struct device *const sender = DEVICE_DT_GET(DT_NODELABEL(uart1));
-static const struct device *const receiver = DEVICE_DT_GET(DT_NODELABEL(uart2));
+const struct device *uart_wire_sender(void)
+{
+    return DEVICE_DT_GET(DT_NODELABEL(uart1));
+}
 
 const struct device *uart_wire_receiver(void)
 {
-    return device_is_ready(sender) && device_is_ready(receiver) ? receiver : NULL;
-}
-
-void uart_wire_send(const void *data, size_t len)
-{
-    const unsigned char *const bytes = data;
-    for (size_t i = 0; i < len; i++) {
-        uart_poll_out(sender, bytes[i]);
-    }
+    return DEVICE_DT_GET(DT_NODELABEL(uart2));
 }
 
 static el_ticks context_now(void *ctx)

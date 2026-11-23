@@ -10,11 +10,6 @@
 
 static el_manual_clock manual;
 
-static void reset(void *ctx)
-{
-    (void)ctx; /* The clock holds nothing to release. */
-}
-
 static el_clock clock_new(void *ctx)
 {
     (void)ctx;
@@ -32,7 +27,6 @@ static void advance(void *ctx, el_ticks ticks)
 const el_time_contract_fixture time_fixture_manual = {
     .name = "manual",
     .ctx = NULL,
-    .reset = reset,
     .clock = clock_new,
     .advance = advance,
 };

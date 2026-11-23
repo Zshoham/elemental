@@ -13,7 +13,8 @@
  *
  * Link elemental::io_contract and a GoogleTest main(). The tests appear as
  * MyBackend/ElIoContract.<Promise>/0. A test whose promise the fixture cannot
- * set up (an optional capability left null) is reported as skipped.
+ * set up (an optional capability left null, or a half the fixture leaves
+ * out: "no reader", "no writer") is reported as skipped.
  *
  * This is the one C++ header in the io module. It needs C++17 and
  * GoogleTest, which only tests do.
@@ -31,9 +32,10 @@
 class ElIoContract : public testing::TestWithParam<const el_io_contract_fixture *>
 {
   protected:
-    /* Fails the test if the fixture lacks a required function. */
+    /* Fails the test if the fixture has neither half, a half lacks a required
+     * function, an absent half has an optional one, or reader_then is unknown. */
     void SetUp() override;
-    /* Releases the last stream the test asked for. */
+    /* Releases the last stream the test asked for, if the fixture has a reset. */
     void TearDown() override;
 };
 

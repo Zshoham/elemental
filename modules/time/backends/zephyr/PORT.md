@@ -19,7 +19,7 @@ This document follows the template in
 | A reading that never goes back | Yes | The kernel's uptime, 64 bits. |
 | A constant frequency | Yes | `CONFIG_SYS_CLOCK_TICKS_PER_SEC`, fixed when the application is built: 100 by default, 10 000 with a tickless kernel. |
 | Reading without blocking | Yes | One kernel call and no arithmetic. |
-| Reading from an interrupt handler | Yes, by an emulator run | Zephyr's header does not mark `k_uptime_ticks()` either way. Its implementation reads the tick count under a spin lock (`kernel/timeout.c`, v4.5.0), which an interrupt handler may take. Read from a UART's receive interrupt on `mps2/an385` under QEMU ([examples/uart_ring](../../../../examples/uart_ring)). |
+| Reading from an interrupt handler | Yes, by an emulator run | Zephyr's header does not mark `k_uptime_ticks()` either way. Its implementation reads the tick count under a spin lock (`kernel/timeout.c`, v4.5.0), which an interrupt handler may take. Read from a `k_timer` expiry function, which Zephyr runs in interrupt context, on `mps2/an385` under QEMU ([examples/uart_ring](../../../../examples/uart_ring)). |
 
 ## Unsupported semantics
 
@@ -74,7 +74,8 @@ time.
 Reading from an interrupt handler is checked by the UART example's test,
 `example.uart_ring`, in the `elemental.tests.ring.uart` image on
 `mps2/an385` under QEMU: a logger whose clock is this one, wrapped to note
-where it is read from, logs from the receive interrupt, and each record's
+where it is read from, logs from a `k_timer` expiry function (interrupt
+context), and each record's
 time lies between two readings taken by the thread around it. One board,
 one emulator, three readings.
 

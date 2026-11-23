@@ -11,14 +11,13 @@
  * A buffered writer with room accepts bytes its inner writer has not, so it
  * cannot be made to end, or to be full, after an exact byte count: those
  * capabilities are absent, except that the capacity-0 pass-through ends
- * exactly when its sink does. The reader is a memory reader, which the
- * suite requires, and cannot stall.
+ * exactly when its sink does. There is no reader half: a buffered writer
+ * has no reader, and the memory reader has its own fixture.
  */
 #include "fixture_buffered.h"
 
 #include <elemental/io_buf.h>
 #include <elemental/io_buffered.h>
-#include <elemental/io_mem.h>
 
 #define SINK_PER_CALL 3u
 
@@ -53,7 +52,6 @@ el_buffered_writer io_fixture_buffered_writer;
 static struct {
     uint8_t storage[16];
     el_buf buf;
-    el_mem_reader reader;
 } state;
 
 void io_fixture_sink_open(size_t cap, int ends)
@@ -83,15 +81,7 @@ el_writer io_fixture_fill_until_stalled(el_writer w)
 static void reset(void *ctx)
 {
     (void)ctx;
-    el_mem_reader_init(&state.reader, NULL, 0);
     io_fixture_sink_open(0, 0);
-}
-
-el_reader io_fixture_buffered_reader(void *ctx, const uint8_t *content, size_t len)
-{
-    (void)ctx;
-    el_mem_reader_init(&state.reader, content, len);
-    return el_mem_reader_as_reader(&state.reader);
 }
 
 size_t io_fixture_buffered_take(void *ctx, uint8_t *out, size_t cap)
@@ -126,15 +116,10 @@ static el_writer fixed_stalled(void *ctx)
 
 const el_io_contract_fixture io_fixture_buffered_fixed = {
     .name = "el_buffered_writer (fixed, 16 bytes)",
-    .ctx = NULL,
     .reset = reset,
-    .reader_with_content = io_fixture_buffered_reader,
     .writer_with_room = fixed_with_room,
     .writer_take = io_fixture_buffered_take,
-    .reader_stalled = NULL,
     .writer_stalled = fixed_stalled,
-    .writer_ending_after = NULL,
-    .writer_full_after = NULL,
 };
 
 /* ---- Fixed storage, capacity 0: a pass-through writer ------------------- */
@@ -162,13 +147,9 @@ static el_writer pass_through_ending_after(void *ctx, size_t room)
 
 const el_io_contract_fixture io_fixture_buffered_pass_through = {
     .name = "el_buffered_writer (fixed, capacity 0)",
-    .ctx = NULL,
     .reset = reset,
-    .reader_with_content = io_fixture_buffered_reader,
     .writer_with_room = pass_through_with_room,
     .writer_take = io_fixture_buffered_take,
-    .reader_stalled = NULL,
     .writer_stalled = pass_through_stalled,
     .writer_ending_after = pass_through_ending_after,
-    .writer_full_after = NULL,
 };

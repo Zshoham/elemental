@@ -16,7 +16,8 @@
 
 #include <string.h>
 
-#define STORAGE_SIZE (EL_LOG_CONTRACT_RECORDS_MAX * (EL_LOG_CONTRACT_MESSAGE_MAX + 64u))
+#define STORAGE_SIZE \
+    EL_LOG_MEM_SINK_STORAGE_SIZE(EL_LOG_CONTRACT_RECORDS_MAX, EL_LOG_CONTRACT_MESSAGE_MAX)
 
 static uint8_t first_storage[STORAGE_SIZE];
 static uint8_t second_storage[STORAGE_SIZE];
@@ -25,13 +26,6 @@ static el_log_mem_sink second;
 static char message_storage[EL_LOG_CONTRACT_MESSAGE_MAX];
 static el_buf message_buf;
 static tee_sink tee;
-
-static void reset(void *ctx)
-{
-    (void)ctx;
-    el_log_mem_sink_init(&first, NULL, 0);
-    el_log_mem_sink_init(&second, NULL, 0);
-}
 
 static el_log_sink sink(void *ctx)
 {
@@ -89,7 +83,6 @@ static void time_of(void *ctx, size_t index, el_ticks *timestamp, uint32_t *tick
 const el_log_contract_fixture tee_sink_fixture = {
     .name = "tee_sink",
     .ctx = NULL,
-    .reset = reset,
     .sink = sink,
     .delivered = delivered,
     .message = message,

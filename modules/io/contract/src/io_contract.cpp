@@ -34,6 +34,25 @@ std::vector<uint8_t> Bytes(const uint8_t *data, size_t len)
     return std::vector<uint8_t>(data, data + len);
 }
 
+/* The bytes streams are asked to carry: one constant for the whole program,
+ * so a reader that borrows them never outlives them. */
+struct ContentPattern {
+    uint8_t bytes[kContentMax];
+};
+
+constexpr ContentPattern MakeContentPattern()
+{
+    /* 31 is odd, so i -> 31 * i + 7 (mod 256) visits every byte value
+     * once: a dropped, repeated, or reordered byte is visible. */
+    ContentPattern pattern{};
+    for (size_t i = 0; i < kContentMax; i++) {
+        pattern.bytes[i] = static_cast<uint8_t>(i * 31u + 7u);
+    }
+    return pattern;
+}
+
+constexpr ContentPattern kContent = MakeContentPattern();
+
 /*
  * One test's view of the implementation under test: the fixture, and the
  * buffers the streams carry.
@@ -43,54 +62,56 @@ class Harness
   public:
     explicit Harness(const el_io_contract_fixture *fixture) : fx_(fixture)
     {
-        /* 31 is odd, so i -> 31 * i + 7 (mod 256) visits every byte value
-         * once: a dropped, repeated, or reordered byte is visible. */
-        for (size_t i = 0; i < kContentMax; i++) {
-            content[i] = static_cast<uint8_t>(i * 31u + 7u);
-        }
     }
 
     /* The bytes streams are asked to carry. */
-    uint8_t content[kContentMax];
+    const uint8_t *const content = kContent.bytes;
     /* What came out the other end. Larger than any stream, so a stream that
      * delivers too much is caught instead of overrunning the buffer. */
     uint8_t received[kContentMax + 64] = {};
     /* A source buffer the tests are free to overwrite. */
     uint8_t source[kContentMax] = {};
 
+    /* What a reader reports once its content is read, from the fixture's reader_then. */
+    el_status StatusAfterContent() const
+    {
+        return fx_->reader_then == EL_IO_CONTRACT_THEN_STALLS ? EL_ERR_WOULD_BLOCK
+                                                              : EL_ERR_END_OF_STREAM;
+    }
+
     el_reader OpenReader(size_t len)
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->reader_with_content(fx_->ctx, content, len);
     }
 
     el_writer OpenWriter(size_t room)
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->writer_with_room(fx_->ctx, room);
     }
 
     el_reader OpenStalledReader()
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->reader_stalled(fx_->ctx);
     }
 
     el_writer OpenStalledWriter()
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->writer_stalled(fx_->ctx);
     }
 
     el_writer OpenWriterEndingAfter(size_t room)
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->writer_ending_after(fx_->ctx, room);
     }
 
     el_writer OpenWriterFullAfter(size_t room)
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->writer_full_after(fx_->ctx, room);
     }
 
@@ -223,6 +244,13 @@ class Harness
     }
 
   private:
+    void Reset() const
+    {
+        if (fx_->reset != nullptr) {
+            fx_->reset(fx_->ctx);
+        }
+    }
+
     /* A single attempt: the count is written, and progress excludes status. */
     static el_status Checked(const char *call, el_status status, size_t asked, size_t *n)
     {
@@ -265,11 +293,25 @@ void ElIoContract::SetUp()
 {
     const el_io_contract_fixture *const fixture = GetParam();
     ASSERT_TRUE(fixture != nullptr) << "the suite was instantiated with a null fixture";
-    ASSERT_TRUE(fixture->reset != nullptr) << "fixture.reset is required";
-    ASSERT_TRUE(fixture->reader_with_content != nullptr)
-        << "fixture.reader_with_content is required";
-    ASSERT_TRUE(fixture->writer_with_room != nullptr) << "fixture.writer_with_room is required";
-    ASSERT_TRUE(fixture->writer_take != nullptr) << "fixture.writer_take is required";
+
+    const bool reader = fixture->reader_with_content != nullptr;
+    const bool writer = fixture->writer_with_room != nullptr;
+    ASSERT_TRUE(reader || writer)
+        << "the fixture has neither half: it needs reader_with_content, writer_with_room, or both";
+    ASSERT_TRUE(!writer || fixture->writer_take != nullptr)
+        << "fixture.writer_take is required with writer_with_room";
+    ASSERT_TRUE(writer || fixture->writer_take == nullptr)
+        << "fixture.writer_take is set but fixture.writer_with_room is not";
+    ASSERT_TRUE(reader || fixture->reader_stalled == nullptr)
+        << "fixture.reader_stalled is set but fixture.reader_with_content is not";
+    ASSERT_TRUE(writer ||
+                (fixture->writer_stalled == nullptr && fixture->writer_ending_after == nullptr &&
+                 fixture->writer_full_after == nullptr))
+        << "a writer capability is set but fixture.writer_with_room is not";
+    ASSERT_TRUE(fixture->reader_then == EL_IO_CONTRACT_THEN_ENDS ||
+                fixture->reader_then == EL_IO_CONTRACT_THEN_STALLS)
+        << "fixture.reader_then is neither EL_IO_CONTRACT_THEN_ENDS nor "
+           "EL_IO_CONTRACT_THEN_STALLS";
 }
 
 void ElIoContract::TearDown()
@@ -293,8 +335,11 @@ void PrintTo(const el_io_contract_fixture *fixture, std::ostream *os)
 
 /* ---- Reader tests ------------------------------------------------------- */
 
-TEST_P(ElIoContract, ReaderDeliversItsContentInOrderThenEnds)
+TEST_P(ElIoContract, ReaderDeliversItsContentInOrder)
 {
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
     Harness h(GetParam());
 
     for (const size_t len : kStreamLengths) {
@@ -306,7 +351,7 @@ TEST_P(ElIoContract, ReaderDeliversItsContentInOrderThenEnds)
             el_status last;
             const size_t total = h.ReadUntilStop(reader, chunk, len, &last);
 
-            EXPECT_EQ(last, EL_ERR_END_OF_STREAM);
+            EXPECT_EQ(last, h.StatusAfterContent()) << el_status_name(last);
             EXPECT_EQ(total, len);
             const size_t common = std::min(total, len);
             EXPECT_EQ(Bytes(h.received, common), Bytes(h.content, common));
@@ -316,6 +361,12 @@ TEST_P(ElIoContract, ReaderDeliversItsContentInOrderThenEnds)
 
 TEST_P(ElIoContract, ReaderEndOfStreamIsPermanent)
 {
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
+    if (GetParam()->reader_then == EL_IO_CONTRACT_THEN_STALLS) {
+        GTEST_SKIP() << "the reader stalls after its content: it has no end";
+    }
     Harness h(GetParam());
     const el_reader reader = h.OpenReader(4);
 
@@ -330,8 +381,44 @@ TEST_P(ElIoContract, ReaderEndOfStreamIsPermanent)
     }
 }
 
+TEST_P(ElIoContract, ReaderThatStallsAfterItsContentHasNotEnded)
+{
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
+    if (GetParam()->reader_then != EL_IO_CONTRACT_THEN_STALLS) {
+        GTEST_SKIP() << "the reader ends after its content: it does not stall";
+    }
+    Harness h(GetParam());
+
+    for (const size_t len : {size_t{0}, size_t{4}}) {
+        SCOPED_TRACE(testing::Message() << "a stream of " << len << " bytes");
+        const el_reader reader = h.OpenReader(len);
+
+        el_status last;
+        const size_t total = h.ReadUntilStop(reader, 4, len, &last);
+        EXPECT_EQ(total, len);
+        EXPECT_EQ(last, EL_ERR_WOULD_BLOCK) << el_status_name(last);
+
+        /* Not ended: every attempt after the content stalls. (That it takes
+         * nothing is checked on every read, by ReadOnce.) */
+        for (int i = 0; i < 3; i++) {
+            size_t n;
+            const el_status status = h.ReadOnce(reader, h.received, 4, &n);
+            EXPECT_EQ(status, EL_ERR_WOULD_BLOCK) << el_status_name(status);
+        }
+
+        size_t n = kCountUnset;
+        EXPECT_EQ(el_read_exact(reader, h.received, 4, &n), EL_ERR_WOULD_BLOCK);
+        EXPECT_EQ(n, 0u);
+    }
+}
+
 TEST_P(ElIoContract, ReaderZeroCapacityReadIsANoOp)
 {
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
     Harness h(GetParam());
     const el_reader reader = h.OpenReader(8);
 
@@ -342,12 +429,12 @@ TEST_P(ElIoContract, ReaderZeroCapacityReadIsANoOp)
 
     el_status last;
     const size_t total = h.ReadUntilStop(reader, 8, 8, &last);
-    EXPECT_EQ(last, EL_ERR_END_OF_STREAM);
+    EXPECT_EQ(last, h.StatusAfterContent()) << el_status_name(last);
     EXPECT_EQ(total, 8u);
     const size_t common = std::min<size_t>(total, 8);
     EXPECT_EQ(Bytes(h.received, common), Bytes(h.content, common));
 
-    /* At the end: still succeeds, so it cannot be used to detect the end. */
+    /* After the content: still succeeds, so it cannot be used to detect the end. */
     n = kCountUnset;
     EXPECT_EQ(el_read(reader, nullptr, 0, &n), EL_OK);
     EXPECT_EQ(n, 0u);
@@ -355,6 +442,9 @@ TEST_P(ElIoContract, ReaderZeroCapacityReadIsANoOp)
 
 TEST_P(ElIoContract, ReadExactFillsTheBufferOrReportsAShortStream)
 {
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
     Harness h(GetParam());
     const el_reader reader = h.OpenReader(kContentMax);
 
@@ -365,10 +455,13 @@ TEST_P(ElIoContract, ReadExactFillsTheBufferOrReportsAShortStream)
     size_t common = std::min<size_t>(total, 100);
     EXPECT_EQ(Bytes(h.received, common), Bytes(h.content, common));
 
-    /* Asking for more than remains: the status, and how much was read. */
+    /*
+     * Asking for more than remains: the status of a reader after its
+     * content, and how much was read.
+     */
     const size_t remaining = kContentMax - 100;
     total = h.ReadExactResuming(reader, h.received, 200, &last);
-    EXPECT_EQ(last, EL_ERR_END_OF_STREAM);
+    EXPECT_EQ(last, h.StatusAfterContent()) << el_status_name(last);
     EXPECT_EQ(total, remaining);
     common = std::min(total, remaining);
     EXPECT_EQ(Bytes(h.received, common), Bytes(h.content + 100, common));
@@ -381,8 +474,11 @@ TEST_P(ElIoContract, ReadExactFillsTheBufferOrReportsAShortStream)
 
 TEST_P(ElIoContract, StalledReaderReportsWouldBlock)
 {
+    if (GetParam()->reader_with_content == nullptr) {
+        GTEST_SKIP() << "no reader";
+    }
     if (GetParam()->reader_stalled == nullptr) {
-        GTEST_SKIP() << "the fixture has no reader_stalled: this reader cannot stall";
+        GTEST_SKIP() << "the fixture has no reader_stalled: it supplies no separate stalled reader";
     }
     Harness h(GetParam());
     const el_reader reader = h.OpenStalledReader();
@@ -401,6 +497,9 @@ TEST_P(ElIoContract, StalledReaderReportsWouldBlock)
 
 TEST_P(ElIoContract, WriterAcceptsContentInOrder)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     Harness h(GetParam());
 
     for (const size_t len : kStreamLengths) {
@@ -426,6 +525,9 @@ TEST_P(ElIoContract, WriterAcceptsContentInOrder)
 
 TEST_P(ElIoContract, WriterZeroLengthWriteIsANoOp)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     Harness h(GetParam());
     const el_writer writer = h.OpenWriter(8);
 
@@ -442,6 +544,9 @@ TEST_P(ElIoContract, WriterZeroLengthWriteIsANoOp)
 
 TEST_P(ElIoContract, WriterCopiesWhatItAccepts)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     Harness h(GetParam());
     const size_t len = 32;
     const el_writer writer = h.OpenWriter(len);
@@ -464,6 +569,9 @@ TEST_P(ElIoContract, WriterCopiesWhatItAccepts)
 
 TEST_P(ElIoContract, WriteAllWritesEverything)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     Harness h(GetParam());
     const el_writer writer = h.OpenWriter(kContentMax);
 
@@ -480,6 +588,9 @@ TEST_P(ElIoContract, WriteAllWritesEverything)
 
 TEST_P(ElIoContract, WriterEndOfStreamIsPermanentAndKeepsWhatFit)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     if (GetParam()->writer_ending_after == nullptr) {
         GTEST_SKIP() << "the fixture has no writer_ending_after: this writer cannot be made to "
                         "end after an exact byte count";
@@ -513,6 +624,9 @@ TEST_P(ElIoContract, WriterEndOfStreamIsPermanentAndKeepsWhatFit)
 
 TEST_P(ElIoContract, WriterNoSpaceKeepsWhatFitAndRepeats)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     if (GetParam()->writer_full_after == nullptr) {
         GTEST_SKIP() << "the fixture has no writer_full_after: this writer cannot be made full "
                         "after an exact byte count";
@@ -547,6 +661,9 @@ TEST_P(ElIoContract, WriterNoSpaceKeepsWhatFitAndRepeats)
 
 TEST_P(ElIoContract, StalledWriterReportsWouldBlock)
 {
+    if (GetParam()->writer_with_room == nullptr) {
+        GTEST_SKIP() << "no writer";
+    }
     if (GetParam()->writer_stalled == nullptr) {
         GTEST_SKIP() << "the fixture has no writer_stalled: this writer cannot stall";
     }

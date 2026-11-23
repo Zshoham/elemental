@@ -154,11 +154,13 @@ fixture describes:
 INSTANTIATE_TEST_SUITE_P(MyClock, ElTimeContract, testing::Values(&my_fixture));
 ```
 
-A fixture has two required functions and one optional capability,
-**advance**: return once at least so many of the clock's ticks have
-passed, by waiting for a clock that runs on its own or by moving one that
-does not. With it the suite checks that a reading grows by at least the
-time that passed, and that readings do not go back while it does.
+A fixture has one required function, the clock, and two optional ones.
+**reset** releases what the previous request made; a fixture with nothing
+to release leaves it out, and the suite does not call it. **advance**
+returns once at least so many of the clock's ticks have passed, by waiting
+for a clock that runs on its own or by moving one that does not. With it
+the suite checks that a reading grows by at least the time that passed,
+and that readings do not go back while it does.
 
 | Implementation | Tests run | Skipped, and why |
 |---|---|---|

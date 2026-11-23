@@ -180,6 +180,36 @@ else()
   set(_elemental_platform_zephyr_crc n)
 endif()
 
+# Zephyr's serial subsystem, for io's IO_ZEPHYR_UART: CONFIG_SERIAL, which
+# gives <zephyr/drivers/uart.h> and its polled calls (uart_poll_out()).
+# Zephyr's configuration is the answer. Outside Zephyr there is no such
+# header.
+if(COMMAND zephyr_library)
+  if(CONFIG_SERIAL)
+    set(_elemental_platform_zephyr_uart y)
+  else()
+    set(_elemental_platform_zephyr_uart n)
+  endif()
+else()
+  set(_elemental_platform_zephyr_uart n)
+endif()
+
+# A UART driver with interrupt-driven receive, for ring's RING_ZEPHYR_UART:
+# the serial subsystem with CONFIG_UART_INTERRUPT_DRIVEN, which gives
+# <zephyr/drivers/uart.h> the uart_irq_*() calls. Zephyr's configuration is
+# the answer, and it is not the same on every board or application: an
+# application that wants it sets the option. Outside Zephyr there is no such
+# header.
+if(COMMAND zephyr_library)
+  if(CONFIG_SERIAL AND CONFIG_UART_INTERRUPT_DRIVEN)
+    set(_elemental_platform_zephyr_uart_irq y)
+  else()
+    set(_elemental_platform_zephyr_uart_irq n)
+  endif()
+else()
+  set(_elemental_platform_zephyr_uart_irq n)
+endif()
+
 # A Zephyr application's build, for the backends that are written against
 # Zephyr's kernel (time_zephyr). Zephyr's CMake defines zephyr_library().
 if(COMMAND zephyr_library)
@@ -217,6 +247,8 @@ set(ELEMENTAL_PROBED_FACTS
     "EL_PLATFORM_SNPRINTF=${_elemental_platform_snprintf}"
     "EL_COMPILER_GCC_CRC_BUILTINS=${_elemental_gcc_crc_builtins}"
     "EL_PLATFORM_ZEPHYR_CRC=${_elemental_platform_zephyr_crc}"
+    "EL_PLATFORM_ZEPHYR_UART=${_elemental_platform_zephyr_uart}"
+    "EL_PLATFORM_ZEPHYR_UART_IRQ=${_elemental_platform_zephyr_uart_irq}"
     "EL_PLATFORM_ZEPHYR=${_elemental_platform_zephyr}"
     "EL_COMPILER_ATOMICS=${_elemental_compiler_atomics}"
     CACHE INTERNAL "Toolchain facts passed to Kconfig")

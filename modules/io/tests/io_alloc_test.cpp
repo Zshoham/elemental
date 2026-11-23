@@ -70,9 +70,9 @@ TEST_F(GrowBuf, GrowsToSixteenThenDoubles)
     for (int i = 0; i < 40; i++) {
         ASSERT_EQ(el_buf_append(b, &byte, 1), EL_OK);
     }
-    /* 16, then 32, then 64: the arena's free gives nothing back. */
+    /* 16, then 32, then 64: each extends the arena's latest allocation. */
     EXPECT_EQ(el_buf_len(b) + el_buf_room(b), 64u);
-    EXPECT_EQ(arena.used, 16u + 32u + 64u);
+    EXPECT_EQ(arena.used, 64u);
     EXPECT_EQ(Contents(), std::vector<uint8_t>(40, 'x'));
 }
 
@@ -98,9 +98,9 @@ TEST_F(GrowBuf, ReserveGrowsAndSpareIsThenWritable)
 
 TEST_F(GrowBuf, AsksForExactlyWhatIsNeededWhenDoublingIsRefused)
 {
-    /* 100 bytes in, then 50 more: doubling to 200 does not fit beside the
-     * first block (100 + 200 > 260), but exactly 150 does. */
-    Open(260);
+    /* 100 bytes in, then 50 more: doubling to 200 does not fit the 180-byte
+     * arena, but exactly 150 does. */
+    Open(180);
     uint8_t data[100] = {};
     ASSERT_EQ(el_buf_append(b, data, 100), EL_OK);
     ASSERT_EQ(el_buf_append(b, data, 50), EL_OK);
@@ -108,27 +108,55 @@ TEST_F(GrowBuf, AsksForExactlyWhatIsNeededWhenDoublingIsRefused)
     EXPECT_EQ(el_buf_room(b), 0u);
 }
 
+TEST_F(GrowBuf, GrowsInPlaceWhileItIsTheArenasLatestAllocation)
+{
+    Open(100);
+    /* Six ten-byte fields in a 100-byte arena (the grown buffer's example in
+     * docs/proposals/seams.md): the buffer is the arena's latest allocation,
+     * so each growth, to 16, 32 and 64, extends it where it is. */
+    for (int field = 0; field < 6; field++) {
+        ASSERT_EQ(el_buf_append(b, "0123456789", 10), EL_OK) << "field " << field;
+    }
+    EXPECT_EQ(el_buf_len(b), 60u);
+    EXPECT_EQ(arena.used, 64u) << "the old blocks were left behind in the arena";
+    EXPECT_EQ(el_buf_data(b), storage);
+}
+
+TEST_F(GrowBuf, MovesTheContentsWhenSomethingWasAllocatedAfterIt)
+{
+    Open(sizeof(storage));
+    ASSERT_EQ(el_buf_append(b, "0123456789", 10), EL_OK); /* 16 bytes, at the start */
+    ASSERT_NE(el_alloc(el_bump_arena_as_allocator(&arena), el_layout_make(8, 1)), nullptr);
+
+    /* Growing to 32 cannot extend the buffer in place any more. */
+    ASSERT_EQ(el_buf_append(b, "abcdefghij", 10), EL_OK);
+    EXPECT_NE(el_buf_data(b), storage);
+    EXPECT_EQ(arena.used, 16u + 8u + 32u);
+    EXPECT_EQ(Contents(), std::vector<uint8_t>({'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+                                                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'}));
+}
+
 TEST_F(GrowBuf, AppendIsWholeOrNothingWhenTheAllocatorRefuses)
 {
-    Open(30);
+    Open(20);
     uint8_t data[32] = {};
-    ASSERT_EQ(el_buf_append(b, data, 10), EL_OK); /* 16 allocated, 14 left */
+    ASSERT_EQ(el_buf_append(b, data, 10), EL_OK); /* 16 allocated, 4 left */
     EXPECT_EQ(el_buf_append(b, data, 14), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_buf_len(b), 10u);
-    EXPECT_EQ(el_buf_reserve(b, 7), EL_ERR_NO_SPACE);
+    EXPECT_EQ(el_buf_reserve(b, 11), EL_ERR_NO_SPACE);
     EXPECT_EQ(el_buf_room(b), 6u);
 }
 
 TEST_F(GrowBuf, AsWriterTakesWhatFitsThenReportsNoSpace)
 {
-    Open(30);
+    Open(16);
     uint8_t data[64];
     for (size_t i = 0; i < sizeof(data); i++) {
         data[i] = static_cast<uint8_t>(i);
     }
-    /* The first write gets 16 bytes, leaving 14 in the arena. Growing to 32
-     * fails, as does exactly 24, so the write takes the 6 bytes left. Then
-     * even exactly 17 does not fit. */
+    /* The first write gets 16 bytes, which is all the arena has. Growing
+     * fails, so the second write takes the 6 bytes of room left, and then
+     * even one more does not fit. */
     ASSERT_EQ(el_write(w, data, 10, &n), EL_OK);
     ASSERT_EQ(el_write(w, data + 10, 14, &n), EL_OK);
     EXPECT_EQ(n, 6u);
@@ -142,7 +170,7 @@ TEST_F(GrowBuf, AsWriterTakesWhatFitsThenReportsNoSpace)
 
 TEST_F(GrowBuf, NoSpaceIsNotPermanent)
 {
-    Open(30);
+    Open(16);
     uint8_t data[32] = {};
     ASSERT_EQ(el_buf_append(b, data, 16), EL_OK);
     ASSERT_EQ(el_buf_append(b, data, 1), EL_ERR_NO_SPACE);

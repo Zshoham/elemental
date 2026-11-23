@@ -22,9 +22,11 @@ elemental_add_module(crc
 # offers CRC_ZEPHYR only in a Zephyr build, where this target exists.
 # Zephyr's headers are GNU C (named variadic macros, for one), so they are
 # system headers here: Elemental's -Wpedantic stays on its own code. A
-# directory given both ways is searched as a system one.
+# directory given both ways is searched as a system one. For the build
+# only, as in modules/io/backends/zephyr_uart: zephyr_interface is in no
+# export set.
 if(EL_CONFIG_CRC_ZEPHYR)
-  target_link_libraries(elemental_crc PRIVATE zephyr_interface)
+  target_link_libraries(elemental_crc PRIVATE $<BUILD_INTERFACE:zephyr_interface>)
   get_target_property(zephyr_includes zephyr_interface INTERFACE_INCLUDE_DIRECTORIES)
   target_include_directories(elemental_crc SYSTEM PRIVATE ${zephyr_includes})
 endif()

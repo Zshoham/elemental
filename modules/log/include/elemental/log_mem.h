@@ -24,6 +24,11 @@
  *
  * Concurrency: no internal synchronization: one object, one context at a
  * time. Nothing here blocks.
+ *
+ * Contract violations, checked by assertions: a null sink or output; null
+ * storage with a nonzero size; a record index not below the count; a
+ * record begun while another is open, which is logging into the sink from
+ * inside a function given to el_log_compose().
  */
 #ifndef ELEMENTAL_LOG_MEM_H
 #define ELEMENTAL_LOG_MEM_H
@@ -35,6 +40,18 @@
 extern "C" {
 #endif
 
+/*
+ * Private: the fields the memory sink keeps before each record's message.
+ * Public only so that EL_LOG_MEM_SINK_STORAGE_SIZE is a constant; not API.
+ */
+typedef struct el_log_mem_sink_entry_ {
+    el_ticks timestamp;
+    const char *tag;
+    size_t len;
+    uint32_t ticks_per_second;
+    el_log_level level;
+} el_log_mem_sink_entry_;
+
 typedef struct el_log_mem_sink {
     uint8_t *storage;
     size_t cap;
@@ -42,12 +59,26 @@ typedef struct el_log_mem_sink {
     size_t count;
     el_buf message; /* lent for the record begun: the storage after its entry */
     uint32_t lost;
+    uint8_t open; /* 1 from a begin that lent the buffer until its end */
 } el_log_mem_sink;
 
 /*
- * The bytes of storage one record with a message of `message_len` bytes
- * takes, for sizing the storage: n records need the sum of theirs.
- * `message_len` must leave room for the record's own fields below SIZE_MAX.
+ * The bytes of storage that keep `count` records, each with a message of
+ * `message_max` bytes. A constant expression when its arguments are, for
+ * a static array. It checks no overflow, of any part:
+ * el_log_mem_sink_record_size() asserts only that one record's size, its
+ * fields plus `message_max`, is representable, and knows nothing of
+ * `count`. The caller makes sure the whole expression is: with `one` that
+ * record size, `count <= SIZE_MAX / one`.
+ */
+#define EL_LOG_MEM_SINK_STORAGE_SIZE(count, message_max) \
+    ((size_t)(count) * (sizeof(el_log_mem_sink_entry_) + (size_t)(message_max)))
+
+/*
+ * One record's bytes, as a function: for languages that cannot use the
+ * macro, and for storage sized for records of different lengths. n records
+ * need the sum of theirs. `message_len` must leave room for the record's
+ * own fields below SIZE_MAX.
  */
 size_t el_log_mem_sink_record_size(size_t message_len);
 

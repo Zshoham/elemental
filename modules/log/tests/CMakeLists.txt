@@ -43,6 +43,13 @@ if(EL_CONFIG_LOG_DEFERRED)
       SOURCES log_deferred_violations_test.cpp log_support.c
       LIBRARIES elemental::log)
   endif()
+  # With assertions compiled out, storage a record does not fit in loses
+  # every record instead of stopping the program.
+  if(NOT EL_CONFIG_ASSERT)
+    elemental_add_test(log.deferred.assert_off
+      SOURCES log_deferred_assert_off_test.cpp log_support.c
+      LIBRARIES elemental::log)
+  endif()
 endif()
 
 # Two sinks in one program, one of them a POSIX descriptor.

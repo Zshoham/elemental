@@ -26,6 +26,20 @@
  * otherwise. A free that is not recognized is a no-op; the memory comes
  * back at the next reset.
  *
+ * Changing an allocation's size (el_realloc(), whose operation both arenas
+ * have, and which acts alike in both): the latest allocation, the one that
+ * ends at the arena's top, grows in place while the storage has room and,
+ * when shrunk, gives the tail back, in the bump arena too. Any other
+ * allocation shrinks in place and gives nothing back; asked to grow, the
+ * operation returns NULL, and el_realloc() allocates a new one, copies and
+ * frees the old.
+ *
+ * An exception to the reverse-order promise above: an allocation shrunk
+ * while it was not the latest keeps its old end, so freeing it later, even
+ * last in reverse order, is not recognized and gives nothing back until the
+ * reset. (Two allocations of 16 bytes, the first shrunk to 8: after the
+ * second is freed the top is at 16, but the first now ends at 8.)
+ *
  * Storage and ownership:
  *
  *   - The caller provides the arena object and the storage, and keeps both
@@ -48,9 +62,10 @@
  * not call that "ISR-safe", because its definition excludes allocating.)
  *
  * Contract violations, checked by assertions: a null arena; null storage
- * with a nonzero capacity; freeing a range that is not inside what the
- * arena has handed out since its last reset, which includes freeing after a
- * reset and, for the stack arena, freeing the most recent allocation twice.
+ * with a nonzero capacity; freeing or resizing a range that is not inside
+ * what the arena has handed out since its last reset, which includes
+ * freeing after a reset and, for the stack arena, freeing the most recent
+ * allocation twice.
  */
 #ifndef ELEMENTAL_ALLOC_ARENA_H
 #define ELEMENTAL_ALLOC_ARENA_H

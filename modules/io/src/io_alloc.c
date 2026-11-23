@@ -3,28 +3,19 @@
 #include <elemental/assert.h>
 #include <elemental/io_alloc.h>
 
-/* As in io_buf.c: memcpy() is required of every environment by the compiler. */
-#if __STDC_HOSTED__
-#include <string.h>
-#else
-void *memcpy(void *dest, const void *src, size_t n);
-#endif
-
 /* The smallest capacity a buffer grows to, so small appends do not each
  * reallocate. */
 #define GROW_MIN 16u
 
-/* Move the contents into new storage of `cap` bytes. Returns 0 if refused. */
+/* Change the storage to `cap` bytes with el_realloc(): in place where the
+ * allocator can, otherwise moved, with the old capacity copied. Returns 0
+ * if refused, and the buffer is then unchanged. */
 static int grow_to(el_grow_buf *g, size_t cap)
 {
-    uint8_t *const data = el_alloc(g->allocator, el_layout_make(cap, 1));
+    uint8_t *const data = el_realloc(g->allocator, g->buf.data, el_layout_make(g->buf.cap, 1), cap);
     if (data == NULL) {
         return 0;
     }
-    if (g->buf.len != 0) {
-        memcpy(data, g->buf.data, g->buf.len);
-    }
-    el_free(g->allocator, g->buf.data, el_layout_make(g->buf.cap, 1));
     g->buf.data = data;
     g->buf.cap = cap;
     return 1;

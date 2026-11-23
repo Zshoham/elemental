@@ -1,10 +1,18 @@
 # Porting: adding a backend
 
-A port implements one Elemental interface on one platform facility. It can
-live in this repository, under `modules/<module>/backends/<platform>/`, or
-in its own, built against an installed Elemental. The steps are the same.
+A port implements one Elemental interface on one platform facility, or
+feeds one module's object from one (a receive interrupt filling a ring). It
+can live in this repository, under `modules/<module>/backends/<backend>/`,
+or in its own, built against an installed Elemental. The steps are the
+same. `<backend>` is the platform for its base facility (`posix`, `zephyr`
+for the kernel's clock), or the platform and the facility for one a build
+may lack (`zephyr_uart`): the rule is in
+[conventions.md](../conventions.md#naming).
 
 ## Steps
+
+These steps are for an interface's implementation. A port that feeds a
+module's object instead follows the variant under "A producer" below.
 
 1. **Read the interface header.** The operation tables list what your
    function is called with and what it must do. That is the whole contract.
@@ -43,6 +51,33 @@ written the way one outside it would be; and
 [examples/consume_installed](../../examples/consume_installed) for running
 an installed contract suite from another project.
 
+## A producer: feeding a module's object
+
+Some platform facilities do not implement an interface: they produce into
+an object a module already has, and the application reads through that
+object's own adapters. A UART's receive interrupt filling a ring is one
+([ring_zephyr_uart](../../modules/ring/backends/zephyr_uart/PORT.md)).
+Such a port has no operation table, no handle and no wrapper around the
+object's adapters: a reader that only forwards to `el_ring_as_reader()`
+would reintroduce what the object already is. Steps 1 to 3 become:
+
+1. **Read the object's header**: which of its functions belong to which
+   side, and its rules for ownership, set-up, moving and context. That is
+   the contract the port joins.
+2. **Implement** the producer: the caller provides the object, and the
+   port uses only the side it is given, from the moment it is handed over
+   until it hands it back. State both moments in the port's header, and
+   what a failure leaves of the object (best: nothing touched).
+3. **Test its effect on the object**: what it writes, what it counts, what
+   it leaves after a failure, and how it hands the object back. Where the
+   object's adapter implements an interface, run that interface's contract
+   suite over a fixture that joins the port and the adapter (the UART's
+   reader is the ring's reader), so the suite checks the composition the
+   application uses.
+
+Steps 4 to 6 are the same, and so is the checklist, read with "the
+object's contract" for "the interface header".
+
 ## Making a backend selectable only where it can build
 
 An in-tree backend gets a Kconfig symbol that depends on a fact about the
@@ -55,6 +90,11 @@ error and not a compile error. To add such a fact:
 2. Declare a symbol with no prompt in the root `Kconfig`:
    `config PLATFORM_<NAME>` with `def_bool $(EL_PLATFORM_<NAME>)`.
 3. Make the backend's symbol `depends on` it.
+
+A fact that gates one facility of a platform is named
+`PLATFORM_<PLATFORM>_<FACILITY>` (`PLATFORM_ZEPHYR_UART`, `CONFIG_SERIAL`;
+`PLATFORM_ZEPHYR_UART_IRQ`, interrupt-driven UARTs too), and each port pins
+exactly what it calls. No umbrella probe is invented.
 
 ## Two kinds of test
 

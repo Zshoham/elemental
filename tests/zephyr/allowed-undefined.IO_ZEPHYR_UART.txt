@@ -1,0 +1,11 @@
+# Allowed in addition to allowed-undefined.txt, only when Elemental is
+# configured with EL_CONFIG_IO_ZEPHYR_UART (tests/zephyr/CMakeLists.txt):
+# the Zephyr device model, which exists to be called.
+
+z_impl_device_is_ready  # io_zephyr_uart.c: what <zephyr/device.h>'s
+                        # device_is_ready() calls in a build without
+                        # CONFIG_USERSPACE. Whether a device is ready is the
+                        # whole of init; IO_ZEPHYR_UART is offered only in a
+                        # Zephyr build (PLATFORM_ZEPHYR_UART), where the kernel
+                        # defines it. With CONFIG_USERSPACE the same call goes
+                        # through a system call, which was not built here.

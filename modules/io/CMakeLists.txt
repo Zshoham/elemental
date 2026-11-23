@@ -23,6 +23,10 @@ if(EL_CONFIG_IO_POSIX)
   add_subdirectory(backends/posix)
 endif()
 
+if(EL_CONFIG_IO_ZEPHYR_UART)
+  add_subdirectory(backends/zephyr_uart)
+endif()
+
 if(COMMAND elemental_add_test)
   add_subdirectory(tests)
 endif()

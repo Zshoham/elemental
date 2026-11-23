@@ -5,7 +5,6 @@
 #ifndef UART_WIRE_H
 #define UART_WIRE_H
 
-#include <stddef.h>
 #include <stdint.h>
 
 #include <zephyr/device.h>
@@ -17,16 +16,14 @@ extern "C" {
 #endif
 
 /*
- * The UART that receives what uart_wire_send() sends, or null if either end
- * is not ready. On mps2/an385 under QEMU, with the test image's
+ * The two ends of the wire: what is sent out of the first arrives at the
+ * second. On mps2/an385 under QEMU, with the test image's
  * ELEMENTAL_ZEPHYR_UART_WIRE, UART1's output is UART2's input
- * (tests/zephyr/CMakeLists.txt).
+ * (tests/zephyr/CMakeLists.txt). Not checked for readiness: the backend's
+ * init does that.
  */
+const struct device *uart_wire_sender(void);
 const struct device *uart_wire_receiver(void);
-
-/* Send `len` bytes out of the other end, one at a time, waiting for the
- * device to take each. */
-void uart_wire_send(const void *data, size_t len);
 
 /*
  * Zephyr's clock (elemental/time_zephyr.h), counting its readings by where

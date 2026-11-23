@@ -355,6 +355,40 @@ Not done: any run on hardware, as for every module (M1); an interrupt run
 on the Cortex-M0+ board, which Renode could join two UARTs for
 ([proposal](proposals/ring.md#open-questions)).
 
+## M5a — The seams between modules
+
+The [seams proposal](proposals/seams.md), accepted by the owner on
+2026-11-23 with [ADR 0024](adr/0024-el-buf-keeps-what-it-holds.md) and
+[ADR 0025](adr/0025-an-allocation-changes-size-and-may-move.md). Before M6:
+`frame`'s glue is to run over the UART example, which becomes
+`ring_zephyr_uart` and `io_zephyr_uart`, and its tests use the io contract
+suite's halves. **Done** as experimental,
+2026-11-23. What was run is in [build.md](build.md#what-is-verified).
+
+- [x] The io contract suite takes a reader half and a writer half, either
+      absent, and a reader that stalls after its content; `reset` is
+      optional in the io, alloc, time and log suites. An open ring runs
+      the suite as a reader that stalls, on the host, `native_sim` and
+      `mps2/an385`.
+- [x] `log`: `el_log_compose`, `EL_LOG_KEPT`, the storage-size macros of
+      the memory and deferred sinks, the deferred sink's own queue in one
+      block, `el_logger_off`.
+- [x] `alloc`: the `realloc` operation and `el_realloc`, in both arenas,
+      the C library's allocator and the checking allocator; `el_grow_buf`
+      grows through it.
+- [x] The Zephyr UART, split at the ring after the proposal was accepted:
+      `io_zephyr_uart` (`el_zephyr_uart_poll`, a polled writer; probe
+      `PLATFORM_ZEPHYR_UART`) and `ring_zephyr_uart` (`el_zephyr_uart_irq`,
+      whose receive interrupt fills the caller's ring; probe
+      `PLATFORM_ZEPHYR_UART_IRQ`). Together they pass the io contract
+      suite, both halves, on `mps2/an385` under QEMU over the joined UARTs
+      (`elemental.tests.ring.uart`); `examples/uart_ring` is rewritten on
+      them.
+
+Not done: anything on the Cortex-M0+ board, whose images now build
+`io_zephyr_uart` and `ring_zephyr_uart`: Renode was not available where
+M5a was verified. Any run on hardware, as for every module (M1).
+
 ## M6 — Framing
 
 A normal module, not discovery: a Sans-I/O codec has no open question that

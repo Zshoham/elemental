@@ -72,13 +72,13 @@ class Harness
 
     el_log_sink Open()
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->sink(fx_->ctx);
     }
 
     el_log_sink OpenFullAfter(size_t records)
     {
-        fx_->reset(fx_->ctx);
+        Reset();
         return fx_->sink_full_after(fx_->ctx, records);
     }
 
@@ -106,6 +106,14 @@ class Harness
     }
 
   private:
+    /* A fixture with nothing to release leaves `reset` out. */
+    void Reset() const
+    {
+        if (fx_->reset != nullptr) {
+            fx_->reset(fx_->ctx);
+        }
+    }
+
     const el_log_contract_fixture *fx_;
 };
 
@@ -115,7 +123,6 @@ void ElLogContract::SetUp()
 {
     const el_log_contract_fixture *const fixture = GetParam();
     ASSERT_TRUE(fixture != nullptr) << "the suite was instantiated with a null fixture";
-    ASSERT_TRUE(fixture->reset != nullptr) << "fixture.reset is required";
     ASSERT_TRUE(fixture->sink != nullptr) << "fixture.sink is required";
     ASSERT_TRUE(fixture->delivered != nullptr) << "fixture.delivered is required";
     ASSERT_TRUE(fixture->message != nullptr) << "fixture.message is required";

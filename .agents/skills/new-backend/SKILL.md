@@ -9,12 +9,19 @@ The process, the checklist, and the `PORT.md` template are
 `docs/process/porting.md`. The contract is the interface header: its
 "called with" and "must" lists are everything the backend has to meet.
 
+A port that feeds a module's object instead of implementing an interface
+(a receive interrupt filling a caller's ring: `ring_zephyr_uart`) has no
+operation table, handle or wrapper of the object's adapters. Follow "A
+producer" in `docs/process/porting.md` for steps 1 to 3; its contract is the
+object's header, and the contract suite runs over a fixture that joins the
+port and the object's adapter.
+
 ## Copy from
 
 | For | Look at |
 |---|---|
 | The smallest complete backend, with its fixture and both kinds of test | An `examples/backend_*/` directory |
-| A backend in this repository, with a Kconfig symbol and a `PORT.md` | An existing `modules/<module>/backends/<platform>/` |
+| A backend in this repository, with a Kconfig symbol and a `PORT.md` | An existing `modules/<module>/backends/<backend>/` |
 | A backend built against an installed Elemental, bringing its own GoogleTest | `examples/consume_installed/` |
 
 ## Steps
@@ -40,11 +47,15 @@ The process, the checklist, and the `PORT.md` template are
    Done when each such promise has been seen red (`writing-tests`).
 
 4. **In-tree only: make it selectable only where it builds.** Its Kconfig
-   symbol `depends on` a probed platform symbol; adding a probe is the
-   three steps under "Making a backend selectable only where it can build"
-   in `docs/process/porting.md`. Define the library with
-   `elemental_add_module(<module>_<platform> ... DEPENDS <module>)` and add
-   it from the module's `CMakeLists.txt` inside `if(EL_CONFIG_<SYMBOL>)`.
+   symbol, `<MODULE>_<BACKEND>`, `depends on` a probed platform symbol,
+   `PLATFORM_<PLATFORM>_<FACILITY>` when it gates one facility; adding a
+   probe is the three steps under "Making a backend selectable only where
+   it can build" in `docs/process/porting.md`. `<backend>` is the platform
+   (`posix`), or the platform and the facility (`zephyr_uart`): the rule is
+   under "Naming" in `docs/conventions.md`. Define the library with
+   `elemental_add_module(<module>_<backend> ... DEPENDS <module>)` in
+   `modules/<module>/backends/<backend>/`, and add it from the module's
+   `CMakeLists.txt` inside `if(EL_CONFIG_<SYMBOL>)`.
 
 5. **Write `PORT.md`** from the template, with the verification level
    reached and on what, and a list of what was not verified. The levels a

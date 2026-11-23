@@ -48,11 +48,30 @@ Elemental's C functions and types start with `el_` and use lower case.
 | Constants, macros | `EL_...`, upper case | `EL_OK`, `EL_ASSERT` |
 | Status codes | `EL_OK`, `EL_ERR_<WHAT>` | `EL_ERR_WOULD_BLOCK` |
 | Module headers | `<elemental/<module>.h>` and `<elemental/<module>_<part>.h>`, or named for the facility in `status` | `<elemental/io.h>`, `<elemental/io_mem.h>`, `<elemental/assert.h>`, `<elemental/assert_handler.h>` |
-| Backend headers | `<elemental/<module>_<platform>.h>` | `<elemental/time_zephyr.h>` |
+| Backend headers | `<elemental/<module>_<backend>.h>` (see below) | `<elemental/time_zephyr.h>`, `<elemental/io_zephyr_uart.h>` |
 | Contract suite headers | `<elemental/<module>_contract.h>` and `<elemental/<module>_contract.hpp>` | `<elemental/io_contract.h>`, `<elemental/io_contract.hpp>` |
 | Header guards | `ELEMENTAL_<HEADER>_H` or `ELEMENTAL_<HEADER>_HPP` | `ELEMENTAL_IO_BUF_H`, `ELEMENTAL_IO_CONTRACT_HPP` |
-| Kconfig symbols | unprefixed in Kconfig, `EL_CONFIG_<SYMBOL>` when generated | `EL_CONFIG_IO_POSIX` |
-| CMake targets | `elemental::<module>`, `elemental::<module>_<platform>`, `elemental::<module>_contract` | `elemental::io`, `elemental::io_posix`, `elemental::io_contract` |
+| Kconfig symbols | unprefixed in Kconfig, `EL_CONFIG_<SYMBOL>` when generated; a backend's is `<MODULE>_<BACKEND>` | `EL_CONFIG_IO_POSIX`, `RING_ZEPHYR_UART` |
+| CMake targets | `elemental::<module>`, `elemental::<module>_<backend>`, `elemental::<module>_contract` | `elemental::io`, `elemental::io_posix`, `elemental::ring_zephyr_uart`, `elemental::io_contract` |
+
+A backend's `<backend>` names what it sits on:
+- `<platform>` when it sits on the platform's base facility for that
+  module (POSIX file descriptors, the Zephyr kernel's clock): `io_posix`,
+  `time_zephyr`.
+- `<platform>_<facility>` when it sits on one of several facilities that a
+  build of the platform may lack: `io_zephyr_uart`, `ring_zephyr_uart`. A
+  facility is a device class or subsystem, never a board, a device instance
+  or a driver: USB CDC ACM is a UART driver. A probe narrower than the
+  platform's (`PLATFORM_ZEPHYR_UART`) is evidence of a distinct facility; it
+  does not define the name.
+- The mechanism (poll, irq, async) goes in type names (`el_zephyr_uart_poll`,
+  `el_zephyr_uart_irq`), not in the library's. A library gets a mechanism
+  suffix only when it is a separately gated library of a facility that
+  already has one; the first keeps the plain facility name.
+
+The backend lives in `modules/<module>/backends/<backend>/`: the directory
+name is the target minus `<module>_`. The type names stay
+`el_<platform>_<noun>`.
 
 Module functions can work on their own, as in `bytes` and `fmt`, or take an
 object, as `el_log_write` takes an `el_logger`. The part after `as_` can use

@@ -30,6 +30,8 @@ by editing history.
 | [0021](0021-log-cutoff.md) | The log cut-off is a macro the consumer defines | Accepted; the first exception to 0004 |
 | [0022](0022-log-sink-lends-the-buffer.md) | A log sink lends the buffer a record's message is written into | Accepted |
 | [0023](0023-atomics-and-interrupt-context.md) | Atomics are loads and stores of one word; an interrupt handler is one more context | Accepted |
+| [0024](0024-el-buf-keeps-what-it-holds.md) | An `el_buf` keeps what it holds | Accepted |
+| [0025](0025-an-allocation-changes-size-and-may-move.md) | An allocation changes size through one optional operation that may move it | Accepted |
 
 To add one, copy the shape of an existing record: Context, Decision, Cost,
 Revisit when. Keep it under a page.

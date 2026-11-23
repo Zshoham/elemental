@@ -37,7 +37,6 @@ void io_fixture_sink_open(size_t cap, int ends);
 el_writer io_fixture_sink_writer(void);
 /* Writes to `w` until a write fails, and returns it. */
 el_writer io_fixture_fill_until_stalled(el_writer w);
-el_reader io_fixture_buffered_reader(void *ctx, const uint8_t *content, size_t len);
 /* Flushes io_fixture_buffered_writer, then takes from the sink. */
 size_t io_fixture_buffered_take(void *ctx, uint8_t *out, size_t cap);
 

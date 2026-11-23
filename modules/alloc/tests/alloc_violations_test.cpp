@@ -68,6 +68,25 @@ el_allocator WithoutFree()
     return el_allocator{nullptr, &ops};
 }
 
+void *AllocAligned(void *, el_layout)
+{
+    return storage;
+}
+
+void *ReallocMisaligned(void *, void *, el_layout, size_t)
+{
+    return storage + 1;
+}
+
+el_allocator BrokenRealloc()
+{
+    static el_allocator_ops ops;
+    ops.alloc = AllocAligned;
+    ops.free = FreeNothing;
+    ops.realloc = ReallocMisaligned;
+    return el_allocator{nullptr, &ops};
+}
+
 class AllocViolations : public testing::Test
 {
   protected:
@@ -114,6 +133,13 @@ TEST_F(AllocViolations, CorrectUseDoesNotTripACheck)
     EXPECT_EQ(el_layout_make(0, 1).size, 0u);
     void *const top = el_alloc(s, el_layout_make(16, 1));
     el_free(s, top, el_layout_make(16, 1));
+    void *const resized =
+        el_realloc(a, el_alloc(a, el_layout_make(8, 8)), el_layout_make(8, 8), 16);
+    el_free(a, resized, el_layout_make(16, 8));
+    /* From nothing to something, and back to nothing. */
+    void *const some = el_realloc(a, nullptr, el_layout_make(0, 4), 8);
+    void *const none = el_realloc(a, some, el_layout_make(8, 4), 0);
+    el_free(a, none, el_layout_make(0, 4));
     el_bump_arena_init(&bump, nullptr, 0);
     el_stack_arena_init(&stack, nullptr, 0);
 }
@@ -172,6 +198,40 @@ TEST_F(AllocViolationsDeathTest, CallerFreesARealPointerWithSizeZero)
 TEST_F(AllocViolationsDeathTest, AllocatorReturnsAMisalignedPointer)
 {
     EXPECT_VIOLATION((void)el_alloc(Broken(AllocMisaligned), el_layout_make(4, 4)));
+}
+
+TEST_F(AllocViolationsDeathTest, AllocatorReturnsAMisalignedPointerFromRealloc)
+{
+    EXPECT_VIOLATION((void)el_realloc(BrokenRealloc(), storage, el_layout_make(4, 4), 8));
+}
+
+TEST_F(AllocViolationsDeathTest, CallerReallocsANullPointerWithANonzeroSize)
+{
+    EXPECT_VIOLATION((void)el_realloc(a, nullptr, el_layout_make(1, 1), 2));
+}
+
+TEST_F(AllocViolationsDeathTest, CallerReallocsARealPointerWithSizeZero)
+{
+    void *const block = el_alloc(a, el_layout_make(8, 8));
+    EXPECT_VIOLATION((void)el_realloc(a, block, el_layout_make(0, 8), 16));
+}
+
+TEST_F(AllocViolationsDeathTest, CallerReallocsWithAnAlignmentThatIsNotAPowerOfTwo)
+{
+    void *const block = el_alloc(a, el_layout_make(8, 8));
+    EXPECT_VIOLATION((void)el_realloc(a, block, Raw(8, 6), 16));
+    EXPECT_VIOLATION((void)el_realloc(a, nullptr, Raw(0, 3), 16));
+}
+
+TEST_F(AllocViolationsDeathTest, ArenaIsResizedThroughAPointerItDidNotHandOut)
+{
+    uint8_t other[16];
+    void *const block = el_alloc(a, el_layout_make(8, 8));
+    EXPECT_VIOLATION((void)el_realloc(a, other, el_layout_make(sizeof(other), 1), 4));
+    EXPECT_VIOLATION((void)el_realloc(a, block, el_layout_make(9, 8), 4));
+    EXPECT_VIOLATION((void)el_realloc(s, other, el_layout_make(sizeof(other), 1), 4));
+    el_bump_arena_reset(&bump);
+    EXPECT_VIOLATION((void)el_realloc(a, block, el_layout_make(8, 8), 4));
 }
 
 TEST_F(AllocViolationsDeathTest, ArenaIsGivenAPointerItDidNotHandOut)
@@ -248,6 +308,39 @@ TEST_F(AllocChecker, PassesCorrectUseThroughAndCountsLiveAllocations)
     EXPECT_EQ(el_alloc_checker_live(&checker), 0u);
 }
 
+TEST_F(AllocChecker, ARecordedResizeIsFreedWithItsNewPointerAndLayout)
+{
+    void *const first = el_alloc(c, el_layout_make(32, 8));
+    void *const second = el_alloc(c, el_layout_make(8, 8));
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+
+    /* The second is the latest and grows in place; the first cannot, so it moves. */
+    void *const grown = el_realloc(c, second, el_layout_make(8, 8), 16);
+    void *const moved = el_realloc(c, first, el_layout_make(32, 8), 64);
+    ASSERT_NE(moved, nullptr);
+    ASSERT_NE(moved, first);
+    EXPECT_EQ(grown, second);
+    EXPECT_EQ(el_alloc_checker_live(&checker), 2u) << "a resize is not a new allocation";
+
+    /* A refusal is passed on and changes the record of nothing. */
+    EXPECT_EQ(el_realloc(c, moved, el_layout_make(64, 8), sizeof(storage) * 2), nullptr);
+    EXPECT_EQ(el_alloc_checker_live(&checker), 2u);
+    el_free(c, moved, el_layout_make(64, 8));
+    el_free(c, grown, el_layout_make(16, 8));
+    EXPECT_EQ(el_alloc_checker_live(&checker), 0u);
+
+    /* To nothing and from nothing go through as a free and an allocation. */
+    void *const block = el_alloc(c, el_layout_make(8, 8));
+    void *const zero = el_realloc(c, block, el_layout_make(8, 8), 0);
+    EXPECT_NE(zero, nullptr);
+    EXPECT_EQ(el_alloc_checker_live(&checker), 0u);
+    void *const back = el_realloc(c, zero, el_layout_make(0, 8), 24);
+    ASSERT_NE(back, nullptr);
+    EXPECT_EQ(el_alloc_checker_live(&checker), 1u);
+    el_free(c, back, el_layout_make(24, 8));
+}
+
 TEST_F(AllocCheckerDeathTest, StopsAFreeWithTheWrongSize)
 {
     void *const block = el_alloc(c, el_layout_make(32, 8));
@@ -275,6 +368,35 @@ TEST_F(AllocCheckerDeathTest, StopsWhenItRunsOutOfRecords)
         ASSERT_NE(el_alloc(c, el_layout_make(1, 1)), nullptr);
     }
     EXPECT_DEATH((void)el_alloc(c, el_layout_make(1, 1)), "out of records");
+}
+
+TEST_F(AllocCheckerDeathTest, StopsAResizeWithTheWrongSizeAlignmentOrPointer)
+{
+    void *const block = el_alloc(c, el_layout_make(32, 8));
+    EXPECT_DEATH((void)el_realloc(c, block, el_layout_make(16, 8), 64), "different size");
+    EXPECT_DEATH((void)el_realloc(c, block, el_layout_make(32, 4), 64), "different alignment");
+    uint8_t other[4];
+    EXPECT_DEATH((void)el_realloc(c, other, el_layout_make(sizeof(other), 1), 64),
+                 "not a live allocation");
+}
+
+TEST_F(AllocCheckerDeathTest, StopsAFreeWithTheOldSizeAfterAResize)
+{
+    void *const block = el_alloc(c, el_layout_make(32, 8));
+    void *const grown = el_realloc(c, block, el_layout_make(32, 8), 64);
+    ASSERT_NE(grown, nullptr);
+    EXPECT_DEATH(el_free(c, grown, el_layout_make(32, 8)), "different size");
+}
+
+TEST_F(AllocCheckerDeathTest, StopsAFreeWithTheOldPointerAfterAResizeMoved)
+{
+    void *const block = el_alloc(c, el_layout_make(32, 8));
+    ASSERT_NE(el_alloc(c, el_layout_make(8, 8)), nullptr); /* so `block` cannot grow in place */
+    void *const moved = el_realloc(c, block, el_layout_make(32, 8), 64);
+    ASSERT_NE(moved, nullptr);
+    ASSERT_NE(moved, block);
+    EXPECT_DEATH(el_free(c, block, el_layout_make(32, 8)), "not a live allocation");
+    EXPECT_DEATH((void)el_realloc(c, block, el_layout_make(32, 8), 16), "not a live allocation");
 }
 
 } // namespace

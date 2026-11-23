@@ -38,12 +38,10 @@ TEST_P(ElLogDeferredStress, RecordsCrossBetweenTwoThreadsWholeAndInOrderOrAreCou
     /* The longest message below, "record 99999 xxxxxxxxxxxxxxxx". */
     constexpr size_t kMessageMax = 32;
 
-    std::vector<uint8_t> ring_storage(GetParam());
-    std::vector<uint8_t> record_storage(el_log_deferred_sink_record_size(kMessageMax));
-    el_ring ring;
-    el_ring_init(&ring, ring_storage.data(), ring_storage.size());
+    /* The queue is the parameter; the record area comes before it. */
+    std::vector<uint8_t> storage(el_log_deferred_sink_record_size(kMessageMax) + GetParam());
     el_log_deferred_sink sink;
-    el_log_deferred_sink_init(&sink, &ring, record_storage.data(), record_storage.size());
+    el_log_deferred_sink_init(&sink, storage.data(), storage.size(), kMessageMax);
 
     sequence_sink checking;
     sequence_sink_init(&checking);
@@ -89,16 +87,16 @@ TEST_P(ElLogDeferredStress, RecordsCrossBetweenTwoThreadsWholeAndInOrderOrAreCou
     EXPECT_EQ(checking.count + lost, kRecords)
         << checking.count << " arrived, " << lost << " counted as lost";
     EXPECT_GT(checking.count, 0u);
-    EXPECT_EQ(el_ring_len(&ring), 0u);
+    EXPECT_EQ(el_log_deferred_sink_pending_bytes(&sink), 0u);
     EXPECT_EQ(checking.wrong, 0u) << "records arrived changed or out of order; the first: \""
                                   << checking.first_wrong << "\"";
 }
 
-/* A ring a few records long, which fills and loses; and one that holds
+/* A queue a few records long, which fills and loses; and one that holds
  * many, where most of the work is the copying. */
-INSTANTIATE_TEST_SUITE_P(RingSizes, ElLogDeferredStress, testing::Values(200u, 4096u),
+INSTANTIATE_TEST_SUITE_P(QueueSizes, ElLogDeferredStress, testing::Values(200u, 4096u),
                          [](const testing::TestParamInfo<size_t> &param_info) {
-                             return "Ring" + std::to_string(param_info.param);
+                             return "Queue" + std::to_string(param_info.param);
                          });
 
 } // namespace

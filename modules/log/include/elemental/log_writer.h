@@ -52,7 +52,10 @@
  * that allocator may.
  *
  * Contract violations, checked by assertions: a null object or line buffer;
- * a writer handle that was never made.
+ * a writer handle that was never made; a record begun while another is
+ * open, which is logging into the sink from inside a function given to
+ * el_log_compose(), or from `out` while it writes a line: a record is open
+ * from its begin until its line has been written and counted.
  */
 #ifndef ELEMENTAL_LOG_WRITER_H
 #define ELEMENTAL_LOG_WRITER_H
@@ -71,6 +74,7 @@ typedef struct el_log_writer_sink {
     size_t prefix_len; /* of the record begun: the line before its message */
     el_status prefix;  /* EL_ERR_NO_SPACE if that start of the line was cut */
     uint32_t lost;
+    uint8_t open; /* 1 from a begin until its end has written the line */
 } el_log_writer_sink;
 
 /*

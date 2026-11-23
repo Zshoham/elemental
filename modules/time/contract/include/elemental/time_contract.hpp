@@ -32,7 +32,7 @@ class ElTimeContract : public testing::TestWithParam<const el_time_contract_fixt
   protected:
     /* Fails the test if the fixture lacks a required function. */
     void SetUp() override;
-    /* Releases the last clock the test asked for. */
+    /* Releases the last clock the test asked for, if the fixture has a reset. */
     void TearDown() override;
 };
 

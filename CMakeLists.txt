@@ -28,10 +28,17 @@ if(TARGET elemental::status)
     "or another copy of the source tree). Use exactly one.")
 endif()
 
-# Install paths are needed only by install rules. Not including the module
-# otherwise also keeps a Zephyr build, which hides the target's pointer size
-# from it, free of its warning.
+# Install paths are needed only by install rules. GNUInstallDirs chooses
+# lib or lib64 from the target's pointer size, and warns when it is not
+# known: a toolchain that skips CMake's compiler detection, as Zephyr's
+# does, leaves CMAKE_SIZEOF_VOID_P unset. Measured here instead, for this
+# directory and the ones below it only.
 if(ELEMENTAL_INSTALL)
+  if(NOT CMAKE_SIZEOF_VOID_P)
+    include(CheckTypeSize)
+    check_type_size("void *" ELEMENTAL_SIZEOF_VOID_P BUILTIN_TYPES_ONLY LANGUAGE C)
+    set(CMAKE_SIZEOF_VOID_P "${ELEMENTAL_SIZEOF_VOID_P}")
+  endif()
   include(GNUInstallDirs)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/ElementalConfiguration.cmake")

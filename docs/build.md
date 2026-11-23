@@ -204,12 +204,16 @@ can sit side by side.
 | `ALLOC_LIBC` | on where `<unistd.h>` exists | The C library heap backend needs a hosted C library; the POSIX probe stands in for one, Linux being the only host. |
 | `TIME_POSIX` | on where `<unistd.h>` exists | The POSIX clock needs `clock_gettime`. |
 | `TIME_ZEPHYR` | on in a Zephyr build | The Zephyr clock needs the kernel. It cannot be selected anywhere else. |
+| `IO_ZEPHYR_UART` | on in a Zephyr build with a serial subsystem | `el_zephyr_uart_poll`, a UART as a polled writer (`elemental::io_zephyr_uart`). It cannot be selected anywhere else. |
+| `RING_ZEPHYR_UART` | on in a Zephyr build with interrupt-driven UARTs | `el_zephyr_uart_irq`, a UART's receive interrupt filling the caller's ring, read through the ring's reader (`elemental::ring_zephyr_uart`). It cannot be selected anywhere else. |
 | `ASSERT` | on | Size-constrained images that were validated with it on. See [code size](#code-size-of-the-assertion-configurations). |
 | `ASSERT_HANDLER_TRAP` / `_APPLICATION` | trap | Route failures into a product's fault handling, or observe them in tests. |
 | `PLATFORM_POSIX` | probed | Not settable. CMake checks for `<unistd.h>` and passes the answer in. |
 | `PLATFORM_SNPRINTF` | probed | Not settable. A hosted C library's `snprintf`, or on Zephyr a picolibc printf level that converts `long long`. |
 | `COMPILER_GCC_CRC_BUILTINS` | probed | Not settable. CMake compiles a call to `__builtin_rev_crc32_data8` and `__builtin_crc16_data8`. |
 | `PLATFORM_ZEPHYR_CRC` | probed | Not settable. A Zephyr build with `CONFIG_CRC` and without `CONFIG_CRC_HW_HANDLER`, read from Zephyr's configuration. |
+| `PLATFORM_ZEPHYR_UART` | probed | Not settable. A Zephyr build with `CONFIG_SERIAL`, read from Zephyr's configuration. |
+| `PLATFORM_ZEPHYR_UART_IRQ` | probed | Not settable. A Zephyr build with `CONFIG_SERIAL` and `CONFIG_UART_INTERRUPT_DRIVEN`, read from Zephyr's configuration. |
 | `PLATFORM_ZEPHYR` | probed | Not settable. The build is a Zephyr application's: Zephyr's `zephyr_library()` command exists. |
 | `COMPILER_ATOMICS` | probed | Not settable. CMake compiles an acquire load and a release store of an `_Atomic size_t` ([ADR 0023](adr/0023-atomics-and-interrupt-context.md)). That they are instructions and not calls is the [symbol check](#the-symbol-check)'s to show. |
 
@@ -505,12 +509,12 @@ Twister builds that board's image and does not run it.
 | `elemental.tests.<module>`: `status`, `alloc`, `io`, `ring`, `fmt`, `bytes`, `crc`, `time`, `log` | `native_sim` | One module's tests, in a 32-bit Linux process. |
 | `elemental.tests.<module>` | `mps2/an385` | One module's tests, on an emulated Cortex-M3 (ARMv7-M) under QEMU; symbol check. |
 | `elemental.tests.<module>` | `nucleo_g0b1re_renode` | One module's tests, on a modified Renode model of the STM32G0B1, a Cortex-M0+ (ARMv6-M); symbol check. |
-| `elemental.tests.ring.uart` | `mps2/an385` | The `ring` image with the [UART example](../examples/uart_ring)'s test: `ELEMENTAL_ZEPHYR_UART_WIRE=ON` makes QEMU join the board's UART1 and UART2 through a socket, and `CONFIG_UART_INTERRUPT_DRIVEN=y` gives the receive interrupt. The one scenario in which an interrupt handler runs Elemental code. |
+| `elemental.tests.ring.uart` | `mps2/an385` | The `ring` image with the tests that need a UART's wire: `ELEMENTAL_ZEPHYR_UART_WIRE=ON` makes QEMU join the board's UART1 and UART2 through a socket, and `CONFIG_UART_INTERRUPT_DRIVEN=y` gives the receive interrupt. `ring_zephyr_uart`'s receive interrupt fills a ring from UART2 and `io_zephyr_uart`'s polled writer sends on UART1: the io contract suite, both halves (`ring_zephyr_uart.contract`), and the two backends' tests over the wire (`ring_zephyr_uart.wire`). The [UART example](../examples/uart_ring)'s test reads the wire the same way and logs from a `k_timer` interrupt through the deferred sink. The scenario in which an interrupt handler runs Elemental code. |
 | `elemental.tests.variant` | `mps2/an385` | Every test, in one image, with [configs/variant_defconfig](../configs/variant_defconfig) applied on top of the image's own defconfig (`ELEMENTAL_ZEPHYR_VARIANT=variant`). |
 | `elemental.tests.assert_off` | `mps2/an385` | The same with [configs/assert_off_defconfig](../configs/assert_off_defconfig). |
 | `elemental.tests.fmt.variant` | `nucleo_g0b1re_renode` | The `fmt` image with `variant_defconfig`: the libc printf option (`FMT_PRINTF_LIBC`) on ARMv6-M. |
 | `elemental.tests.crc_zephyr` | `mps2/an385` | The same with [configs/crc_zephyr_defconfig](../configs/crc_zephyr_defconfig) and `CONFIG_CRC=y`: `crc` through Zephyr's functions, the one choice option no host can select. |
-| `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
+| `elemental.symbols.armv6m` | `qemu_cortex_m0` | Build only: the libraries for a Cortex-M0 (ARMv6-M), and the symbol check, with `CONFIG_UART_INTERRUPT_DRIVEN=y` so that `io_zephyr_uart` and `ring_zephyr_uart` are among them. The test image does not fit this board. Kept because it needs no emulator and no `hal_stm32`. |
 
 **`nucleo_g0b1re_renode`** is a board defined in this repository
 ([tests/zephyr/boards](../tests/zephyr/boards/st/nucleo_g0b1re_renode/README.md)):
@@ -545,9 +549,23 @@ tests finish; Twister stops it.
   therefore checked on the host only.
 - **Not `io_posix`, `alloc_libc`, or `time_posix`.** The application's
   [defconfig](../tests/zephyr/elemental_defconfig) turns them off.
-- **`time_zephyr`, and its tests, only here.** It is the one backend a host
-  cannot build ([PORT.md](../modules/time/backends/zephyr/PORT.md)): its
-  contract fixture makes time pass with `k_sleep()`.
+- **`time_zephyr`, `io_zephyr_uart` and `ring_zephyr_uart`, and their
+  tests, only here.** They are the backends a host cannot build
+  ([time_zephyr](../modules/time/backends/zephyr/PORT.md),
+  [io_zephyr_uart](../modules/io/backends/zephyr_uart/PORT.md),
+  [ring_zephyr_uart](../modules/ring/backends/zephyr_uart/PORT.md)).
+  `time_zephyr`'s contract fixture makes time pass with `k_sleep()`. The
+  io contract suite over the UARTs and `ring_zephyr_uart`'s wire tests
+  need the UART wire (`elemental.tests.ring.uart`). The tests against
+  scripted devices are in their module's image: `io_zephyr_uart.platform`
+  runs in the images that hold `io`'s tests (`elemental.tests.io` and the
+  full images), `ring_zephyr_uart.platform` in those that hold `ring`'s
+  (`elemental.tests.ring`, `.ring.uart` and the full images), on
+  `mps2/an385`, and in `elemental.tests.io` and `elemental.tests.ring` on
+  `native_sim`, whose image turns its pseudo-terminal UARTs
+  interrupt-driven
+  ([tests/zephyr/boards/native_sim.conf](../tests/zephyr/boards/native_sim.conf);
+  the first stays the console, on the process's standard output).
 - **GoogleTest** from the same pinned checkout as the host build, compiled
   into the image as one file with `GTEST_HAS_FILE_SYSTEM=0`: no death tests,
   no output redirection, no XML report. Exceptions and RTTI stay off, as
@@ -636,6 +654,51 @@ RAM, and the heap grew by about 10 KB (108 tests, 326 436, 31 344, 40 232,
 `ring.uart` is `ring`'s image with the example's three tests, its UART
 driver's interrupt-driven code, and a 1 KiB log ring.
 
+**M5a, 2026-11-23**, on `mps2/an385` only, on the second machine (see
+[What is verified](#what-is-verified)), after the review fixes of the same
+day; the Cortex-M0+ board was not built. The images M5a did not change
+measure what the table above says (`status`, `bytes`, `crc`, to the
+byte), so the two machines' figures can be compared. Tests are
+GoogleTest's count, skipped included:
+
+| Image | Tests | `mps2/an385`: flash, RAM, heap, stack |
+|---|---|---|
+| `alloc` | 160 | 301 868, 45 080, 70 760, 1 884 |
+| `io` | 145 | 382 640, 18 088, 68 224, 2 388 |
+| `io`, with `io_zephyr` over the wire (`io.uart`) | 164 | 393 460, 19 000, 76 416, 2 388 |
+| `ring` | 40 | 268 228, 15 888, 22 112, 2 404 |
+| `ring`, with the UART example (`ring.uart`) | 43 | 282 588, 18 072, 23 528, 2 404 |
+| `fmt` | 32 | 268 668, 19 656, 16 472, 1 772 |
+| `time` | 42 | 258 164, 15 728, 20 000, 1 796 |
+| `log` | 164 | 379 464, 34 776, 57 928, 2 100 |
+| All, `variant` | 654 | 766 708, 71 296, 244 816, 2 404 |
+
+`alloc` gained the resizing tests and two fixtures; `io` the contract
+suite's new test and `io_zephyr`'s nine against a scripted device (every
+image of this board builds the backend, its UARTs being interrupt-driven
+by default, but only the `io` and full images hold those tests); `ring`
+the open-ring fixture; `log` the compose, sizing and off-logger tests.
+`fmt` and `time` changed by a few hundred bytes with no change to their
+tests; not investigated. `io`'s heap grew by about 11 KB: on the
+Cortex-M0+, where it was about 61 KB of the about 131 KB static RAM
+leaves, it is not measured, and that board's `io` image would now hold
+`io_zephyr`'s nine tests too.
+
+After the second `io_zephyr` review (2026-11-23, same machine), with its
+three new tests against a scripted device, `mps2/an385` only: `io` 148
+tests, 386 084, 18 184, 69 144, 2 388; `io.uart` 167, 397 376, 19 096,
+77 336, 2 388; `ring.uart` 43, 282 900, 18 072, 23 160, 2 404; `variant`
+657, 770 152, 71 392, 245 736, 2 404.
+
+After the UART split (2026-11-23, same machine), `mps2/an385` only: `io`
+holds `io_zephyr_uart`'s two tests instead of `io_zephyr`'s twelve, `ring`
+gains `ring_zephyr_uart`'s eleven against a scripted device, and
+`ring.uart` also holds the io contract suite over the wire and the six
+wire tests that were `io.uart`'s; there is no `io.uart` image any more.
+`io` 138 tests, 374 104, 17 848, 65 912, 2 388; `ring` 51, 282 848,
+16 224, 26 072, 2 404; `ring.uart` 73, 308 056, 19 328, 35 816, 2 404;
+`variant` 658, 773 124, 71 392, 246 448, 2 404.
+
 `io` is the largest: about 61 KB of heap of the about 131 KB its static RAM
 leaves on the Cortex-M0+. `alloc`'s static RAM is its fixtures' storage.
 `log` uses the most stack after `io`, 2 188 of 4 096 bytes on the
@@ -718,9 +781,15 @@ Zephyr's `crc32_ieee_update` and `crc16_itu_t`, in
 [allowed-undefined.CRC_ZEPHYR.txt](../tests/zephyr/allowed-undefined.CRC_ZEPHYR.txt),
 and the kernel's `z_impl_k_uptime_ticks`, in
 [allowed-undefined.TIME_ZEPHYR.txt](../tests/zephyr/allowed-undefined.TIME_ZEPHYR.txt),
+and `z_impl_device_is_ready`, in
+[allowed-undefined.IO_ZEPHYR_UART.txt](../tests/zephyr/allowed-undefined.IO_ZEPHYR_UART.txt)
+and
+[allowed-undefined.RING_ZEPHYR_UART.txt](../tests/zephyr/allowed-undefined.RING_ZEPHYR_UART.txt),
 so the other configurations still fail on them. `TIME_ZEPHYR` is on in
-every Zephyr build, so that last symbol is allowed in all of them, for the
-one library whose job is to call the kernel.
+every Zephyr build, so that symbol is allowed in all of them, for the
+one library whose job is to call the kernel; `z_impl_device_is_ready`
+only where a UART backend is built: `IO_ZEPHYR_UART` with a serial
+subsystem, `RING_ZEPHYR_UART` where the UARTs are interrupt-driven.
 
 It has caught one helper so far: GCC 14.3.0 for ARMv6-M at `-Os` compiles a
 dense `switch`, or an `if` chain it rebuilds into one, as a jump table that
@@ -731,9 +800,9 @@ a large `switch` will meet the same.
 
 | Board | CPU | Toolchain | Elemental needs |
 |---|---|---|---|
-| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
+| `mps2/an385` | Cortex-M3, ARMv7-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime; `io_zephyr_uart` and `ring_zephyr_uart` the device model's readiness check; with `FMT_PRINTF_LIBC` (`variant`) also `snprintf` |
 | `nucleo_g0b1re_renode` | Cortex-M0+, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime |
-| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime |
+| `qemu_cortex_m0` | Cortex-M0, ARMv6-M | Zephyr SDK GCC 14.3.0 | `memcpy`, `memmove`; `time_zephyr` the kernel's uptime; `io_zephyr_uart` and `ring_zephyr_uart` the device model's readiness check |
 
 No compiler runtime helper (`__aeabi_*`, `__atomic_*`) is needed on either.
 A module that divides 64-bit values or uses atomics will show up on the
@@ -745,7 +814,7 @@ boards. A read-modify-write such as `atomic_fetch_add` would be a call to
 ([ADR 0023](adr/0023-atomics-and-interrupt-context.md)). `ring` divides
 nothing either: its indices count modulo twice the capacity, so a
 position is a comparison and a subtraction.
-`alloc` leaves no symbol undefined on either: `el_layout_array` checks
+`alloc` needs only `memcpy`, for `el_realloc`'s copy: `el_layout_array` checks
 `count * size` for overflow by splitting each operand into halves, without
 a division or a double-width multiply, which on the Cortex-M0 would be
 `__aeabi_uidiv` and `__aeabi_lmul`. `time` converts ticks to and from
@@ -776,15 +845,19 @@ evidence about Zephyr integration, not about a target CPU.
 `libelemental_io.a` built for `mps2/an385` (Cortex-M3) by the Zephyr SDK's
 GCC 14.3.0 at Zephyr's default size optimization, text bytes, without and
 with grown buffer storage (`el_grow_buf`, `IO_ALLOC`, on by default).
-Measured 2026-11-15 on M3b's branch; `io` includes `el_buf` and the
-buffered writer (before M3a, with the memory and grow writers: 578 and 956
-bytes, trap):
+Measured 2026-11-15 on M3b's branch, the `IO_ALLOC` on column again on
+2026-11-23 for M5a; `io` includes `el_buf` and the buffered writer (before
+M3a, with the memory and grow writers: 578 and 956 bytes, trap):
 
 | Configuration | `IO_ALLOC` off | `IO_ALLOC` on | `el_grow_buf` |
 |---|---|---|---|
-| Assertions off | 1 134 | 1 396 | 262 |
-| Trap in place (default) | 1 648 | 1 934 | 286 |
-| Application handler | 2 121 | 2 456 | 335 |
+| Assertions off | 1 134 | 1 352 | 218 |
+| Trap in place (default) | 1 648 | 1 890 | 242 |
+| Application handler | 2 121 | 2 412 | 291 |
+
+M5a made `el_grow_buf` 44 bytes smaller in each configuration (1 396,
+1 934 and 2 456 before): it grows through `el_realloc`, which now does the
+copy in `alloc`.
 
 M3b's status handling changed these by two assertions and nothing else:
 `io` is 8 bytes larger with the trap and 20 with the handler, where the
@@ -793,15 +866,18 @@ instead of dropping its status, and is unchanged with assertions off.
 `EL_TRY` in `io` and `fmt`, and `EL_NODISCARD` on every declaration, cost
 nothing: every other number here is what it was on 2026-11-13.
 
-The other libraries in the same build. `ring` and `log` as M5 left them,
+The other libraries in the same build. `alloc` and `log` as M5a left them,
+measured 2026-11-23, and `io_zephyr_uart` and `ring_zephyr_uart` as the
+UART split left them, measured the same day after it; `ring` M5's,
 measured 2026-11-17; `time` M4's, measured 2026-11-16; the rest are what
-they were on 2026-11-15:
+they were on 2026-11-15. The run after the split measured every library
+other than the two UART backends the same:
 
-| Configuration | `alloc` | `status` | `ring` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `log` |
-|---|---|---|---|---|---|---|---|---|---|
-| Assertions off | 380 | 93 | 400 | 1 658 | 1 084 | 212 | 364 | 32 | 1 647 |
-| Trap in place (default) | 572 | 93 | 454 | 1 744 | 1 318 | 224 | 438 | 32 | 1 917 |
-| Application handler | 798 | 93 | 579 | 1 921 | 1 642 | 255 | 570 | 32 | 2 322 |
+| Configuration | `alloc` | `status` | `ring` | `fmt` | `bytes` | `crc` | `time` | `time_zephyr` | `io_zephyr_uart` | `ring_zephyr_uart` | `log` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Assertions off | 674 | 93 | 400 | 1 658 | 1 084 | 212 | 364 | 32 | 78 | 274 | 1 880 |
+| Trap in place (default) | 942 | 93 | 454 | 1 744 | 1 318 | 224 | 438 | 32 | 86 | 290 | 2 184 |
+| Application handler | 1 206 | 93 | 579 | 1 921 | 1 642 | 255 | 570 | 32 | 127 | 345 | 2 644 |
 
 `time` is the front functions, the two conversions, and the manual clock,
 each its own object; the conversions are most of it, because they divide
@@ -833,6 +909,20 @@ sink, which is in `elemental::log` with `LOG_DEFERRED` on, the default
 where `RING` is, and is linked only by a program that uses it. The other
 libraries measured the same.
 
+M5a (2026-11-23): `alloc` grew by 294, 370 and 408 bytes (380, 572 and
+798 before) for `el_realloc` and the arenas' `realloc` operation. `log`
+grew by 233, 267 and 322 bytes (1 647, 1 917 and 2 322 before) for
+`el_log_compose`, `el_logger_off` with its sink and clock, the sinks'
+open-record checks, and the deferred sink's own queue; measured again
+after the review fixes of the same day, which made it 30, 26 and 30 bytes
+smaller (1 910, 2 210 and 2 674). `alloc` measured the same. `io_zephyr`
+was new: the polled writer and the interrupt-driven reader, 412, 444 and
+544 bytes, in the image's configuration, which has
+`CONFIG_UART_INTERRUPT_DRIVEN`. Split the same day into `io_zephyr_uart`,
+the polled writer, and `ring_zephyr_uart`, the receiver that fills the
+caller's ring: together 60, 68 and 72 bytes smaller (352, 376 and 472),
+for the reader and the length functions that are now the ring's own.
+
 `crc` is measured with its default 16-entry tables; with `CRC_TABLE_8BIT`
 it is 1 624 bytes (trap), and with `CRC_ZEPHYR` 20 bytes plus 164 of
 Zephyr's own code and table. `CRC_GCC_BUILTIN` cannot be built by this
@@ -860,7 +950,24 @@ and exited successfully. The five host presets were run again on
 compiler versions and LeakSanitizer on; the Zephyr columns are from the
 earlier runs.
 
-| Check | GCC 16.2.1 | Clang 23.1.5 | Clang + ASan/UBSan | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
+**M5a, 2026-11-23**, on a second x86-64 Linux machine (NixOS): the five
+host presets with GCC 15.3.0, Clang 21.1.8 and rustc 1.95.0 (CMake
+4.1.6), every case passing; and Twister, every scenario but those of
+`nucleo_g0b1re_renode`, with Zephyr v4.5.0, SDK 1.0.1 (GCC 14.3.0 for Arm),
+the host's GCC 15.3.0 for `native_sim`, and QEMU 10.2.4. Renode and
+`hal_stm32` were not installed there, so nothing was run or built for the
+Cortex-M0+ board in M5a: its column below is M5's. The rows M5a added
+name it. The host columns are presets, not compiler versions: a row M5a
+did not add passed with GCC 16.2.1 and Clang 23.1.4 on the first machine
+(and again on the second); a row M5a added passed only with GCC 15.3.0
+and Clang 21.1.8 on the second, before which `el_realloc` and
+`el_log_compose` did not exist. Its review fixes were run the same way,
+on the second machine, the same day: the five host presets, and Twister
+for `elemental.tests.io`, `.io.uart`, `.ring.uart`, `.log`, `.alloc`,
+`.variant`, `.assert_off` and `.crc_zephyr` on `mps2/an385`, every case
+passing.
+
+| Check | `gcc` | `clang` | `sanitize` (Clang + ASan/UBSan) | Zephyr `native_sim` | Zephyr `mps2/an385` (QEMU) | Zephyr `nucleo_g0b1re_renode` (Renode, modified model) | Zephyr `qemu_cortex_m0` |
 |---|---|---|---|---|---|---|---|
 | Build with strict warnings as errors | passed | passed | passed | passed (libraries) | passed (libraries) | passed (libraries) | passed (libraries) |
 | Unit and helper tests | passed | passed | passed | passed | passed | passed (per module) | not run |
@@ -871,7 +978,14 @@ earlier runs.
 | ring: unit tests, one context driving both sides | passed | passed | passed | passed | passed | passed (per module) | not run |
 | ring and the deferred sink: a thread on each side (`ring.stress`, `log.deferred.stress`) | passed | passed | passed; and under ThreadSanitizer, `tsan` preset: passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | log: the deferred sink, one context driving both sides (`log.deferred`) | passed | passed | passed | passed | passed | passed (per module) | not run |
-| A receive interrupt fills a ring and logs through the deferred sink; a thread reads through an `el_reader` and drains (`example.uart_ring`) | n/a | n/a | n/a | n/a | passed, `elemental.tests.ring.uart`: QEMU joins UART1 to UART2 | not run | n/a |
+| A receive interrupt fills the example's ring through `ring_zephyr_uart`; a `k_timer` interrupt logs through the deferred sink; a thread reads through the ring's `el_reader` and drains (`example.uart_ring`) | n/a | n/a | n/a | n/a | passed, `elemental.tests.ring.uart`: QEMU joins UART1 to UART2 (M5a) | not run | n/a |
+| M5a: io contract suite against an open ring, a reader that stalls after its content (`EL_IO_CONTRACT_THEN_STALLS`) | passed | passed | passed | passed | passed | not run | not run |
+| M5a: the io contract suite, both halves, over UART1 to UART2: `io_zephyr_uart`'s polled writer and the reader of a ring `ring_zephyr_uart` fills (`ring_zephyr_uart.contract`); the two backends over the wire (`ring_zephyr_uart.wire`) | n/a | n/a | n/a | n/a | passed, `elemental.tests.ring.uart` | not run | n/a |
+| M5a: `ring_zephyr_uart` against a scripted device (`ring_zephyr_uart.platform`) | n/a | n/a | n/a | passed, `elemental.tests.ring` (its UARTs interrupt-driven by `tests/zephyr/boards/native_sim.conf`) | passed, in the images holding `ring`'s tests: `elemental.tests.ring`, `.ring.uart`, `.variant`, `.assert_off`, `.crc_zephyr` | not run; the board's configuration selects `RING_ZEPHYR_UART` | n/a |
+| M5a: `io_zephyr_uart` against scripted devices (`io_zephyr_uart.platform`) | n/a | n/a | n/a | passed, `elemental.tests.io` | passed, in the images holding `io`'s tests: `elemental.tests.io`, `.variant`, `.assert_off`, `.crc_zephyr` | not run; the board's configuration selects `IO_ZEPHYR_UART` | n/a |
+| M5a: allocator `realloc` and `el_realloc` in the contract suite (both arenas, behind the checker, without the operation, libc, size classes); `el_grow_buf` growing in place | passed | passed | passed | passed (libc: n/a) | passed (libc: n/a) | not run | not run |
+| M5a: `el_log_compose`, `el_logger_off`, the storage-size macros, the deferred sink's own queue | passed | passed | passed; `tsan`: only its deferred-sink and ring tests passed (`log.unit`, `log.sinks` and the violations are not in its filter) | passed | passed | not run | not run |
+| M5a: the sinks' open-record checks, three assertion failures (`log.violations*`) | passed, death tests | passed, death tests | passed, death tests | n/a, no death tests | n/a, no death tests | n/a | n/a |
 | io contract suite: `el_grow_buf` (`IO_ALLOC`); the buffered writer, fixed, capacity 0 and grown | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: bump and stack arenas | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Allocator contract suite: libc heap | passed | passed | passed | n/a | n/a | n/a | n/a |
@@ -901,35 +1015,46 @@ earlier runs.
 | log: the logger and the printf call site, formatting into the buffer the sink lends; a file compiled with `EL_LOG_CUTOFF`; the writer sink's line, over fixed and grown buffers, and the memory sink's storage | passed | passed | passed | passed | passed | passed (per module) | not run |
 | Log sink contract suite: memory sink, writer sink over an `el_buf`, deferred sink, tee example | passed | passed | passed | passed | passed | passed (per module) | not run |
 | log: two sinks in one program, one of them a POSIX descriptor (`log.posix`); `el_cat` logging to standard error (`integration.installed`) | passed | passed | passed | n/a | n/a | n/a | n/a |
-| log: `EL_LOG_CUTOFF` removes the call and its format string from the object, C11 and C++17, `-O0` and `-Os` (`log.cutoff_check.*`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
+| log: `EL_LOG_CUTOFF` removes the call and its format string from the object, C11 and C++17, `-O0` and `-Os`; and a composed message under `EL_LOG_KEPT`, whose compose function's text is gone only when optimized (`log.cutoff_check.*`) | passed | passed | passed | n/a, host only | n/a, host only | n/a, host only | n/a |
 | Rust interop, run (io and allocator sketches; the io sketch also calls fmt, crc, bytes) | passed | passed | skipped | not run | not run | not run | not run |
 | Python sketch, compile only | passed | passed | passed | not run | not run | not run | not run |
 | Integration (9 cases, including `module_subsets` and `choices`) | passed | passed | passed | n/a | n/a | n/a | n/a |
 | Every test with assertions compiled out (`assert_off_defconfig`) | passed, `assert-off` preset | n/a | n/a | not run | passed, `elemental.tests.assert_off` | not run | n/a |
-| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; `snprintf` allowed only with `FMT_PRINTF_LIBC`; no `__atomic_*` | passed; no `__atomic_*` | passed; no `__atomic_*` |
+| Symbol check | n/a | n/a | n/a | n/a | passed; `memcpy`, `memmove`; the kernel's uptime for `time_zephyr`; the device model's readiness check for `io_zephyr_uart` and `ring_zephyr_uart`; `snprintf` allowed only with `FMT_PRINTF_LIBC`; no `__atomic_*` | passed (M5); no `__atomic_*` | passed, with `io_zephyr_uart` and `ring_zephyr_uart` (M5a); no `__atomic_*` |
 
-The hosted presets run 665 GoogleTest tests, of which 35 are reported as
-skipped because a fixture lacks an optional capability
+The hosted presets run 852 GoogleTest tests, of which 74 are reported as
+skipped because a fixture lacks an optional capability or a contract
+half
 ([io](../modules/io/README.md#the-contract-suite),
 [alloc](../modules/alloc/README.md#the-contract-suite),
 [time](../modules/time/README.md#the-contract-suite),
 [log](../modules/log/README.md#the-contract-suite)), plus the interop
 and integration cases, two format-attribute, six literal-format, six must-use
 and twenty-four log cut-off checks, and the `EL_NODISCARD` declaration check:
-716 CTest tests in all. `sanitize` runs 720: its `variant_defconfig` adds
+903 CTest tests in all. `sanitize` runs 907: its `variant_defconfig` adds
 `fmt.libc` and the libc option's violations and omits the builtin format
 oracle. The sanitizer build leaves out the two Rust sketches because a
-plain `rustc` link has no sanitizer runtime. `assert-off` runs 634: 716
-less the 82 tests of the `*.violations` binaries, which are not built
-without assertions. These presets each report 35 skips. `tsan` runs 68
-with two skips: the tests of `ring` and of the deferred sink, without the
+plain `rustc` link has no sanitizer runtime. `assert-off` runs 804: 903
+less the 101 tests of the `*.violations` binaries, which are not built
+without assertions, and with the 2 of `log.deferred.assert_off`, which are
+built only then. These presets each report 74 skips. `tsan` runs 86
+with 12 skips: the tests of `ring` and of the deferred sink, without the
 death tests. M5 added 62 GoogleTest tests: `ring`'s 40, the deferred sink's 38,
-less the ring pipe example's 16.
+less the ring pipe example's 16. M5a added 182, and 39 skips: the io
+contract suite's new test and fixtures, the allocator suite's 13 tests of
+resizing and its two new fixtures, and the log, alloc and io unit and
+death tests of the new functions. Its review (2026-11-23) added 5: two
+`log.unit` tests (a record ends on the sink that began it; a minimum of
+`EL_LOG_LEVEL_OFF` reads no clock and begins nothing), one death test (a
+writer sink's writer logging into it), and `alloc_libc.platform.requests`'
+two (what the C library is asked for, seen by wrapping `malloc` and
+`realloc` at link time).
 
 `integration.module_subsets` builds each module and backend alone, except
-`time_zephyr`, which no host can build: it is left out because a probed
-fact (`PLATFORM_ZEPHYR`) hides it, the only reason the case accepts, and
-its own platform's tests cover it.
+`time_zephyr`, `io_zephyr_uart` and `ring_zephyr_uart`, which no host can
+build: each is left out because a probed fact (`PLATFORM_ZEPHYR`,
+`PLATFORM_ZEPHYR_UART`, `PLATFORM_ZEPHYR_UART_IRQ`) hides it, the only
+reason the case accepts, and its own platform's tests cover it.
 
 The Zephyr tests are 489 GoogleTest tests: the hosted ones without the
 POSIX and C library backends', the death tests, and the host-only
@@ -958,7 +1083,84 @@ Twister adds one case per image for the image itself. Zephyr v4.5.0, SDK
 1.0.1, GCC 14.3.0 for Arm, the host's GCC 16.2.1 for `native_sim`, QEMU
 from the host, Renode 1.17.0.
 
-The same Twister matrix passed on 2026-11-21 in an Ubuntu 24.04 container
+**M5a (2026-11-23)**, the counts above as they are now, by Twister on the
+second machine (`nucleo_g0b1re_renode` not run): 23 test configurations
+passed and `elemental.symbols.armv6m` built, with no warnings; 3 103
+cases, every one passed.
+
+- `elemental.tests.<module>` on `mps2/an385`, passed and skipped by
+  GoogleTest's count: `status` 17 and 0, `alloc` 153 and 7, `io` 109 and
+  36, `ring` 28 and 12, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0,
+  `time` 40 and 2, `log` 160 and 2 (644 together). On `native_sim` the
+  same but `io`, 100 and 36: without interrupt-driven UARTs it has no
+  `io_zephyr`, and so not its nine tests against a scripted device;
+- `elemental.tests.io.uart` on `mps2/an385`: 124 passed and 40 skipped,
+  the `io` image with `io_zephyr`'s contract suite (9 and 4) and its six
+  tests over the wire;
+- `elemental.tests.ring.uart` on `mps2/an385`: 31 passed and 12 skipped;
+- the full image on `mps2/an385`: `crc_zephyr` 585 passed and 59 skipped,
+  `assert_off` 587 and 59 (with `log.deferred.assert_off`'s two),
+  `variant` 592 and 60.
+
+After the review fixes (2026-11-23, same machine), Twister on
+`native_sim` and `mps2/an385`, `nucleo_g0b1re_renode` excluded, by
+GoogleTest's count: `status` 17 and 0, `alloc` 153 and 7, `io` 109 and
+36 (`native_sim` 100 and 36), `io.uart` 124 and 40, `ring` 28 and 12,
+`ring.uart` 31 and 12, `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and 0,
+`time` 40 and 2, `log` 162 and 2 (two more `log.unit` tests),
+`crc_zephyr` 587 and 59, `assert_off` 589 and 59, `variant` 594 and 60;
+`elemental.symbols.armv6m` built; no warnings. Peak main stack fell to
+2 388 bytes in the `io` images and 2 404 in the `ring` and full images:
+the io suite's content is now one static constant, not 256 bytes on each
+test's stack. In that run, made while the host was also building and
+running mutants, `ring.uart`'s
+`UartRing.AThreadReadsThroughAReaderWhatTheReceiveInterruptWrote` failed
+once: every byte had arrived before the reader first looked, so it never
+stalled, which the test requires (an assertion from M5, unchanged since).
+Run alone afterwards it passed three times of three. A timing-dependent
+test: recorded, not fixed then.
+
+After the second `io_zephyr` review (2026-11-23, same machine), Twister
+for `elemental.tests.io`, `.io.uart`, `.ring.uart`, `.variant` and
+`.assert_off` on `mps2/an385`, `elemental.tests.io` on `native_sim`, and
+`elemental.symbols.armv6m` built on `qemu_cortex_m0`, with no warnings,
+by GoogleTest's count: `io` 112 and 36 (`native_sim` 100 and 36,
+unchanged), `io.uart` 127 and 40, `ring.uart` 31 and 12, `assert_off` 592
+and 59, `variant` 597 and 60: `io_zephyr.platform` has three more tests.
+The flake above is fixed: the example's test no longer requires that the
+reader find the ring empty while a line arrives. It reads once from the
+empty receiver (`EL_ERR_WOULD_BLOCK`), sends one byte, takes the semaphore
+`on_arrival` gives with a bounded wait, and reads the byte, which holds
+whether the give comes before the take or after; the two lines are data
+checks only. `ring.uart` passed three times of three. The `gcc` host
+preset passed: 903 CTest tests, none failed, the header check included.
+
+After the UART split (2026-11-23, same machine), Twister `--integration`
+with `nucleo_g0b1re_renode` excluded: 22 test configurations passed and
+`elemental.symbols.armv6m` built (with `io_zephyr_uart` and
+`ring_zephyr_uart`), no warnings; 3 030 cases passed, 312 skipped. By
+GoogleTest's count: `status` 17 and 0, `alloc` 153 and 7, `io` 102 and 36
+(`native_sim` 100 and 36: no `CONFIG_SERIAL`, so no UART backend), `ring`
+39 and 12 (`native_sim` 28 and 12), `ring.uart` 57 and 16 (with the io
+contract suite over the wire, 9 and 4, and `ring_zephyr_uart`'s six wire
+and eleven scripted tests), `fmt` 32 and 0, `bytes` 38 and 0, `crc` 8 and
+0, `time` 40 and 2, `log` 162 and 2, `crc_zephyr` 590 and 59,
+`assert_off` 593 and 59, `variant` 598 and 60. The `gcc` host preset
+passed: 903 CTest tests, 74 skipped, unchanged, as no host builds either
+UART backend; `integration.module_subsets` reports `IO_ZEPHYR_UART` and
+`RING_ZEPHYR_UART` hidden by `PLATFORM_ZEPHYR_UART` and
+`PLATFORM_ZEPHYR_UART_IRQ`. `elemental.tests.ring.uart` and
+`elemental.tests.io` on `mps2/an385` then passed three times of three
+(161 cases each run, no warnings).
+
+With `native_sim`'s UARTs interrupt-driven (2026-11-23, same machine),
+Twister on `native_sim`: 9 configurations passed, 600 cases, no warnings.
+By GoogleTest's count `io` 102 and 36 and `ring` 39 and 12, as on
+`mps2/an385`: both UART backends build there, and their tests against
+scripted devices run in a 32-bit Linux process. The other images are
+unchanged.
+
+The M5 Twister matrix (above, 2026-11-17) passed again on 2026-11-21 in an Ubuntu 24.04 container
 using the CI workflow's pinned SDK and Renode.
 
 `fmt`'s literal-expectation tests (`fmt.unit`) pass unchanged on
@@ -1115,6 +1317,58 @@ Additionally, each run once by hand and not part of the automated suite:
   whole and in order, and each was reported as a data race (10, 6 and 3
   reports in `ring.stress`; 5, 2 and 2 in `log.deferred.stress`): on
   x86-64 the sanitizer is the part of these tests that fails.
+- Deliberately broken variants for M5a (2026-11-23), every one caught.
+  The io contract suite: a ring reader that ends whenever it is empty
+  failed five tests of the ring's contract binary: four against the
+  open-ring fixture, which can run only four (ordered content, the stall
+  after content, the zero-capacity read and the exact read), the new
+  `ReaderThatStallsAfterItsContentHasNotEnded` among them, and
+  `StalledReaderReportsWouldBlock` against the closed-ring fixture, whose
+  `reader_stalled` is a separate empty, open ring; three
+  hand-written readers declared to stall (one ending when empty, one after
+  64 stalls, one correct) were run against the suite by the review, and
+  only the correct one passed. `log`, eighteen with `mutant.sh`: compose
+  mapping a cut status wrong, composing after a refused begin, no level
+  check, each sink's open-record assertion removed, set before a refusal
+  or never cleared, both storage-size macros, `pending_bytes`, the
+  swapped-size assertion, `EL_LOG_KEPT` ignoring the cut-off, the cut-off
+  harness, the off logger's level and clock, and `reset` called when null;
+  and the assertions-off fallback of the deferred sink's init removed, in
+  a copy built as the `assert-off` preset is. `alloc`, twelve with
+  `mutant.sh` and twelve more built by the review: a latest allocation
+  that grows without moving the top or with the wrong tail, an operation
+  that changes the arena and then returns null, a non-latest allocation
+  growing in place, no bound on growth, the old block not freed or freed
+  on failure, the operation called at the same size or at size 0 or never,
+  a capacity check off by one, size classes always answering in place,
+  the copy taking the old size on a shrink, the checker keeping the old
+  record, and libc ignoring alignment. A copy of the wrong length passes
+  the arena suite, whose storage is one static array, and is caught by the
+  libc suite under ASan. After the review, five `mutant.sh` arena variants
+  were run against the fixed suite and against the suite before the fixes
+  (`alloc.contract`): a backend that moves a non-latest block, refuses
+  every shrink and asserts that the size changes, which is conforming,
+  passes the fixed suite and aborted the old one in
+  `TheReallocOperationKeepsTheBytesAndTheAlignmentWhenItMoves`; a bounded
+  bump arena with 128 usable bytes passes the fixed suite and failed the
+  old `AFailedReallocInABoundedAllocatorChangesNothing`, while a refused
+  resize that consumes one byte fails the fixed test and passed the old;
+  a growth bound that ignores the bytes below the block fails the fixed
+  `BoundedNeverHoldsMoreThanItsLimitWhenAnAllocationGrows` with a report
+  (the old one stopped on a trap); and an impossible growth that returns
+  its old pointer fails `AFailedReallocChangesNothing` with a report where
+  the old suite crashed writing past the block. `io_zephyr`, twenty-one by
+  hand in its sources and
+  the example's, each reverted: held bytes not discarded, `on_arrival`
+  called before the write, once per chunk or with no bytes, the drop count
+  never stored, stored late or saturating, deinit not disabling, clearing
+  in the wrong order or not closing the ring, a failed init leaving the
+  ring open, a refused callback or a device that is not ready ignored,
+  the polled writer dropping or corrupting a byte, the handler reading one
+  chunk only or corrupting a byte, the ring left closed after init, and a
+  handler that stops after one read of an edge-triggered device. Two of
+  them first hung the contract fixture instead of failing it; its waits
+  are now bounded.
 - Eight deliberately broken variants of M3's `FMT_LIBC` (since removed), built with
   `variant_defconfig`, all caught: swapped and doubled hex cases, a scratch
   buffer too small for the digits, a dropped digit, the digits always in
@@ -1153,6 +1407,13 @@ Not verified:
   on x86-64, which orders more strongly, and ThreadSanitizer checks C's
   rules, not a processor. No interrupt was taken on the Cortex-M0+ board,
   where the ring's tests run in one context. No hardware.
+- **M5a on the Cortex-M0+.** Nothing of M5a was built or run on
+  `nucleo_g0b1re_renode`: Renode and `hal_stm32` were not installed on the
+  machine that verified it. Its configuration selects `io_zephyr_uart` and
+  `ring_zephyr_uart` (its defconfig turns interrupt-driven UARTs on), so
+  its `io` image would run two more tests and its `ring` image eleven
+  more, in RAM that was not measured. `ring_zephyr_uart` on more than one
+  CPU: its deinit is shown safe on one only.
 - The log cut-off with any
   compiler but the host's GCC and Clang: `log.cutoff_check.*` is host
   only, so that the Zephyr SDK's GCC 14.3.0 drops a cut call was not

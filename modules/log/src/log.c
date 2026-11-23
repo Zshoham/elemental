@@ -131,3 +131,92 @@ void el_log_write(const el_logger *logger, el_log_level level, const char *messa
     /* A record the sink does not take is lost, and the sink counts it. */
     el_status_ignore(sink_put(logger->sink, &record, message, len));
 }
+
+bool el_log_open_(const el_logger *logger, el_log_level level, el_log_open_record_ *open)
+{
+    EL_ASSERT(logger != NULL);
+    /* Before the clock is read: a record that will not be made costs one
+     * comparison. */
+    if (level < logger->level_min) {
+        return false;
+    }
+    el_log_record_start_(logger, level, &open->record);
+    open->sink = logger->sink;
+    /* A record the sink refuses is lost, and the sink counts it. */
+    return el_log_sink_begin_(open->sink, &open->record, &open->message, &open->start) == EL_OK;
+}
+
+void el_log_close_(el_log_open_record_ *open, el_status fit)
+{
+    /* A record the sink does not take is lost, and the sink counts it. */
+    el_status_ignore(el_log_sink_end_(open->sink, &open->record, open->message, open->start, fit));
+}
+
+void el_log_compose(const el_logger *logger, el_log_level level, el_log_compose_fn compose,
+                    void *ctx)
+{
+    EL_ASSERT(logger != NULL);
+    EL_ASSERT(compose != NULL);
+    el_log_open_record_ open;
+    if (!el_log_open_(logger, level, &open)) {
+        /* Nothing is composed for a record that is not made or is lost. */
+        return;
+    }
+    /* Whatever went wrong in compose, the message is cut: the sink is told
+     * that, and only that. */
+    const el_status composed = compose(ctx, open.message);
+    el_log_close_(&open, composed == EL_OK ? EL_OK : EL_ERR_NO_SPACE);
+}
+
+/* The sink of el_logger_off(): it refuses every record, so nothing is ever
+ * ended. A copy of the logger with a lowered level is not a trap. */
+static el_status off_begin(void *ctx, const el_log_record *record, el_buf **message)
+{
+    (void)ctx;
+    (void)record;
+    (void)message;
+    return EL_ERR_NO_SPACE;
+}
+
+static el_status off_end(void *ctx, const el_log_record *record, el_status fit)
+{
+    (void)ctx;
+    (void)record;
+    (void)fit;
+    return EL_ERR_NO_SPACE;
+}
+
+static const el_log_sink_ops off_sink_ops = {
+    .begin = off_begin,
+    .end = off_end,
+};
+
+static el_ticks off_now(void *ctx)
+{
+    (void)ctx;
+    return 0;
+}
+
+static uint32_t off_ticks_per_second(void *ctx)
+{
+    (void)ctx;
+    return 1;
+}
+
+static const el_clock_ops off_clock_ops = {
+    .now = off_now,
+    .ticks_per_second = off_ticks_per_second,
+};
+
+static const el_logger off_logger = {
+    .sink = {.ctx = NULL, .ops = &off_sink_ops},
+    .clock = {.ctx = NULL, .ops = &off_clock_ops},
+    .tag = "",
+    .ticks_per_second = 1,
+    .level_min = EL_LOG_LEVEL_OFF,
+};
+
+const el_logger *el_logger_off(void)
+{
+    return &off_logger;
+}

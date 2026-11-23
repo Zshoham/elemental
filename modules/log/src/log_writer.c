@@ -25,6 +25,10 @@ static el_status format_prefix(el_buf *line, const el_log_record *record)
 static el_status writer_sink_begin(void *ctx, const el_log_record *record, el_buf **message)
 {
     el_log_writer_sink *const sink = ctx;
+    /* A record already open here is being built in the line this would
+     * empty. */
+    EL_ASSERT(sink->open == 0);
+    sink->open = 1;
     el_buf_truncate(sink->line, 0);
     sink->prefix = format_prefix(sink->line, record);
     sink->prefix_len = el_buf_len(sink->line);
@@ -65,6 +69,10 @@ static el_status writer_sink_end(void *ctx, const el_log_record *record, el_stat
     if (status != EL_OK) {
         sink->lost++;
     }
+    /* Only now: the line was lent until the write returned, and a callback
+     * on that path (the writer, a growing buffer's allocator) that begins a
+     * record here would overwrite the line being written. */
+    sink->open = 0;
     return status;
 }
 
@@ -83,6 +91,7 @@ void el_log_writer_sink_init(el_log_writer_sink *sink, el_writer out, el_buf *li
     sink->prefix_len = 0;
     sink->prefix = EL_OK;
     sink->lost = 0;
+    sink->open = 0;
 }
 
 el_log_sink el_log_writer_sink_as_sink(el_log_writer_sink *sink)

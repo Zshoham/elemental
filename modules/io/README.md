@@ -7,10 +7,10 @@ can end in.
 | | |
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
-| Targets | `elemental::io`, `elemental::io_contract`, `elemental::io_posix` |
-| Depends on | `status`; `alloc` when `IO_ALLOC` is on. Runtime: `memcpy`, `memmove`. |
+| Targets | `elemental::io`, `elemental::io_contract`, `elemental::io_posix`, `elemental::io_zephyr_uart` |
+| Depends on | `status`; `alloc` when `IO_ALLOC` is on. Runtime: `memcpy`, `memmove`; `io_zephyr_uart` calls Zephyr's device and UART API. |
 | Allocates | Only `el_grow_buf`, through the allocator it is given |
-| Kconfig | `IO`, `IO_POSIX`, `IO_ALLOC` |
+| Kconfig | `IO`, `IO_POSIX`, `IO_ALLOC`, `IO_ZEPHYR_UART` |
 
 ## What is here
 
@@ -23,6 +23,7 @@ can end in.
 | `el_buffered_writer` | A buffer in front of another writer: flush, reserve, pending, and an `el_writer` | [`elemental/io_buffered.h`](include/elemental/io_buffered.h) |
 | The io contract suite | GoogleTest tests, shipped as source | [`elemental/io_contract.hpp`](contract/include/elemental/io_contract.hpp), fixture in [`elemental/io_contract.h`](contract/include/elemental/io_contract.h) |
 | `el_posix_fd` | Platform backend | [`elemental/io_posix.h`](backends/posix/include/elemental/io_posix.h), [PORT.md](backends/posix/PORT.md) |
+| `el_zephyr_uart_poll` (`IO_ZEPHYR_UART`) | Platform backend: a Zephyr UART as a polled writer | [`elemental/io_zephyr_uart.h`](backends/zephyr_uart/include/elemental/io_zephyr_uart.h), [PORT.md](backends/zephyr_uart/PORT.md) |
 
 Start with `io.h`: the contract fits on one screen and is stated once, there.
 The reasoning is in
@@ -54,8 +55,8 @@ The two sides of [`ring`](../ring/README.md) are streams done this way:
 [ring_io.c](../ring/src/ring_io.c) is the two operations and the two
 handles, in under 60 lines, with its
 [fixture](../ring/tests/fixture_ring.c) and both kinds of test.
-[examples/uart_ring](../../examples/uart_ring) puts a Zephyr UART's
-receive interrupt behind that reader, and
+[`ring_zephyr_uart`](../ring/backends/zephyr_uart/PORT.md) has a Zephyr
+UART's receive interrupt fill such a ring, whose reader is the `el_reader`, and
 [examples/consume_installed](../../examples/consume_installed) runs the
 contract suite against an installed Elemental, as a backend kept outside
 this repository would.
@@ -89,24 +90,34 @@ Cortex-M3, and an emulated Cortex-M0+, as io's own test image, and against
 the ring in ring's
 ([build.md](../../docs/build.md#tests-on-zephyr)).
 
-A fixture is a C struct with four required functions and four optional
-capabilities. An
-implementation that cannot be put into a state (a memory stream cannot
-stall) leaves that capability null, and the suite reports the test as
-skipped rather than passed. `writer_full_after` describes a writer that
-takes an exact count and then reports `EL_ERR_NO_SPACE`, not permanently,
-as a full memory buffer does.
+A fixture is a C struct in two halves, a reader and a writer, and at least
+one of them: a write-only implementation leaves the reader half out
+instead of borrowing a memory reader, and the suite reports each test of
+the absent half as skipped, "no reader" or "no writer". Of the reader half,
+`reader_then` says what the reader does once its content is read: ends
+(`EL_IO_CONTRACT_THEN_ENDS`, the default) or stalls with
+`EL_ERR_WOULD_BLOCK` (`EL_IO_CONTRACT_THEN_STALLS`), as a UART's receiver
+does while it runs; the suite checks the one the fixture declares. `reset`
+is optional. An implementation that cannot be put into a state (a memory
+stream cannot stall) leaves that capability null, and the suite reports
+the test as skipped rather than passed. `writer_full_after` describes a
+writer that takes an exact count and then reports `EL_ERR_NO_SPACE`, not
+permanently, as a full memory buffer does.
+
+The suite has 13 tests. What each implementation runs:
 
 | Implementation | Tests run | Skipped, and why |
 |---|---|---|
-| Fixed `el_buf` as a writer, and the memory reader | 9 | 3: cannot stall (reader, writer); does not end |
-| `el_grow_buf` as a writer (`IO_ALLOC`) | 8 | 4: cannot stall (reader, writer); does not end; cannot be made full after an exact count |
-| POSIX, blocking pipe | 8 | 4: cannot stall; a pipe cannot end, or be full without stalling, after an exact count |
-| POSIX, non-blocking pipe | 10 | 2: a pipe cannot end, or be full without stalling, after an exact count |
-| [`ring`](../ring/README.md)'s writer and reader | 10 | 2: stalls when full instead of ending or reporting `EL_ERR_NO_SPACE` |
-| Buffered writer, fixed 16 bytes, in front of a sink that stalls | 9 | 3: the memory reader cannot stall; accepts what its sink has not, so cannot end or be full after an exact count |
-| Buffered writer, fixed capacity 0 (pass-through), in front of a sink that stalls or ends | 10 | 2: the memory reader cannot stall; cannot be full after an exact count |
-| Buffered writer, grown over a 256-byte arena (`IO_ALLOC`); stalled is the sink full **and** the arena spent | 9 | 3: as for fixed storage |
+| Fixed `el_buf` as a writer, and the memory reader | 9 | 4: cannot stall (reader, writer); does not end; its reader ends, so the stall after content is not checked |
+| `el_grow_buf` as a writer (`IO_ALLOC`) | 4 | 9: no reader (6); cannot stall; does not end; cannot be made full after an exact count |
+| POSIX, blocking pipe | 8 | 5: cannot stall (reader, writer); a pipe cannot end, or be full without stalling, after an exact count; its reader ends |
+| POSIX, non-blocking pipe | 10 | 3: a pipe cannot end, or be full without stalling, after an exact count; its reader ends |
+| Zephyr UART, both ends: `io_zephyr_uart`'s polled sender on UART1, and the reader of a ring that `ring_zephyr_uart` fills from UART2, under QEMU on `mps2/an385` (`ring_zephyr_uart.contract`, in `elemental.tests.ring.uart`) | 9 | 4: a running receiver has no end to check; a UART cannot end, or be full, after an exact count, and the polled writer cannot stall |
+| [`ring`](../ring/README.md)'s writer and reader, closed after the content | 10 | 3: stalls when full instead of ending or reporting `EL_ERR_NO_SPACE`; its reader ends |
+| `ring`'s reader, not closed after the content (`reader_then` stalls) | 4 | 9: no writer (7); a reader that stalls has no end to check; `reader_stalled` is `ring`'s other fixture's |
+| Buffered writer, fixed 16 bytes, in front of a sink that stalls | 5 | 8: no reader (6); accepts what its sink has not, so cannot end or be full after an exact count |
+| Buffered writer, fixed capacity 0 (pass-through), in front of a sink that stalls or ends | 6 | 7: no reader (6); cannot be full after an exact count |
+| Buffered writer, grown over a 256-byte arena (`IO_ALLOC`); stalled is the sink full **and** the arena spent | 5 | 8: as for fixed storage |
 
 What the suite does not cover is deliberate: behavior that belongs to one
 backend. Deliberately broken variants of a ring pipe, the example that
@@ -143,10 +154,14 @@ el_grow_buf_deinit(&body);
 `el_grow_buf` (`IO_ALLOC`) grows to twice its capacity, or to what is needed
 if that is more, at least 16 bytes. If the allocator refuses, it asks once
 more for exactly what is needed. The allocator decides how far it grows; the
-buffer has no limit of its own. Storage is allocated and freed with
-`el_layout_make(cap, 1)` ([ADR 0013](../../docs/adr/0013-allocation-layout.md)),
-and growth allocates the new storage before freeing the old, so over a bump
-arena a buffer that has grown to n bytes has used up to about 2n.
+buffer has no limit of its own. Storage is allocated, resized and freed with
+`el_layout_make(cap, 1)` ([ADR 0013](../../docs/adr/0013-allocation-layout.md)).
+Each growth is `el_realloc()`
+([ADR 0025](../../docs/adr/0025-an-allocation-changes-size-and-may-move.md)):
+a buffer that is its arena's latest allocation grows in place and, grown to
+n bytes, has used n bytes of the arena. Once something else is allocated
+after it, growth moves it, and over a bump arena it has used up to about
+2n.
 
 `el_grow_buf` is the one part of io that needs `alloc`, so it is built into
 `elemental::io` only when the Kconfig symbol `IO_ALLOC` is on (the default,
@@ -219,6 +234,7 @@ provisional until M4's writer sink exists).
 | `io.unit.grow_buf.*` | Growth sizes, the exact-size retry, whole-or-nothing append and a partial endpoint write at the limit, `EL_ERR_NO_SPACE` and recovery from it, the always-full buffer after deinit; every block freed with the size it was allocated with. Only with `IO_ALLOC`. |
 | `io.violations.grow.*` | Each documented contract violation of `el_grow_buf` stops the program. Death tests, host only. |
 | `io_posix.contract.*`, `io_posix.platform.*` | See [PORT.md](backends/posix/PORT.md). |
+| `io_zephyr_uart.platform.*` | See [PORT.md](backends/zephyr_uart/PORT.md). Zephyr only, in the images holding `io`'s tests on `mps2/an385`. The writer over a real UART is tested with the receiver, in `ring_zephyr_uart.wire` and `ring_zephyr_uart.contract`. |
 
 Each `TEST` is one CTest test: `ctest --preset gcc -R io.helpers` runs a
 group, and a test binary takes GoogleTest's own flags, such as

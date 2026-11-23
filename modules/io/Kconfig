@@ -27,3 +27,13 @@ config IO_ALLOC
 	  and grows as needed, for a message or a burst of unknown size. It
 	  is the one part of io that needs alloc: turn it off and io builds
 	  and links no allocator. Freestanding: needs memcpy().
+
+config IO_ZEPHYR_UART
+	bool "io_zephyr_uart: a Zephyr UART as a writer"
+	default y
+	depends on IO && PLATFORM_ZEPHYR_UART
+	help
+	  el_zephyr_uart_poll, a writer that passes each byte to
+	  uart_poll_out(). Available in a Zephyr build whose configuration
+	  has CONFIG_SERIAL; interrupt-driven mode is not needed. Receiving
+	  on a UART is ring's RING_ZEPHYR_UART.

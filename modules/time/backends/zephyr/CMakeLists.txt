@@ -6,7 +6,9 @@ elemental_add_module(time_zephyr
 # offers TIME_ZEPHYR only in a Zephyr build, where this target exists.
 # Zephyr's headers are GNU C, so they are system headers here: Elemental's
 # -Wpedantic stays on its own code (as modules/crc does for CRC_ZEPHYR).
-target_link_libraries(elemental_time_zephyr PRIVATE zephyr_interface)
+# For the build only, as in modules/io/backends/zephyr_uart:
+# zephyr_interface is in no export set.
+target_link_libraries(elemental_time_zephyr PRIVATE $<BUILD_INTERFACE:zephyr_interface>)
 get_target_property(zephyr_includes zephyr_interface INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(elemental_time_zephyr SYSTEM PRIVATE ${zephyr_includes})
 # <zephyr/kernel.h> includes headers Zephyr's build generates (system call

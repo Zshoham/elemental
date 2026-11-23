@@ -81,10 +81,29 @@ const el_io_contract_fixture ring_fixture = {
     .ctx = NULL,
     .reset = reset,
     .reader_with_content = reader_with_content,
+    .reader_then = EL_IO_CONTRACT_THEN_ENDS,
     .writer_with_room = writer_with_room,
     .writer_take = writer_take,
     .reader_stalled = reader_stalled,
     .writer_stalled = writer_stalled,
     .writer_ending_after = NULL,
     .writer_full_after = NULL,
+};
+
+/* A ring whose producer has not closed it: after its content a reader has
+ * not ended, and more may come. Only the reader half: the fixture above
+ * covers the writer. Each request starts a ring of its own and there is
+ * nothing to release, so there is no reset. */
+static el_reader open_reader_with_content(void *ctx, const uint8_t *content, size_t len)
+{
+    (void)ctx;
+    start_mid_storage();
+    (void)el_ring_write(&state.ring, content, len);
+    return el_ring_as_reader(&state.ring);
+}
+
+const el_io_contract_fixture ring_fixture_open = {
+    .name = "ring, not closed (reader only)",
+    .reader_with_content = open_reader_with_content,
+    .reader_then = EL_IO_CONTRACT_THEN_STALLS,
 };

@@ -7,8 +7,9 @@
 # reason here. A symbol that only one Kconfig choice needs is listed in
 # allowed-undefined.<SYMBOL>.txt instead, read only in that configuration.
 
-memcpy   # io_buf.c, io_alloc.c (io), and fmt.c copy bytes with it. GCC and
-         # Clang already require every freestanding environment to provide it.
+memcpy   # io_buf.c (io), alloc.c (alloc: el_realloc's copy) and fmt.c copy
+         # bytes with it. GCC and Clang already require every freestanding
+         # environment to provide it.
 
 memmove  # io_buf.c (io): the buffered writer compacts its buffer with one
          # memmove. The same GCC and Clang requirement as memcpy

@@ -55,8 +55,8 @@ extern "C" {
  * How to set up the allocator under test.
  *
  * The suite uses one allocator at a time and frees everything it allocated
- * before asking for the next. Before each request it calls `reset`. `ctx`
- * is passed back to every function unchanged.
+ * before asking for the next. Before each request it calls `reset`, if
+ * there is one. `ctx` is passed back to every function unchanged.
  *
  * A fixture that cannot set an allocator up should end the process:
  * nothing was verified, and the suite cannot tell.
@@ -66,7 +66,11 @@ typedef struct el_alloc_contract_fixture {
     const char *name;
     void *ctx;
 
-    /* Required. Release or reset what the previous request created. */
+    /*
+     * Optional. Release or reset what the previous request created. Leave
+     * null if the allocator needs nothing: `allocator` alone then gives
+     * the suite a fresh one each time.
+     */
     void (*reset)(void *ctx);
 
     /*
@@ -96,9 +100,10 @@ typedef struct el_alloc_contract_fixture {
 
 /* ---- Checking allocator ------------------------------------------------
  *
- * Wraps another allocator and checks every call against the contract that
- * no allocator can check cheaply on its own: each free names a live
- * allocation with exactly the layout it was made with. A
+ * Wraps another allocator and checks every call that reaches it (see the
+ * end of this section) against the contract that no allocator can check
+ * cheaply on its own: each free or resize names a live allocation with
+ * exactly its current layout. A
  * mismatch, a double free, or a pointer it never handed out is reported on
  * standard error and ends the process with abort(), so a test that frees
  * the length of a buffer instead of its capacity fails where it happens.
@@ -106,7 +111,24 @@ typedef struct el_alloc_contract_fixture {
  * at the end of a test.
  *
  * It records each live allocation in an array the caller provides. Running
- * out of records ends the process too: the test needs a larger array.
+ * out of records ends the process too: the test needs a larger array. A
+ * resize that moves happens inside the inner allocator's el_realloc() and
+ * makes no record. But if the inner allocator refuses a resize outright,
+ * el_realloc() on the checker then allocates through it, which needs one
+ * free record: with none, the process ends instead of el_realloc()
+ * returning NULL. Leave one spare.
+ *
+ * A resize (el_realloc()) through it is checked as a free is: the pointer
+ * and layout must name a live allocation. It is passed to the inner
+ * allocator with el_realloc(), and on success the record is the new pointer
+ * and layout, so a later free with the old pointer or size is caught.
+ *
+ * It checks the calls that reach its operations, and only those.
+ * el_realloc() answers some calls itself, before any operation: one to the
+ * size the layout already has returns the pointer, and one from a layout
+ * of size 0 allocates. Such a call with a wrong pointer or layout, or a
+ * foreign pointer, is not seen, and is caught only when the same pointer
+ * later reaches a free or a resize.
  */
 
 typedef struct el_alloc_check_record {

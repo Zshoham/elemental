@@ -78,7 +78,9 @@ el_clock counting_clock_as_clock(counting_clock *clock);
 /*
  * A writer that keeps what it is given and counts the calls. It takes at
  * most `chunk` bytes per call (0: everything), and once it holds
- * `fail_after` bytes every further call returns `failure` instead.
+ * `fail_after` bytes every further call returns `failure` instead. If
+ * `reenter` is set, the next call first logs once through that logger,
+ * then forgets it: a writer that logs into the sink it is writing for.
  */
 typedef struct scripted_writer {
     char bytes[512];
@@ -87,6 +89,7 @@ typedef struct scripted_writer {
     size_t chunk;
     size_t fail_after;
     el_status failure;
+    const el_logger *reenter;
 } scripted_writer;
 
 void scripted_writer_init(scripted_writer *writer);

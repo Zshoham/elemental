@@ -50,6 +50,32 @@ bool StoppedByACheck(int status)
 
 #define EXPECT_VIOLATION(statement) EXPECT_EXIT(statement, StoppedByACheck, "")
 
+/* A compose function that logs through the logger it is given. */
+struct Again {
+    const el_logger *logger;
+};
+
+el_status ComposeAndLogAgain(void *ctx, el_buf *message)
+{
+    el_log_write(static_cast<const Again *>(ctx)->logger, EL_LOG_LEVEL_INFO, "again", 5);
+    return el_buf_append(message, "outer", 5);
+}
+
+el_status ComposeText(void *ctx, el_buf *message)
+{
+    (void)ctx;
+    return el_buf_append(message, "text", 4);
+}
+
+/* Takes back more than it wrote: all of the sink's own bytes too. */
+el_status ComposeAndTruncateBelowItsStart(void *ctx, el_buf *message)
+{
+    (void)ctx;
+    EL_TRY(el_buf_append(message, "text", 4));
+    el_buf_truncate(message, 0);
+    return EL_OK;
+}
+
 class LogViolations : public testing::Test
 {
   protected:
@@ -120,6 +146,86 @@ TEST_F(LogViolations, CorrectUseDoesNotTripACheck)
     el_buf_init(&line, nullptr, 0);
     el_log_writer_sink_init(&writer_sink, scripted_writer_as_writer(&writer), &line);
     EXPECT_EQ(recording.calls, 3u);
+}
+
+TEST_F(LogViolations, CorrectUseOfComposeDoesNotTripACheck)
+{
+    el_log_compose(&log, EL_LOG_LEVEL_DEBUG, ComposeText, nullptr);
+    el_logger_set_level(&log, EL_LOG_LEVEL_OFF);
+    el_log_compose(&log, EL_LOG_LEVEL_ERROR, ComposeText, nullptr);
+    el_log_compose(el_logger_off(), EL_LOG_LEVEL_ERROR, ComposeText, nullptr);
+    EXPECT_EQ(recording.calls, 1u);
+
+    /* Back to the start of the message, and no further: with nothing of the
+     * sink's own in the buffer, that is empty. */
+    el_logger_set_level(&log, EL_LOG_LEVEL_DEBUG);
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeAndTruncateBelowItsStart, nullptr);
+    EXPECT_EQ(recording.calls, 2u);
+
+    /* Logging from inside a compose function to another sink is fine. */
+    el_logger inner;
+    el_logger_init(&inner, el_log_mem_sink_as_sink(&mem), clock, "inner", EL_LOG_LEVEL_DEBUG);
+    Again again = {&inner};
+    el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeAndLogAgain, &again);
+    EXPECT_EQ(el_log_mem_sink_count(&mem), 1u);
+    EXPECT_EQ(recording.calls, 3u);
+}
+
+TEST_F(LogViolationsDeathTest, CallerComposesWithANullLoggerOrANullFunction)
+{
+    EXPECT_VIOLATION(el_log_compose(nullptr, EL_LOG_LEVEL_INFO, ComposeText, nullptr));
+    EXPECT_VIOLATION(el_log_compose(&log, EL_LOG_LEVEL_INFO, nullptr, nullptr));
+
+    /* Caught even when the record would not be made. */
+    el_logger_set_level(&log, EL_LOG_LEVEL_OFF);
+    EXPECT_VIOLATION(el_log_compose(&log, EL_LOG_LEVEL_INFO, nullptr, nullptr));
+}
+
+TEST_F(LogViolationsDeathTest, CallerComposesAtALevelThatIsNotARecordsLevel)
+{
+    EXPECT_VIOLATION(el_log_compose(&log, EL_LOG_LEVEL_OFF, ComposeText, nullptr));
+    EXPECT_VIOLATION(el_log_compose(&log, 200, ComposeText, nullptr));
+}
+
+TEST_F(LogViolationsDeathTest, ComposeFunctionTruncatesTheMessageBelowItsStart)
+{
+    /* The sink's own bytes are before the start: taking them back would
+     * corrupt the record. */
+    char lent_storage[32];
+    el_buf lent;
+    el_buf_init(&lent, lent_storage, sizeof(lent_storage));
+    ASSERT_EQ(el_buf_append(&lent, "pre:", 4), EL_OK);
+    recording.lend = &lent;
+    EXPECT_VIOLATION(
+        el_log_compose(&log, EL_LOG_LEVEL_INFO, ComposeAndTruncateBelowItsStart, nullptr));
+}
+
+TEST_F(LogViolationsDeathTest, ComposeFunctionLogsToTheMemorySinkItIsWritingInto)
+{
+    el_logger into_mem;
+    el_logger_init(&into_mem, el_log_mem_sink_as_sink(&mem), clock, "mem", EL_LOG_LEVEL_DEBUG);
+    Again again = {&into_mem};
+    EXPECT_VIOLATION(el_log_compose(&into_mem, EL_LOG_LEVEL_INFO, ComposeAndLogAgain, &again));
+}
+
+TEST_F(LogViolationsDeathTest, ComposeFunctionLogsToTheWriterSinkItIsWritingInto)
+{
+    el_logger into_writer;
+    el_logger_init(&into_writer, el_log_writer_sink_as_sink(&writer_sink), clock, "writer",
+                   EL_LOG_LEVEL_DEBUG);
+    Again again = {&into_writer};
+    EXPECT_VIOLATION(el_log_compose(&into_writer, EL_LOG_LEVEL_INFO, ComposeAndLogAgain, &again));
+}
+
+/* The line is lent until the writer returns: a writer that logs into the
+ * sink it is writing for would overwrite the line it is being given. */
+TEST_F(LogViolationsDeathTest, WriterLogsToTheWriterSinkItIsWritingFor)
+{
+    el_logger into_writer;
+    el_logger_init(&into_writer, el_log_writer_sink_as_sink(&writer_sink), clock, "writer",
+                   EL_LOG_LEVEL_DEBUG);
+    writer.reenter = &into_writer;
+    EXPECT_VIOLATION(el_log_write(&into_writer, EL_LOG_LEVEL_INFO, "outer", 5));
 }
 
 TEST_F(LogViolationsDeathTest, CallerLogsThroughANullLogger)

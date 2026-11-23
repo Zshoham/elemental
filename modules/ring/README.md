@@ -8,10 +8,10 @@ and a thread, or two threads. Its two sides are also an `el_writer` and an
 | | |
 |---|---|
 | Stability | Experimental ([policy](../../docs/process/api-stability.md)) |
-| Targets | `elemental::ring` |
+| Targets | `elemental::ring`, `elemental::ring_zephyr_uart` |
 | Depends on | `status` (assertions), `io` (the handle types). Runtime: `memcpy`. No `__atomic_*` symbol. |
 | Allocates | No |
-| Kconfig | `RING`; needs the probed `COMPILER_ATOMICS` |
+| Kconfig | `RING`, needs the probed `COMPILER_ATOMICS`; `RING_ZEPHYR_UART` |
 
 ## What is here
 
@@ -20,6 +20,7 @@ and a thread, or two threads. Its two sides are also an `el_writer` and an
 | `el_ring`, `el_ring_init` | The object, over the caller's storage | [`elemental/ring.h`](include/elemental/ring.h) |
 | `el_ring_write`, `el_ring_room`, `el_ring_close`, `el_ring_as_writer` | The producer's side | the same |
 | `el_ring_read`, `el_ring_len`, `el_ring_as_reader` | The consumer's side | the same |
+| `el_zephyr_uart_irq` (`RING_ZEPHYR_UART`) | Platform backend: a Zephyr UART's receive interrupt as the producer of the caller's ring | [`elemental/ring_zephyr_uart.h`](backends/zephyr_uart/include/elemental/ring_zephyr_uart.h), [PORT.md](backends/zephyr_uart/PORT.md) |
 
 The design, the examples that shaped it, and what the evidence does and
 does not show are in the [proposal](../../docs/proposals/ring.md). The
@@ -56,8 +57,10 @@ if (status == EL_ERR_WOULD_BLOCK) {
 ```
 
 [examples/uart_ring](../../examples/uart_ring) is this, complete, for a
-Zephyr UART: the handler, the semaphore the thread waits on, and the
-handler logging through a deferred sink.
+Zephyr UART: the receive handler, through `ring_zephyr_uart`, which fills
+the example's ring, and the semaphore the thread waits on. Logging from an
+interrupt handler through a deferred sink is its timer's, in
+[isr_tick.c](../../examples/uart_ring/isr_tick.c).
 
 - **Two sides.** Each function belongs to the producer's side or the
   consumer's. One context at a time may use each side, and the two sides
@@ -152,10 +155,11 @@ preset's.
 
 | Test | What it checks |
 |---|---|
-| `ring.contract.*` | The io contract suite against the ring's writer and reader, on streams that start in the middle of the storage and wrap. 10 run, 2 skipped: a ring stalls when full, so it neither ends nor reports `EL_ERR_NO_SPACE` after an exact count. |
+| `ring.contract.*` | The io contract suite against the ring's writer and reader, on streams that start in the middle of the storage and wrap. 10 run, 3 skipped: a ring stalls when full, so it neither ends nor reports `EL_ERR_NO_SPACE` after an exact count, and its reader here ends (it is closed after the content). A second fixture, reader half only, leaves the ring open after the content, so that its reader stalls instead of ending (`EL_IO_CONTRACT_THEN_STALLS`): 4 run, 9 skipped (no writer half; the reader's end is not there to check; and no `reader_stalled`, which the closed fixture has). |
 | `ring.unit.*` | A new ring; every byte of the storage used; partial writes and reads and their counts; `room` and `len` after each step; bytes in order from every value of the indices and in every size, for capacities 1, 2, 3, 7 and 16, with the bytes around the storage untouched; a ring kept full across a hundred laps; a ring with no storage; a size of 0 with a null buffer; close, twice, and what it leaves readable; setting up again; the statuses of the two streams when full, empty and closed. |
 | `ring.stress.*` | A thread on each side, through rings of 1, 7, 64 and 4096 bytes: a million bytes through the plain functions, and 200 000 through the streams with the reader ending after the last byte; and 20 000 closes, each just after the last bytes, with the reader spinning on the empty ring (`RingStressClose`). Host only. Fails, and does not hang, against a ring that stops moving bytes or never stops. Under the `tsan` preset, ThreadSanitizer reports a ring whose words are not atomic or whose orders are relaxed. |
 | `ring.violations.*` | Each documented contract violation stops the program. Death tests, host only. |
+| `ring_zephyr_uart.platform.*`, `ring_zephyr_uart.wire.*`, `ring_zephyr_uart.contract.*` | See [PORT.md](backends/zephyr_uart/PORT.md). Zephyr only, on `mps2/an385`: the first in the images holding `ring`'s tests, the other two in the `elemental.tests.ring.uart` image, over UART1 joined to UART2 under QEMU. |
 | `example.uart_ring.*` | [examples/uart_ring](../../examples/uart_ring): see the table above. Zephyr, `mps2/an385` under QEMU only. |
 
 ## Known gaps

@@ -274,7 +274,7 @@ void report(el_logger *log, double temp)
     # The installed contract suite, compiled by the consumer, against the
     # installed ring.
     output = run([find_one(consumer, "ring_contract")])
-    check("[  PASSED  ] 10 tests." in output and "[  SKIPPED ] 2 tests" in output,
+    check("[  PASSED  ] 10 tests." in output and "[  SKIPPED ] 3 tests" in output,
           "contract suite output:\n" + output)
 
     # A package configured without a module says so when asked for it.

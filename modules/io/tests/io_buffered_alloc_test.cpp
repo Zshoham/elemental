@@ -89,15 +89,16 @@ TEST_F(BufferedGrown, GrowsWhileTheStreamWouldBlockUntilTheAllocatorRefuses)
         status = el_write(w, "0123456789", 10, &n);
         total += n;
     }
-    /* 16, then 32: the bump arena's 64 bytes are spent (16 + 32 + 64 > 64,
-     * and so is exactly what is needed); the last write took what fit. */
+    /* 16, 32, then 64, each extending the arena's latest allocation. The
+     * arena's 64 bytes are then spent (growing to 128, or to exactly what is
+     * needed, does not fit); the last write took what fit. */
     EXPECT_EQ(status, EL_ERR_WOULD_BLOCK);
-    EXPECT_EQ(total, 32u);
-    EXPECT_EQ(el_buffered_writer_pending(&bw), 32u);
+    EXPECT_EQ(total, 64u);
+    EXPECT_EQ(el_buffered_writer_pending(&bw), 64u);
 
     stream.stalled = false;
     EXPECT_EQ(el_buffered_writer_flush(&bw), EL_OK);
-    EXPECT_EQ(stream.got.size(), 32u);
+    EXPECT_EQ(stream.got.size(), 64u);
 }
 
 TEST_F(BufferedGrown, NothingPendingAndTheAllocatorRefusingIsNoSpace)
@@ -127,13 +128,13 @@ TEST_F(BufferedGrown, ReserveBeyondTheAllocatorIsNoSpace)
 
 TEST_F(BufferedGrown, ReserveGrowsWhenTheStreamStallsAndIsWouldBlockWhenRefused)
 {
-    Open(48);
+    Open(32);
     ASSERT_EQ(el_write(w, "0123456789abcdef", 16, &n), EL_OK); /* 16 allocated */
     /* Draining could make room, but the stream is stalled: grow (to 32). */
     EXPECT_EQ(el_buffered_writer_reserve(&bw, 8), EL_OK);
     ASSERT_EQ(el_write(w, "01234567", 8, &n), EL_OK);
     ASSERT_EQ(el_write(w, "01234567", 8, &n), EL_OK);
-    /* Full at 32, the arena has 0 left: room only returns as it drains. */
+    /* Full at 32, which is all the arena has: room only returns as it drains. */
     EXPECT_EQ(el_buffered_writer_reserve(&bw, 8), EL_ERR_WOULD_BLOCK);
 }
 

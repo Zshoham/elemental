@@ -21,8 +21,10 @@ Version 0.1, first milestone. Everything is **experimental**.
 | [`status`](modules/status/README.md) | Status codes; must-use statuses and `EL_TRY` for passing one on; contract assertions | Yes |
 | [`io`](modules/io/README.md) | Byte stream reader and writer interfaces; a reader over caller-provided memory; `el_buf`, a memory buffer a stream can end in, with fixed storage or storage that grows through an allocator (`IO_ALLOC`, needs `alloc`); a buffered writer; a contract test suite for backends | Yes, needs `memcpy`, `memmove` |
 | [`io_posix`](modules/io/backends/posix/PORT.md) | Reader and writer over a file descriptor | No |
+| [`io_zephyr_uart`](modules/io/backends/zephyr_uart/PORT.md) | A Zephyr UART as a polled writer | Zephyr only |
 | [`ring`](modules/ring/README.md) | A byte FIFO over caller storage between two contexts, one that writes and one that reads, with no lock: an interrupt handler and a thread, or two threads; its two sides as an `el_writer` and an `el_reader` (needs `io`) | Yes, needs `memcpy` |
-| [`alloc`](modules/alloc/README.md) | Allocator interface; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes |
+| [`ring_zephyr_uart`](modules/ring/backends/zephyr_uart/PORT.md) | A Zephyr UART's receive interrupt filling the caller's ring, counting what did not fit and telling the application when bytes arrive; the thread reads through the ring's reader | Zephyr only |
+| [`alloc`](modules/alloc/README.md) | Allocator interface, with an optional operation that changes an allocation's size; bump and stack arenas over caller-provided storage; a contract test suite and a checking allocator | Yes, needs `memcpy` |
 | [`alloc_libc`](modules/alloc/backends/libc/PORT.md) | Allocator over the C library heap | No |
 | [`fmt`](modules/fmt/README.md) | Integers to text; a printf subset into an `io` buffer or a buffered writer, numbers whole or absent (needs `io`) | Yes, needs `memcpy` |
 | [`bytes`](modules/bytes/README.md) | Little- and big-endian load and store at any alignment; byte swap; C23-style bit counting; rotate, bit fields, power-of-two alignment | Yes |

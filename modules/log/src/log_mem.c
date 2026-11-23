@@ -6,37 +6,32 @@
 #include <string.h>
 
 /*
- * What is kept of one record, followed by its message bytes. Entries are
- * packed one after another and copied in and out, so the storage needs no
- * alignment.
+ * What is kept of one record, followed by its message bytes: the entry in
+ * log_mem.h. Entries are packed one after another and copied in and out, so
+ * the storage needs no alignment.
  */
-typedef struct mem_entry {
-    el_ticks timestamp;
-    const char *tag;
-    size_t len;
-    uint32_t ticks_per_second;
-    el_log_level level;
-} mem_entry;
-
 size_t el_log_mem_sink_record_size(size_t message_len)
 {
-    EL_ASSERT(message_len <= SIZE_MAX - sizeof(mem_entry));
-    return sizeof(mem_entry) + message_len;
+    EL_ASSERT(message_len <= SIZE_MAX - sizeof(el_log_mem_sink_entry_));
+    return sizeof(el_log_mem_sink_entry_) + message_len;
 }
 
 static el_status mem_sink_begin(void *ctx, const el_log_record *record, el_buf **message)
 {
     (void)record;
     el_log_mem_sink *const sink = ctx;
+    /* A record already open here is being built where this one would be. */
+    EL_ASSERT(sink->open == 0);
     const size_t room = sink->cap - sink->len;
-    if (room < sizeof(mem_entry)) {
+    if (room < sizeof(el_log_mem_sink_entry_)) {
         sink->lost++;
         return EL_ERR_NO_SPACE;
     }
     /* The message goes where it is kept: after the entry, which end writes
      * once the length is known. */
-    el_buf_init(&sink->message, sink->storage + sink->len + sizeof(mem_entry),
-                room - sizeof(mem_entry));
+    el_buf_init(&sink->message, sink->storage + sink->len + sizeof(el_log_mem_sink_entry_),
+                room - sizeof(el_log_mem_sink_entry_));
+    sink->open = 1;
     *message = &sink->message;
     return EL_OK;
 }
@@ -44,13 +39,14 @@ static el_status mem_sink_begin(void *ctx, const el_log_record *record, el_buf *
 static el_status mem_sink_end(void *ctx, const el_log_record *record, el_status fit)
 {
     el_log_mem_sink *const sink = ctx;
+    sink->open = 0;
     if (fit != EL_OK) {
         /* Whole or not at all: the cut message's bytes are left unused. */
         sink->lost++;
         return EL_ERR_NO_SPACE;
     }
 
-    mem_entry entry;
+    el_log_mem_sink_entry_ entry;
     entry.timestamp = record->timestamp;
     entry.tag = record->tag;
     entry.len = record->len;
@@ -73,6 +69,7 @@ void el_log_mem_sink_init(el_log_mem_sink *sink, void *storage, size_t cap)
     EL_ASSERT(storage != NULL || cap == 0);
     sink->storage = storage;
     sink->cap = cap;
+    sink->open = 0;
     el_log_mem_sink_clear(sink);
 }
 
@@ -96,7 +93,7 @@ void el_log_mem_sink_get(const el_log_mem_sink *sink, size_t index, el_log_recor
 
     /* Entries have no index: walk from the oldest. */
     const uint8_t *at = sink->storage;
-    mem_entry entry;
+    el_log_mem_sink_entry_ entry;
     memcpy(&entry, at, sizeof(entry));
     for (size_t i = 0; i < index; i++) {
         at += sizeof(entry) + entry.len;

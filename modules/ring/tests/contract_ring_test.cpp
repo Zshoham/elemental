@@ -3,4 +3,4 @@
 
 #include "fixture_ring.h"
 
-INSTANTIATE_TEST_SUITE_P(Ring, ElIoContract, testing::Values(&ring_fixture));
+INSTANTIATE_TEST_SUITE_P(Ring, ElIoContract, testing::Values(&ring_fixture, &ring_fixture_open));

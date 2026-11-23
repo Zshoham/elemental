@@ -2,7 +2,8 @@
  * Contract fixture for the memory sink: the smallest complete fixture. The
  * sink keeps records as records, so everything a record holds can be read
  * back, and its storage is a number of bytes, so it can be made to be full
- * after any number of records.
+ * after any number of records. Nothing is held between requests that the
+ * next `sink` does not set up again, so there is no `reset`.
  */
 #include "fixture_mem.h"
 
@@ -10,16 +11,10 @@
 
 #include <string.h>
 
-/* Room for the most records the suite writes, with a little alignment
- * slack: sized in the functions below, by el_log_mem_sink_record_size(). */
-static uint8_t storage[EL_LOG_CONTRACT_RECORDS_MAX * (EL_LOG_CONTRACT_MESSAGE_MAX + 64u)];
+/* Room for the most records the suite writes. */
+static uint8_t
+    storage[EL_LOG_MEM_SINK_STORAGE_SIZE(EL_LOG_CONTRACT_RECORDS_MAX, EL_LOG_CONTRACT_MESSAGE_MAX)];
 static el_log_mem_sink mem;
-
-static void reset(void *ctx)
-{
-    (void)ctx;
-    el_log_mem_sink_init(&mem, NULL, 0);
-}
 
 static el_log_sink sink(void *ctx)
 {
@@ -83,7 +78,6 @@ static void time_of(void *ctx, size_t index, el_ticks *timestamp, uint32_t *tick
 const el_log_contract_fixture log_fixture_mem = {
     .name = "mem",
     .ctx = NULL,
-    .reset = reset,
     .sink = sink,
     .delivered = delivered,
     .message = message,

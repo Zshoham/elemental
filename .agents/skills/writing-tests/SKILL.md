@@ -17,7 +17,7 @@ implementation that breaks the promise it names. Then run `preflight`.
 |---|---|---|
 | A function's documented behavior | A `TEST` or `TEST_F` | `modules/<module>/tests/` |
 | An interface, for every implementation | A `TEST_P` in its contract suite | `modules/<module>/contract/src/` |
-| One backend only | A test beside that backend | `modules/<module>/backends/<platform>/tests/` |
+| One backend only | A test beside that backend, named `<module>_<backend>.<kind>` | `modules/<module>/backends/<backend>/tests/` (`<backend>` per `docs/conventions.md`, "Naming": `posix`, `zephyr_uart`) |
 | "This is a contract violation" in a header | A death test | `modules/<module>/tests/*_violations_test.cpp` |
 
 A behavior in a header and in none of these is unverified. Before writing,

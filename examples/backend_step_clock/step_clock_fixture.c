@@ -12,11 +12,6 @@
 
 static step_clock stepping;
 
-static void reset(void *ctx)
-{
-    (void)ctx; /* The clock holds nothing to release. */
-}
-
 static el_clock clock_new(void *ctx)
 {
     (void)ctx;
@@ -27,7 +22,6 @@ static el_clock clock_new(void *ctx)
 const el_time_contract_fixture step_clock_fixture = {
     .name = "step_clock",
     .ctx = NULL,
-    .reset = reset,
     .clock = clock_new,
     .advance = NULL,
 };

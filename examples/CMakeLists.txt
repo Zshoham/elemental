@@ -11,8 +11,8 @@ if(EL_CONFIG_LOG)
   add_subdirectory(backend_log_tee)
 endif()
 # Zephyr only, and only with a UART driver that is interrupt-driven: the
-# variable is Zephyr's own configuration, absent on a host.
-if(EL_CONFIG_RING AND EL_CONFIG_LOG_DEFERRED AND EL_CONFIG_TIME_ZEPHYR
-   AND CONFIG_UART_INTERRUPT_DRIVEN)
+# receiver (RING_ZEPHYR_UART) is offered only in such a build.
+if(EL_CONFIG_RING_ZEPHYR_UART AND EL_CONFIG_IO_ZEPHYR_UART AND EL_CONFIG_LOG_DEFERRED
+   AND EL_CONFIG_TIME_ZEPHYR)
   add_subdirectory(uart_ring)
 endif()

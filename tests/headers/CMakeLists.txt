@@ -13,6 +13,19 @@ set(config_dependent_headers elemental/assert.h)
 get_property(include_dirs GLOBAL PROPERTY ELEMENTAL_PUBLIC_INCLUDE_DIRS)
 get_property(modules GLOBAL PROPERTY ELEMENTAL_MODULES)
 
+# The headers of backends this build cannot have, because they need their
+# platform to build, but which include none of their platform's headers, so
+# a host compiles them: io_zephyr_uart.h and ring_zephyr_uart.h declare
+# `struct device` and nothing more. Each is checked here, against its
+# module, when the build has that module, unless the build has the backend
+# and its directory is already in the list.
+foreach(module io ring)
+  set(dir "${PROJECT_SOURCE_DIR}/modules/${module}/backends/zephyr_uart/include")
+  if(TARGET elemental::${module} AND NOT dir IN_LIST include_dirs)
+    list(APPEND include_dirs "${dir}")
+  endif()
+endforeach()
+
 set(headers "")
 foreach(dir IN LISTS include_dirs)
   file(GLOB_RECURSE found RELATIVE "${dir}" CONFIGURE_DEPENDS "${dir}/*.h")

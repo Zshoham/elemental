@@ -161,6 +161,12 @@ static el_status scripted_write(void *ctx, const void *data, size_t len, size_t 
 {
     scripted_writer *const writer = ctx;
     writer->calls++;
+    if (writer->reenter != NULL) {
+        /* Once, before it takes the bytes it was lent. */
+        const el_logger *const logger = writer->reenter;
+        writer->reenter = NULL;
+        el_log_write(logger, EL_LOG_LEVEL_INFO, "again", 5);
+    }
     if (writer->len >= writer->fail_after) {
         return writer->failure;
     }
@@ -186,6 +192,7 @@ void scripted_writer_init(scripted_writer *writer)
     writer->chunk = 0;
     writer->fail_after = sizeof(writer->bytes);
     writer->failure = EL_ERR_NO_SPACE;
+    writer->reenter = NULL;
 }
 
 el_writer scripted_writer_as_writer(scripted_writer *writer)

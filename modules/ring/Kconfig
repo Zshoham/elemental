@@ -12,3 +12,16 @@ config RING
 	  only memcpy(). Needs a compiler that turns a load and a store of an
 	  atomic word into instructions (docs/adr/0023); CMake probes that
 	  the two compile.
+
+config RING_ZEPHYR_UART
+	bool "ring_zephyr_uart: a Zephyr UART's receive interrupt filling a ring"
+	default y
+	depends on RING && PLATFORM_ZEPHYR_UART_IRQ
+	help
+	  el_zephyr_uart_irq: a UART's receive interrupt writes what arrives
+	  into a ring the caller set up, counts what did not fit, and calls
+	  the application when bytes arrive, so that a thread can wait for
+	  them and read them through the ring's reader. For a sensor or a
+	  modem on a UART whose bytes must not be lost while the thread is
+	  busy. Available in a Zephyr build whose configuration has
+	  CONFIG_SERIAL and CONFIG_UART_INTERRUPT_DRIVEN.

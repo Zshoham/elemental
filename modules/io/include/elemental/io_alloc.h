@@ -16,11 +16,22 @@
  * and the buffer is unchanged. The allocator decides how far the buffer
  * grows; the buffer has no limit of its own.
  *
- * Storage is allocated and freed with el_layout_make(cap, 1) (ADR 0013):
- * freed with the capacity it was allocated with, never the length. Growing
- * allocates the new storage before freeing the old, so over an arena whose
- * free gives nothing back, a buffer that has grown to n bytes has used up
- * to about 2n of the arena.
+ * Each growth is el_realloc() of the storage (elemental/alloc.h), so an
+ * allocator that can extend its latest allocation in place, as both arenas
+ * do, grows the buffer where it is when the buffer is that allocation. A
+ * buffer grown to n bytes has used exactly n bytes of an arena only if
+ * every one of its growths was in place: being the latest allocation now
+ * gives back nothing an earlier growth moved away from. A growth that is
+ * not in place moves the storage, and the old block is freed after the new
+ * one is made, so in an arena whose free gives nothing back each move
+ * leaves the old block used. Doubling from 16 bytes, with every growth
+ * moved, adds up to about 2n; an exact-size retry, or growths of
+ * different sizes, can add up to more, so 2n is an estimate for ordinary
+ * doubling, not a bound. A move copies the old capacity, not the length:
+ * at most what the buffer held room for.
+ *
+ * Storage is allocated, resized and freed with el_layout_make(cap, 1)
+ * (ADR 0013): freed with the capacity it has now, never the length.
  *
  * Ownership and lifetime:
  *

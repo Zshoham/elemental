@@ -6,7 +6,7 @@ This document follows the template in
 | | |
 |---|---|
 | Interface | `el_allocator` ([alloc.h](../../include/elemental/alloc.h)) |
-| Platform facility | `malloc`, `aligned_alloc`, `free` |
+| Platform facility | `malloc`, `aligned_alloc`, `realloc`, `free` |
 | Target | `elemental::alloc_libc` |
 | Header | [`elemental/alloc_libc.h`](include/elemental/alloc_libc.h) |
 | Stability | Experimental |
@@ -20,6 +20,7 @@ This document follows the template in
 | Exhaustion as `NULL` | Yes | Whatever the C library refuses, and a size that overflows when rounded up. |
 | Bounded | No | The heap has no bound this backend sets. |
 | Reclaims on free | Yes | `free()`. Not observable by the contract suite without a bound. |
+| Changing size (the optional `realloc` operation) | Yes | Up to `max_align_t` through `realloc()`, which may move the block and leaves it alone when it fails, as the operation must. Above it the operation returns `NULL` and `el_realloc` allocates, copies and frees. |
 | Uses the layout at free | No | It is accepted and ignored. |
 
 ## Unsupported semantics
@@ -30,12 +31,15 @@ This document follows the template in
 - **Does not use C23 `free_sized` or `free_aligned_sized`.** The baseline is
   C11. With the layout at free the backend knows the alignment, so it could
   choose between them correctly, if a measurement ever asks for it.
+- **No aligned `realloc`.** C has none, so for an alignment above
+  `max_align_t` the `realloc` operation returns `NULL`, and `el_realloc`
+  allocates with `aligned_alloc`, copies, and frees.
 - No bound, no statistics, no reset.
 
 ## Toolchain and runtime dependencies
 
 A hosted C11 library with `aligned_alloc`. Uses `malloc`, `aligned_alloc`,
-and `free`, nothing else.
+`realloc`, and `free`, nothing else.
 
 ## Configuration
 
@@ -55,10 +59,14 @@ block inside the C library.
 | Test | Kind | What it checks |
 |---|---|---|
 | `alloc_libc.contract.*` | Shared contract suite | Interface semantics. |
-| `alloc_libc.platform.*` | Backend-specific | Alignments from twice `max_align_t` to 64 KiB, at sizes around each; the rounding overflow returns `NULL`; the handle is stateless. |
+| `alloc_libc.platform.*` | Backend-specific | Alignments from twice `max_align_t` to 64 KiB, at sizes around each; the rounding overflow returns `NULL`; the handle is stateless; the `realloc` operation answers up to `max_align_t` and returns `NULL` above it, which `el_realloc` then moves with the alignment and the bytes kept; a failed `realloc()` keeps the block. |
+| `alloc_libc.platform.requests.*` | Backend-specific, linked with `--wrap=malloc,--wrap=realloc` | A block smaller than its alignment, allocated or shrunk, is asked of `malloc()` or `realloc()` with at least the alignment in bytes, so that a weak-alignment heap (one that aligns a small block only as far as its size needs, WG14 N2293) still returns it aligned; a larger one is asked for as it is. glibc aligns every block to 16, so the result alone could not show it here. |
 
-Skipped contract tests: 5, every bounded and reclaiming test, because the
-heap cannot be given a bound.
+Skipped contract tests: 7, every bounded and reclaiming test (the two bounded
+resize tests included), because the heap cannot be given a bound. The
+resize tests that need no bound run: bytes kept on growth and shrink, the new
+layout frees, a failed resize changes nothing, and the operation's answer
+and its alignment.
 
 Run with GCC 16.2.1 and Clang 23.1.4, and under AddressSanitizer and
 UndefinedBehaviorSanitizer (with `allocator_may_return_null=1`, so that a
